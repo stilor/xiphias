@@ -1,0 +1,722 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html;charset=ISO-8859-1">
+<title>Extensible Stylesheet Language (XSL)</title>
+<style type="text/css">code { font-family: monospace }
+		
+		@media print {
+			th.propindex { font-size: 8pt }
+			td.propindex { font-size: 8pt }
+		}
+		div.css-cited-thin { border: solid thin gray ; padding: 5pt }
+		div.css-cited-medium { border: solid medium black ; padding: 5pt }
+		div.figure { page-break-inside: avoid }
+		div.note { margin-left: 2em }
+		
+		</style>
+<link rel="stylesheet" type="text/css" href="http://www.w3.org/StyleSheets/TR/W3C-REC">
+</head>
+<body>
+<div class="head">
+<a href="http://www.w3.org/"><img src="http://www.w3.org/Icons/w3c_home" alt="W3C" height="48" width="72"></a>
+<h1>Extensible Stylesheet Language (XSL)<br>Version 1.0</h1>
+<h2>W3C Recommendation 15 October 2001</h2>
+<dl>
+<dt>This version:</dt>
+<dd>
+<a href="http://www.w3.org/TR/2001/REC-xsl-20011015/">http://www.w3.org/TR/2001/REC-xsl-20011015/</a>
+<br>
+(
+<a href="http://www.w3.org/TR/2001/REC-xsl-20011015/xslspecRX.pdf">PDF by RenderX</a>,
+<a href="http://www.w3.org/TR/2001/REC-xsl-20011015/xslspec.xml">XML file</a>,
+<a href="http://www.w3.org/TR/2001/REC-xsl-20011015/xslspec.html">HTML (one large file)</a>,
+<a href="http://www.w3.org/TR/2001/REC-xsl-20011015/xs011015.zip">ZIP file</a>
+)
+
+</dd>
+<dt>Latest version:</dt>
+<dd>
+<a href="http://www.w3.org/TR/xsl/">http://www.w3.org/TR/xsl/</a>
+<br>
+</dd>
+<dt>Previous version:</dt>
+<dd>
+<a href="http://www.w3.org/TR/2001/PR-xsl-20010828/">http://www.w3.org/TR/2001/PR-xsl-20010828/</a>
+<br>
+</dd>
+<dt>Authors and Contributors:</dt>
+<dd>
+
+Sharon Adler
+ (IBM) 
+<a href="mailto:sca@us.ibm.com">&lt;sca@us.ibm.com&gt;</a>
+<br>
+
+Anders Berglund
+ (IBM) 
+<a href="mailto:alrb@us.ibm.com">&lt;alrb@us.ibm.com&gt;</a>
+<br>
+
+Jeff Caruso
+ (Pageflex) 
+<a href="mailto:jcaruso@pageflexinc.com">&lt;jcaruso@pageflexinc.com&gt;</a>
+<br>
+
+Stephen Deach
+ (Adobe) 
+<a href="mailto:sdeach@adobe.com">&lt;sdeach@adobe.com&gt;</a>
+<br>
+
+Tony Graham
+ (Sun)
+<a href="mailto:Tony.Graham@ireland.sun.com">&lt;Tony.Graham@ireland.sun.com&gt;</a>
+<br>
+
+Paul Grosso
+ (Arbortext) 
+<a href="mailto:paul@arbortext.com">&lt;paul@arbortext.com&gt;</a>
+<br>
+
+Eduardo Gutentag
+ (Sun) 
+<a href="mailto:eduardo.gutentag@eng.sun.com">&lt;eduardo.gutentag@eng.sun.com&gt;</a>
+<br>
+
+Alex Milowski
+<a href="mailto:alex@milowski.com">&lt;alex@milowski.com&gt;</a>
+<br>
+
+Scott Parnell
+ (Xerox) 
+<a href="mailto:Scott.Parnell@usa.xerox.com">&lt;Scott.Parnell@usa.xerox.com&gt;</a>
+<br>
+
+Jeremy Richman
+<a href="mailto:JeremyRichman@compuserve.com">&lt;JeremyRichman@compuserve.com&gt;</a>
+<br>
+
+Steve Zilles
+ (Adobe) 
+<a href="mailto:szilles@adobe.com">&lt;szilles@adobe.com&gt;</a>
+<br>
+</dd>
+</dl>
+<p class="copyright">
+<a href="http://www.w3.org/Consortium/Legal/ipr-notice-20000612#Copyright">
+Copyright</a> &copy;2001
+<a href="http://www.w3.org/"><abbr title="World Wide Web Consortium">W3C</abbr></a><sup>&reg;</sup>
+(<a href="http://www.lcs.mit.edu/"><abbr title="Massachusetts Institute of Technology">MIT</abbr></a>,
+<a href="http://www.inria.fr/"><abbr lang="fr" title="Institut National de Recherche en Informatique et Automatique">INRIA</abbr></a>,
+<a href="http://www.keio.ac.jp/">Keio</a>),
+All Rights Reserved. W3C
+<a href="http://www.w3.org/Consortium/Legal/ipr-notice-20000612#Legal_Disclaimer">liability</a>,
+<a href="http://www.w3.org/Consortium/Legal/ipr-notice-20000612#W3C_Trademarks">trademark</a>,
+<a href="http://www.w3.org/Consortium/Legal/copyright-documents-19990405">document use</a> and
+<a href="http://www.w3.org/Consortium/Legal/copyright-software-19980720">software licensing</a>
+rules apply.</p>
+<hr title="Separator for header">
+</div>
+<h2>
+<a name="abstract">Abstract</a>
+</h2>
+
+<p>This specification defines the features and syntax for
+the Extensible Stylesheet Language (XSL),
+a language for expressing stylesheets. It consists of two
+parts:</p>
+
+<ol>
+
+<li>
+<p>a language for transforming XML documents, and</p>
+</li>
+
+<li>
+<p>an XML vocabulary for specifying formatting
+semantics.</p>
+</li>
+
+</ol>
+
+<p>An XSL stylesheet specifies the presentation of a class of XML
+documents by describing how an instance of the class is transformed
+into an XML document that uses the formatting vocabulary.</p>
+
+<h2>
+<a name="status">Status of this document</a>
+</h2>
+
+<p>
+<i>This section describes the status of this document at the
+time of its publication. Other documents may supersede
+this document. The latest status of this series of
+documents is maintained at the W3C.</i>
+</p>
+
+<p>This document has been reviewed by W3C
+Members and other interested parties and has
+been endorsed by the Director as a W3C
+Recommendation. It is a stable document and may
+be used as reference material or cited as a
+normative reference from another document.
+W3C's role in making the Recommendation is to
+draw attention to the specification and to promote
+its widespread deployment. This enhances the
+functionality and interoperability of the Web.</p>
+
+<p>This document has been produced as part of the <a href="http://www.w3.org/Style/">W3C Style Activity</a> by
+the <a href="http://www.w3.org/Style/XSL/Group/">XSL Working Group</a>
+(<a href="http://cgi.w3.org/MemberAccess/AccessRequest">members only</a>).</p>
+
+<p>General public discussion of XSL takes place
+on the <a href="http://www.mulberrytech.com/xsl/xsl-list/index.html">XSL-List</a>
+mailing list.</p>
+
+<p>Please report errors in this document
+to <a href="mailto:xsl-editors@w3.org">xsl-editors@w3.org</a>. <a href="http://lists.w3.org/Archives/Public/xsl-editors/">Archives</a>
+of the comments are available.
+The list of known errors in this specification is available at <a href="http://www.w3.org/2001/10/REC-XSL-20011015-errata">http://www.w3.org/2001/10/REC-XSL-20011015-errata</a>.
+Some text in the property definitions has been copied from the CSS2
+Recommendation and the list of errors in this specification is
+available at <a href="http://www.w3.org/Style/css2-updates/REC-CSS2-19980512-errata.html">http://www.w3.org/Style/css2-updates/REC-CSS2-19980512-errata.html</a>.
+</p>
+
+<p>A list of current W3C Recommendations and other technical documents
+can be found at
+<a href="http://www.w3.org/TR/">http://www.w3.org/TR/</a>.</p>
+
+
+<h2>
+<a name="contents">Table of contents</a>
+</h2>1 <a href="slice1.html#section-N629-Introduction-and-Overview">Introduction and Overview</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;1.1 <a href="slice1.html#section-N639-Processing-a-Stylesheet">Processing a Stylesheet</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1.1.1 <a href="slice1.html#section-N697-Tree-Transformations">Tree Transformations</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1.1.2 <a href="slice1.html#section-N742-Formatting">Formatting</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;1.2 <a href="slice1.html#section-N879-Benefits-of-XSL">Benefits of XSL</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1.2.1 <a href="slice1.html#section-N897-Paging-and-Scrolling">Paging and Scrolling</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1.2.2 <a href="slice1.html#section-N962-Selectors-and-Tree-Construction">Selectors and Tree Construction</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1.2.3 <a href="slice1.html#section-N971-An-Extended-Page-Layout-Model">An Extended Page Layout Model</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1.2.4 <a href="slice1.html#section-N988-A-Comprehensive-Area-Model">A Comprehensive Area Model</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1.2.5 <a href="slice1.html#section-N1002-Internationalization-and-Writing-Modes">Internationalization and Writing-Modes</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1.2.6 <a href="slice1.html#section-N1044-Linking">Linking</a>
+<br>2 <a href="slice2.html#section-N1077-XSL-Transformation">XSL Transformation</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;2.1 <a href="slice2.html#section-N1083-Tree-Construction">Tree Construction</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;2.2 <a href="slice2.html#xsl-namespace">XSL Namespace</a>
+<br>3 <a href="slice3.html#fo-jc-intro">Introduction to Formatting</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;3.1 <a href="slice3.html#section-N1253-Conceptual-Procedure">Conceptual Procedure</a>
+<br>4 <a href="slice4.html#area_model">Area Model</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;4.1 <a href="slice4.html#area-intro">Introduction</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;4.2 <a href="slice4.html#area-rect">Rectangular Areas</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.2.1 <a href="slice4.html#section-N1520-Area-Types">Area Types</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.2.2 <a href="slice4.html#area-common">Common Traits</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.2.3 <a href="slice4.html#area-geo">Geometric Definitions</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.2.4 <a href="slice4.html#area-treeorder">Tree Ordering</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.2.5 <a href="slice4.html#area-stackcon">Stacking Constraints</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.2.6 <a href="slice4.html#area-font">Font Baseline Tables</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;4.3 <a href="slice4.html#spacecond">Spaces and Conditionality</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.3.1 <a href="slice4.html#area-space">Space-resolution Rules</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.3.2 <a href="slice4.html#bpd-slack">Overconstrained space-specifiers</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;4.4 <a href="slice4.html#area-block">Block-areas</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.4.1 <a href="slice4.html#area-stackblock">Stacked Block-areas</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.4.2 <a href="slice4.html#intrusadjust">Intrusion Adjustments</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;4.5 <a href="slice4.html#area-line">Line-areas</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;4.6 <a href="slice4.html#area-inline">Inline-areas</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.6.1 <a href="slice4.html#area-stackinline">Stacked Inline-areas</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.6.2 <a href="slice4.html#area-glyph">Glyph-areas</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;4.7 <a href="slice4.html#area-order">Ordering Constraints</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.7.1 <a href="slice4.html#area-genorder">General Ordering Constraints</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.7.2 <a href="slice4.html#area-linebuild">Line-building</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.7.3 <a href="slice4.html#area-inlinebuild">Inline-building</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;4.8 <a href="slice4.html#keepbreak">Keeps and Breaks</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;4.9 <a href="slice4.html#rendmodel">Rendering Model</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.9.1 <a href="slice4.html#rend-geo">Geometry</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.9.2 <a href="slice4.html#rend-view">Viewport Geometry</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.9.3 <a href="slice4.html#rend-vis">Visibility</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.9.4 <a href="slice4.html#rend-border">Border, Padding, and Background</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.9.5 <a href="slice4.html#rend-intrinsic">Intrinsic Marks</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;4.9.6 <a href="slice4.html#rend-layer">Layering and Conflict of Marks</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;4.10 <a href="slice4.html#area-tree-sample">Sample Area Tree</a>
+<br>5 <a href="slice5.html#refinement">Property Refinement / Resolution</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;5.1 <a href="slice5.html#speccomact">Specified, Computed, and Actual Values, and Inheritance</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.1.1 <a href="slice5.html#section-N5693-Specified-Values">Specified Values</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.1.2 <a href="slice5.html#section-N5717-Computed-Values">Computed Values</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.1.3 <a href="slice5.html#section-N5740-Actual-Values">Actual Values</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.1.4 <a href="slice5.html#inheritance">Inheritance</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;5.2 <a href="slice5.html#shortexpan">Shorthand Expansion</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;5.3 <a href="slice5.html#compcorr">Computing the Values of Corresponding Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.3.1 <a href="slice5.html#refine-border-padding">Border and Padding Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.3.2 <a href="slice5.html#section-N5987-Margin,-Space,-and-Indent-Properties">Margin, Space, and Indent Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.3.3 <a href="slice5.html#section-N6057-Height,-and-Width-Properties">Height, and Width Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.3.4 <a href="slice5.html#overcons_geom">Overconstrained Geometry</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;5.4 <a href="slice5.html#section-N6342-Simple-Property-to-Trait-Mapping">Simple Property to Trait Mapping</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.4.1 <a href="slice5.html#section-N6369-Background-position-horizontal-and-background-position-vertical-Properties">Background-position-horizontal and background-position-vertical Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.4.2 <a href="slice5.html#section-N6377-Column-number-Property">Column-number Property</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.4.3 <a href="slice5.html#section-N6385-Text-align-Property">Text-align Property</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.4.4 <a href="slice5.html#section-N6393-Text-align-last-Property">Text-align-last Property</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.4.5 <a href="slice5.html#section-N6401-z-index-Property">z-index Property</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;5.5 <a href="slice5.html#section-N6410-Complex-Property-to-Trait-Mapping">Complex Property to Trait Mapping</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.5.1 <a href="slice5.html#section-N6419-Word-spacing-and-Letter-spacing-Properties">Word spacing and Letter spacing Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.5.2 <a href="slice5.html#refine-reference-orientation">Reference-orientation Property</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.5.3 <a href="slice5.html#refine-writing-mode">Writing-mode and Direction Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.5.4 <a href="slice5.html#refine-absolute-pos">Absolute-position Property</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.5.5 <a href="slice5.html#refine-relative-pos">Relative-position Property</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.5.6 <a href="slice5.html#refine-text-decoration">Text-decoration Property</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.5.7 <a href="slice5.html#fontprops">Font Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;5.6 <a href="slice5.html#section-N6691-Non-property-Based-Trait-Generation">Non-property Based Trait Generation</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;5.7 <a href="slice5.html#section-N6702-Property-Based-Transformations">Property Based Transformations</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.7.1 <a href="slice5.html#section-N6706-Text-transform-Property">Text-transform Property</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;5.8 <a href="slice5.html#section-N6720-Unicode-BIDI-Processing">Unicode BIDI Processing</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;5.9 <a href="slice5.html#section-N6961-Expressions">Expressions</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.9.1 <a href="slice5.html#section-N6968-Property-Context">Property Context</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.9.2 <a href="slice5.html#section-N7024-Evaluation-Order">Evaluation Order</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.9.3 <a href="slice5.html#section-N7034-Basics">Basics</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.9.4 <a href="slice5.html#section-N7097-Function-Calls">Function Calls</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.9.5 <a href="slice5.html#numbers">Numerics</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.9.6 <a href="slice5.html#section-N7517-Absolute-Numerics">Absolute Numerics</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.9.7 <a href="slice5.html#section-N7546-Relative-Numerics">Relative Numerics</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.9.8 <a href="slice5.html#section-N7599-Strings">Strings</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.9.9 <a href="slice5.html#section-N7618-Colors">Colors</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.9.10 <a href="slice5.html#section-N7652-Keywords">Keywords</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.9.11 <a href="slice5.html#section-N7676-Lexical-Structure">Lexical Structure</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.9.12 <a href="slice5.html#expr.value.conv">Expression Value Conversions</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.9.13 <a href="slice5.html#section-N8185-Definitions-of-Units-of-Measure">Definitions of Units of Measure</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;5.10 <a href="slice5.html#section-N8434-Core-Function-Library">Core Function Library</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.10.1 <a href="slice5.html#section-N8438-Number-Functions">Number Functions</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.10.2 <a href="slice5.html#expr-color-functions">Color Functions</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.10.3 <a href="slice5.html#section-N8601-Font-Functions">Font Functions</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5.10.4 <a href="slice5.html#section-N8624-Property-Value-Functions">Property Value Functions</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;5.11 <a href="slice5.html#section-N8794-Property-Datatypes">Property Datatypes</a>
+<br>6 <a href="slice6.html#fo-section">Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;6.1 <a href="slice6.html#section-N9204-Introduction-to-Formatting-Objects">Introduction to Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.1.1 <a href="slice6.html#define-returned-by">Definitions Common to Many Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;6.2 <a href="slice6.html#section-N9447-Formatting-Object-Content">Formatting Object Content</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;6.3 <a href="slice6.html#section-N9494-Formatting-Objects-Summary">Formatting Objects Summary</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;6.4 <a href="slice6.html#section-N10029-Declarations-and-Pagination-and-Layout-Formatting-Objects">Declarations and Pagination and Layout Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.1 <a href="slice6.html#pag-intro">Introduction</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.2 <a href="slice6.html#fo_root">fo:root</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.3 <a href="slice6.html#fo_declarations">fo:declarations</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.4 <a href="slice6.html#fo_color-profile">fo:color-profile</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.5 <a href="slice6.html#fo_page-sequence">fo:page-sequence</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.6 <a href="slice6.html#fo_layout-master-set">fo:layout-master-set</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.7 <a href="slice6.html#fo_page-sequence-master">fo:page-sequence-master</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.8 <a href="slice6.html#fo_single-page-master-reference">fo:single-page-master-reference</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.9 <a href="slice6.html#fo_repeatable-page-master-reference">fo:repeatable-page-master-reference</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.10 <a href="slice6.html#fo_repeatable-page-master-alternatives">fo:repeatable-page-master-alternatives</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.11 <a href="slice6.html#fo_conditional-page-master-reference">fo:conditional-page-master-reference</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.12 <a href="slice6.html#fo_simple-page-master">fo:simple-page-master</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.13 <a href="slice6.html#fo_region-body">fo:region-body</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.14 <a href="slice6.html#fo_region-before">fo:region-before</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.15 <a href="slice6.html#fo_region-after">fo:region-after</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.16 <a href="slice6.html#fo_region-start">fo:region-start</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.17 <a href="slice6.html#fo_region-end">fo:region-end</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.18 <a href="slice6.html#fo_flow">fo:flow</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.19 <a href="slice6.html#fo_static-content">fo:static-content</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.4.20 <a href="slice6.html#fo_title">fo:title</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;6.5 <a href="slice6.html#section-N12764-Block-level-Formatting-Objects">Block-level Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.5.1 <a href="slice6.html#section-N12769-Introduction">Introduction</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.5.2 <a href="slice6.html#fo_block">fo:block</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.5.3 <a href="slice6.html#fo_block-container">fo:block-container</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;6.6 <a href="slice6.html#section-N13277-Inline-level-Formatting-Objects">Inline-level Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.6.1 <a href="slice6.html#section-N13282-Introduction">Introduction</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.6.2 <a href="slice6.html#fo_bidi-override">fo:bidi-override</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.6.3 <a href="slice6.html#fo_character">fo:character</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.6.4 <a href="slice6.html#fo_initial-property-set">fo:initial-property-set</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.6.5 <a href="slice6.html#fo_external-graphic">fo:external-graphic</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.6.6 <a href="slice6.html#fo_instream-foreign-object">fo:instream-foreign-object</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.6.7 <a href="slice6.html#fo_inline">fo:inline</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.6.8 <a href="slice6.html#fo_inline-container">fo:inline-container</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.6.9 <a href="slice6.html#fo_leader">fo:leader</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.6.10 <a href="slice6.html#fo_page-number">fo:page-number</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.6.11 <a href="slice6.html#fo_page-number-citation">fo:page-number-citation</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;6.7 <a href="slice6.html#section-N15442-Formatting-Objects-for-Tables">Formatting Objects for Tables</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.7.1 <a href="slice6.html#section-N15447-Introduction">Introduction</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.7.2 <a href="slice6.html#fo_table-and-caption">fo:table-and-caption</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.7.3 <a href="slice6.html#fo_table">fo:table</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.7.4 <a href="slice6.html#fo_table-column">fo:table-column</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.7.5 <a href="slice6.html#fo_table-caption">fo:table-caption</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.7.6 <a href="slice6.html#fo_table-header">fo:table-header</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.7.7 <a href="slice6.html#fo_table-footer">fo:table-footer</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.7.8 <a href="slice6.html#fo_table-body">fo:table-body</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.7.9 <a href="slice6.html#fo_table-row">fo:table-row</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.7.10 <a href="slice6.html#fo_table-cell">fo:table-cell</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;6.8 <a href="slice6.html#section-N17076-Formatting-Objects-for-Lists">Formatting Objects for Lists</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.8.1 <a href="slice6.html#section-N17081-Introduction">Introduction</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.8.2 <a href="slice6.html#fo_list-block">fo:list-block</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.8.3 <a href="slice6.html#fo_list-item">fo:list-item</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.8.4 <a href="slice6.html#fo_list-item-body">fo:list-item-body</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.8.5 <a href="slice6.html#fo_list-item-label">fo:list-item-label</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;6.9 <a href="slice6.html#section-N17805-Dynamic-Effects:-Link-and-Multi-Formatting-Objects">Dynamic Effects: Link and Multi Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.9.1 <a href="slice6.html#section-N17812-Introduction">Introduction</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.9.2 <a href="slice6.html#fo_basic-link">fo:basic-link</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.9.3 <a href="slice6.html#fo_multi-switch">fo:multi-switch</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.9.4 <a href="slice6.html#fo_multi-case">fo:multi-case</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.9.5 <a href="slice6.html#fo_multi-toggle">fo:multi-toggle</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.9.6 <a href="slice6.html#fo_multi-properties">fo:multi-properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.9.7 <a href="slice6.html#fo_multi-property-set">fo:multi-property-set</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;6.10 <a href="slice6.html#section-N18509-Out-of-Line-Formatting-Objects">Out-of-Line Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.10.1 <a href="slice6.html#section-N18514-Introduction">Introduction</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.10.2 <a href="slice6.html#fo_float">fo:float</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.10.3 <a href="slice6.html#fo_footnote">fo:footnote</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.10.4 <a href="slice6.html#fo_footnote-body">fo:footnote-body</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;6.11 <a href="slice6.html#section-N19019-Other-Formatting-Objects">Other Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.11.1 <a href="slice6.html#section-N19024-Introduction">Introduction</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.11.2 <a href="slice6.html#fo_wrapper">fo:wrapper</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.11.3 <a href="slice6.html#fo_marker">fo:marker</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;6.11.4 <a href="slice6.html#fo_retrieve-marker">fo:retrieve-marker</a>
+<br>7 <a href="slice7.html#pr-section">Formatting Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.1 <a href="slice7.html#section-N19349-Description-of-Property-Groups">Description of Property Groups</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.2 <a href="slice7.html#cssbox">XSL Areas and the CSS Box Model</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.3 <a href="slice7.html#percrule">Reference Rectangle for Percentage Computations</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.4 <a href="slice7.html#common-accessibility-properties">Common Accessibility Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.4.1 <a href="slice7.html#source-document">source-document</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.4.2 <a href="slice7.html#role">role</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.5 <a href="slice7.html#common-absolute-position-properties">Common Absolute Position Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.5.1 <a href="slice7.html#absolute-position">absolute-position</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.5.2 <a href="slice7.html#top">top</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.5.3 <a href="slice7.html#right">right</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.5.4 <a href="slice7.html#bottom">bottom</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.5.5 <a href="slice7.html#left">left</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.6 <a href="slice7.html#common-aural-properties">Common Aural Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.1 <a href="slice7.html#azimuth">azimuth</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.2 <a href="slice7.html#cue-after">cue-after</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.3 <a href="slice7.html#cue-before">cue-before</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.4 <a href="slice7.html#elevation">elevation</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.5 <a href="slice7.html#pause-after">pause-after</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.6 <a href="slice7.html#pause-before">pause-before</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.7 <a href="slice7.html#pitch">pitch</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.8 <a href="slice7.html#pitch-range">pitch-range</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.9 <a href="slice7.html#play-during">play-during</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.10 <a href="slice7.html#richness">richness</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.11 <a href="slice7.html#speak">speak</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.12 <a href="slice7.html#speak-header">speak-header</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.13 <a href="slice7.html#speak-numeral">speak-numeral</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.14 <a href="slice7.html#speak-punctuation">speak-punctuation</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.15 <a href="slice7.html#speech-rate">speech-rate</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.16 <a href="slice7.html#stress">stress</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.17 <a href="slice7.html#voice-family">voice-family</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.6.18 <a href="slice7.html#volume">volume</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.7 <a href="slice7.html#common-border-padding-and-background-properties">Common Border, Padding, and Background Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.1 <a href="slice7.html#background-attachment">background-attachment</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.2 <a href="slice7.html#background-color">background-color</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.3 <a href="slice7.html#background-image">background-image</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.4 <a href="slice7.html#background-repeat">background-repeat</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.5 <a href="slice7.html#background-position-horizontal">background-position-horizontal</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.6 <a href="slice7.html#background-position-vertical">background-position-vertical</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.7 <a href="slice7.html#border-before-color">border-before-color</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.8 <a href="slice7.html#border-before-style">border-before-style</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.9 <a href="slice7.html#border-before-width">border-before-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.10 <a href="slice7.html#border-after-color">border-after-color</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.11 <a href="slice7.html#border-after-style">border-after-style</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.12 <a href="slice7.html#border-after-width">border-after-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.13 <a href="slice7.html#border-start-color">border-start-color</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.14 <a href="slice7.html#border-start-style">border-start-style</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.15 <a href="slice7.html#border-start-width">border-start-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.16 <a href="slice7.html#border-end-color">border-end-color</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.17 <a href="slice7.html#border-end-style">border-end-style</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.18 <a href="slice7.html#border-end-width">border-end-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.19 <a href="slice7.html#border-top-color">border-top-color</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.20 <a href="slice7.html#border-top-style">border-top-style</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.21 <a href="slice7.html#border-top-width">border-top-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.22 <a href="slice7.html#border-bottom-color">border-bottom-color</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.23 <a href="slice7.html#border-bottom-style">border-bottom-style</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.24 <a href="slice7.html#border-bottom-width">border-bottom-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.25 <a href="slice7.html#border-left-color">border-left-color</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.26 <a href="slice7.html#border-left-style">border-left-style</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.27 <a href="slice7.html#border-left-width">border-left-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.28 <a href="slice7.html#border-right-color">border-right-color</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.29 <a href="slice7.html#border-right-style">border-right-style</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.30 <a href="slice7.html#border-right-width">border-right-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.31 <a href="slice7.html#padding-before">padding-before</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.32 <a href="slice7.html#padding-after">padding-after</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.33 <a href="slice7.html#padding-start">padding-start</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.34 <a href="slice7.html#padding-end">padding-end</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.35 <a href="slice7.html#padding-top">padding-top</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.36 <a href="slice7.html#padding-bottom">padding-bottom</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.37 <a href="slice7.html#padding-left">padding-left</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.7.38 <a href="slice7.html#padding-right">padding-right</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.8 <a href="slice7.html#common-font-properties">Common Font Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.8.1 <a href="slice7.html#font-model">Fonts and Font Data</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.8.2 <a href="slice7.html#font-family">font-family</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.8.3 <a href="slice7.html#font-selection-strategy">font-selection-strategy</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.8.4 <a href="slice7.html#font-size">font-size</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.8.5 <a href="slice7.html#font-stretch">font-stretch</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.8.6 <a href="slice7.html#font-size-adjust">font-size-adjust</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.8.7 <a href="slice7.html#font-style">font-style</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.8.8 <a href="slice7.html#font-variant">font-variant</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.8.9 <a href="slice7.html#font-weight">font-weight</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.9 <a href="slice7.html#common-hyphenation-properties">Common Hyphenation Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.9.1 <a href="slice7.html#country">country</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.9.2 <a href="slice7.html#language">language</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.9.3 <a href="slice7.html#script">script</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.9.4 <a href="slice7.html#hyphenate">hyphenate</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.9.5 <a href="slice7.html#hyphenation-character">hyphenation-character</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.9.6 <a href="slice7.html#hyphenation-push-character-count">hyphenation-push-character-count</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.9.7 <a href="slice7.html#hyphenation-remain-character-count">hyphenation-remain-character-count</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.10 <a href="slice7.html#common-margin-properties-block">Common Margin Properties-Block</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.10.1 <a href="slice7.html#margin-top">margin-top</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.10.2 <a href="slice7.html#margin-bottom">margin-bottom</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.10.3 <a href="slice7.html#margin-left">margin-left</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.10.4 <a href="slice7.html#margin-right">margin-right</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.10.5 <a href="slice7.html#space-before">space-before</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.10.6 <a href="slice7.html#space-after">space-after</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.10.7 <a href="slice7.html#start-indent">start-indent</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.10.8 <a href="slice7.html#end-indent">end-indent</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.11 <a href="slice7.html#common-margin-properties-inline">Common Margin Properties-Inline</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.11.1 <a href="slice7.html#space-end">space-end</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.11.2 <a href="slice7.html#space-start">space-start</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.12 <a href="slice7.html#common-relative-position-properties">Common Relative Position Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.12.1 <a href="slice7.html#relative-position">relative-position</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.13 <a href="slice7.html#area-alignment">Area Alignment Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.13.1 <a href="slice7.html#alignment-adjust">alignment-adjust</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.13.2 <a href="slice7.html#alignment-baseline">alignment-baseline</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.13.3 <a href="slice7.html#baseline-shift">baseline-shift</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.13.4 <a href="slice7.html#display-align">display-align</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.13.5 <a href="slice7.html#dominant-baseline">dominant-baseline</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.13.6 <a href="slice7.html#relative-align">relative-align</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.14 <a href="slice7.html#section-N36094-Area-Dimension-Properties">Area Dimension Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.14.1 <a href="slice7.html#block-progression-dimension">block-progression-dimension</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.14.2 <a href="slice7.html#content-height">content-height</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.14.3 <a href="slice7.html#content-width">content-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.14.4 <a href="slice7.html#height">height</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.14.5 <a href="slice7.html#inline-progression-dimension">inline-progression-dimension</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.14.6 <a href="slice7.html#max-height">max-height</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.14.7 <a href="slice7.html#max-width">max-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.14.8 <a href="slice7.html#min-height">min-height</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.14.9 <a href="slice7.html#min-width">min-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.14.10 <a href="slice7.html#scaling">scaling</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.14.11 <a href="slice7.html#scaling-method">scaling-method</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.14.12 <a href="slice7.html#width">width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.15 <a href="slice7.html#section-N38191-Block-and-Line-related-Properties">Block and Line-related Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.15.1 <a href="slice7.html#hyphenation-keep">hyphenation-keep</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.15.2 <a href="slice7.html#hyphenation-ladder-count">hyphenation-ladder-count</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.15.3 <a href="slice7.html#last-line-end-indent">last-line-end-indent</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.15.4 <a href="slice7.html#line-height">line-height</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.15.5 <a href="slice7.html#line-height-shift-adjustment">line-height-shift-adjustment</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.15.6 <a href="slice7.html#line-stacking-strategy">line-stacking-strategy</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.15.7 <a href="slice7.html#linefeed-treatment">linefeed-treatment</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.15.8 <a href="slice7.html#white-space-treatment">white-space-treatment</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.15.9 <a href="slice7.html#text-align">text-align</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.15.10 <a href="slice7.html#text-align-last">text-align-last</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.15.11 <a href="slice7.html#text-indent">text-indent</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.15.12 <a href="slice7.html#white-space-collapse">white-space-collapse</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.15.13 <a href="slice7.html#wrap-option">wrap-option</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.16 <a href="slice7.html#section-N40545-Character-Properties">Character Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.16.1 <a href="slice7.html#character">character</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.16.2 <a href="slice7.html#letter-spacing">letter-spacing</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.16.3 <a href="slice7.html#suppress-at-line-break">suppress-at-line-break</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.16.4 <a href="slice7.html#text-decoration">text-decoration</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.16.5 <a href="slice7.html#text-shadow">text-shadow</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.16.6 <a href="slice7.html#text-transform">text-transform</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.16.7 <a href="slice7.html#treat-as-word-space">treat-as-word-space</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.16.8 <a href="slice7.html#word-spacing">word-spacing</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.17 <a href="slice7.html#section-N42081-Color-related-Properties">Color-related Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.17.1 <a href="slice7.html#color">color</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.17.2 <a href="slice7.html#color-profile-name">color-profile-name</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.17.3 <a href="slice7.html#rendering-intent">rendering-intent</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.18 <a href="slice7.html#section-N42546-Float-related-Properties">Float-related Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.18.1 <a href="slice7.html#clear">clear</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.18.2 <a href="slice7.html#float">float</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.18.3 <a href="slice7.html#intrusion-displace">intrusion-displace</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.19 <a href="slice7.html#section-N43268-Keeps-and-Breaks-Properties">Keeps and Breaks Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.19.1 <a href="slice7.html#break-after">break-after</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.19.2 <a href="slice7.html#break-before">break-before</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.19.3 <a href="slice7.html#keep-together">keep-together</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.19.4 <a href="slice7.html#keep-with-next">keep-with-next</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.19.5 <a href="slice7.html#keep-with-previous">keep-with-previous</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.19.6 <a href="slice7.html#orphans">orphans</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.19.7 <a href="slice7.html#widows">widows</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.20 <a href="slice7.html#section-N44408-Layout-related-Properties">Layout-related Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.20.1 <a href="slice7.html#clip">clip</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.20.2 <a href="slice7.html#overflow">overflow</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.20.3 <a href="slice7.html#reference-orientation">reference-orientation</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.20.4 <a href="slice7.html#span">span</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.21 <a href="slice7.html#section-N45132-Leader-and-Rule-Properties">Leader and Rule Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.21.1 <a href="slice7.html#leader-alignment">leader-alignment</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.21.2 <a href="slice7.html#leader-pattern">leader-pattern</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.21.3 <a href="slice7.html#leader-pattern-width">leader-pattern-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.21.4 <a href="slice7.html#leader-length">leader-length</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.21.5 <a href="slice7.html#rule-style">rule-style</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.21.6 <a href="slice7.html#rule-thickness">rule-thickness</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.22 <a href="slice7.html#section-N46115-Properties-for-Dynamic-Effects-Formatting-Objects">Properties for Dynamic Effects Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.1 <a href="slice7.html#active-state">active-state</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.2 <a href="slice7.html#auto-restore">auto-restore</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.3 <a href="slice7.html#case-name">case-name</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.4 <a href="slice7.html#case-title">case-title</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.5 <a href="slice7.html#destination-placement-offset">destination-placement-offset</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.6 <a href="slice7.html#external-destination">external-destination</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.7 <a href="slice7.html#indicate-destination">indicate-destination</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.8 <a href="slice7.html#internal-destination">internal-destination</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.9 <a href="slice7.html#show-destination">show-destination</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.10 <a href="slice7.html#starting-state">starting-state</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.11 <a href="slice7.html#switch-to">switch-to</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.12 <a href="slice7.html#target-presentation-context">target-presentation-context</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.13 <a href="slice7.html#target-processing-context">target-processing-context</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.22.14 <a href="slice7.html#target-stylesheet">target-stylesheet</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.23 <a href="slice7.html#section-N48193-Properties-for-Markers">Properties for Markers</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.23.1 <a href="slice7.html#marker-class-name">marker-class-name</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.23.2 <a href="slice7.html#retrieve-class-name">retrieve-class-name</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.23.3 <a href="slice7.html#retrieve-position">retrieve-position</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.23.4 <a href="slice7.html#retrieve-boundary">retrieve-boundary</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.24 <a href="slice7.html#section-N48804-Properties-for-Number-to-String-Conversion">Properties for Number to String Conversion</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.24.1 <a href="slice7.html#format">format</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.24.2 <a href="slice7.html#grouping-separator">grouping-separator</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.24.3 <a href="slice7.html#grouping-size">grouping-size</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.24.4 <a href="slice7.html#letter-value">letter-value</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.25 <a href="slice7.html#section-N49321-Pagination-and-Layout-Properties">Pagination and Layout Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.1 <a href="slice7.html#blank-or-not-blank">blank-or-not-blank</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.2 <a href="slice7.html#column-count">column-count</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.3 <a href="slice7.html#column-gap">column-gap</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.4 <a href="slice7.html#extent">extent</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.5 <a href="slice7.html#flow-name">flow-name</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.6 <a href="slice7.html#force-page-count">force-page-count</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.7 <a href="slice7.html#initial-page-number">initial-page-number</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.8 <a href="slice7.html#master-name">master-name</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.9 <a href="slice7.html#master-reference">master-reference</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.10 <a href="slice7.html#maximum-repeats">maximum-repeats</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.11 <a href="slice7.html#media-usage">media-usage</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.12 <a href="slice7.html#odd-or-even">odd-or-even</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.13 <a href="slice7.html#page-height">page-height</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.14 <a href="slice7.html#page-position">page-position</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.15 <a href="slice7.html#page-width">page-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.16 <a href="slice7.html#precedence">precedence</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.25.17 <a href="slice7.html#region-name">region-name</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.26 <a href="slice7.html#section-N52000-Table-Properties">Table Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.1 <a href="slice7.html#border-after-precedence">border-after-precedence</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.2 <a href="slice7.html#border-before-precedence">border-before-precedence</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.3 <a href="slice7.html#border-collapse">border-collapse</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.4 <a href="slice7.html#border-end-precedence">border-end-precedence</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.5 <a href="slice7.html#border-separation">border-separation</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.6 <a href="slice7.html#border-start-precedence">border-start-precedence</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.7 <a href="slice7.html#caption-side">caption-side</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.8 <a href="slice7.html#column-number">column-number</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.9 <a href="slice7.html#column-width">column-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.10 <a href="slice7.html#empty-cells">empty-cells</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.11 <a href="slice7.html#ends-row">ends-row</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.12 <a href="slice7.html#number-columns-repeated">number-columns-repeated</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.13 <a href="slice7.html#number-columns-spanned">number-columns-spanned</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.14 <a href="slice7.html#number-rows-spanned">number-rows-spanned</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.15 <a href="slice7.html#starts-row">starts-row</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.16 <a href="slice7.html#table-layout">table-layout</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.17 <a href="slice7.html#table-omit-footer-at-break">table-omit-footer-at-break</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.26.18 <a href="slice7.html#table-omit-header-at-break">table-omit-header-at-break</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.27 <a href="slice7.html#writing-mode-related">Writing-mode-related Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.27.1 <a href="slice7.html#direction">direction</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.27.2 <a href="slice7.html#glyph-orientation-horizontal">glyph-orientation-horizontal</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.27.3 <a href="slice7.html#glyph-orientation-vertical">glyph-orientation-vertical</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.27.4 <a href="slice7.html#text-altitude">text-altitude</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.27.5 <a href="slice7.html#text-depth">text-depth</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.27.6 <a href="slice7.html#unicode-bidi">unicode-bidi</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.27.7 <a href="slice7.html#writing-mode">writing-mode</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.28 <a href="slice7.html#section-N56509-Miscellaneous-Properties">Miscellaneous Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.28.1 <a href="slice7.html#content-type">content-type</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.28.2 <a href="slice7.html#id">id</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.28.3 <a href="slice7.html#provisional-label-separation">provisional-label-separation</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.28.4 <a href="slice7.html#provisional-distance-between-starts">provisional-distance-between-starts</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.28.5 <a href="slice7.html#ref-id">ref-id</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.28.6 <a href="slice7.html#score-spaces">score-spaces</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.28.7 <a href="slice7.html#src">src</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.28.8 <a href="slice7.html#visibility">visibility</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.28.9 <a href="slice7.html#z-index">z-index</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;7.29 <a href="slice7.html#section-N57854-Shorthand-Properties">Shorthand Properties</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.1 <a href="slice7.html#background">background</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.2 <a href="slice7.html#background-position">background-position</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.3 <a href="slice7.html#border">border</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.4 <a href="slice7.html#border-bottom">border-bottom</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.5 <a href="slice7.html#border-color">border-color</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.6 <a href="slice7.html#border-left">border-left</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.7 <a href="slice7.html#border-right">border-right</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.8 <a href="slice7.html#border-style">border-style</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.9 <a href="slice7.html#border-spacing">border-spacing</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.10 <a href="slice7.html#border-top">border-top</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.11 <a href="slice7.html#border-width">border-width</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.12 <a href="slice7.html#cue">cue</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.13 <a href="slice7.html#font">font</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.14 <a href="slice7.html#margin">margin</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.15 <a href="slice7.html#padding">padding</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.16 <a href="slice7.html#page-break-after">page-break-after</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.17 <a href="slice7.html#page-break-before">page-break-before</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.18 <a href="slice7.html#page-break-inside">page-break-inside</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.19 <a href="slice7.html#pause">pause</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.20 <a href="slice7.html#position">position</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.21 <a href="slice7.html#size">size</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.22 <a href="slice7.html#vertical-align">vertical-align</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.23 <a href="slice7.html#white-space">white-space</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;7.29.24 <a href="slice7.html#xml:lang">xml:lang</a>
+<br>8 <a href="slice8.html#conform">Conformance</a>
+<br>
+<h3>Appendices</h3>A <a href="sliceA.html#section-N62576-Internationalization">Internationalization</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;A.1 <a href="sliceA.html#writing-mode-add">Additional writing-mode values</a>
+<br>B <a href="sliceB.html#FO-summary">Formatting Object Summary</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;B.1 <a href="sliceB.html#section-N62923-Declaration-and-Pagination-and-Layout-Formatting-Objects">Declaration and Pagination and Layout Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;B.2 <a href="sliceB.html#section-N63533-Block-Formatting-Objects">Block Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;B.3 <a href="sliceB.html#section-N63649-Inline-Formatting-Objects">Inline Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;B.4 <a href="sliceB.html#section-N63998-Table-Formatting-Objects">Table Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;B.5 <a href="sliceB.html#section-N64345-List-Formatting-Objects">List Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;B.6 <a href="sliceB.html#ConfMulti">Link and Multi Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;B.7 <a href="sliceB.html#section-N64772-Out-of-line-Formatting-Objects">Out-of-line Formatting Objects</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;B.8 <a href="sliceB.html#section-N64929-Other-Formatting-Objects">Other Formatting Objects</a>
+<br>C <a href="sliceC.html#property-index">Property Summary</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;C.1 <a href="sliceC.html#trmval">Explanation of Trait Mapping Values</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;C.2 <a href="sliceC.html#prtab1">Property Table: Part I</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;C.3 <a href="sliceC.html#prtab2">Property Table: Part II</a>
+<br>D <a href="sliceD.html#section-N85472-References">References</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;D.1 <a href="sliceD.html#section-N85477-Normative-References">Normative References</a>
+<br>&nbsp;&nbsp;&nbsp;&nbsp;D.2 <a href="sliceD.html#section-N85770-Other-References">Other References</a>
+<br>E <a href="sliceE.html#section-N85866-Property-Index">Property Index</a>
+<br>F <a href="sliceF.html#changes">Changes since the Proposed Recommendation</a> (Non-Normative)<br>G <a href="sliceG.html#section-N87175-Acknowledgements">Acknowledgements</a> (Non-Normative)<br>
+<hr>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</body>
+</html>
