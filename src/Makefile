@@ -18,7 +18,11 @@ DEPS-testutil			:= libxiphias
 
 CC						:= gcc
 CFLAGS					:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
-						   -Wstrict-overflow -O2 -iquote include
+						   -Wstrict-overflow=4 -Wignored-qualifiers -Wunused-but-set-parameter \
+						   -Wmaybe-uninitialized -Wpointer-arith -Wtype-limits -Wbad-function-cast \
+						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered -Wconversion \
+						   -Wsign-compare -Wlogical-op -Waggregate-return -Wmissing-field-initializers \
+						   -Wnested-externs -O2 -iquote include
 LDFLAGS					:= -L. -Wl,-rpath=.
 
 #########################################
