@@ -3,7 +3,7 @@
 TARGETS = libxiphias testutil
 
 SUBDIRS-libxiphias		:= util
-FILES-util				:= xutil.c strbuf.c
+FILES-util				:= xutil.c strbuf.c encoding.c
 CFLAGS-libxiphias		:= -fPIC
 LDFLAGS-libxiphias		:= -shared -fPIC -Wl,-soname=libxiphias.so
 PROGNAME-libxiphias		:= libxiphias.so

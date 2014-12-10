@@ -30,6 +30,7 @@
 
 // FIXME: find a better place for such common defs?
 #define DECONST(v)  ((void *)(uintptr_t)(v))
+#define __constructor __attribute__((__constructor__))
 
 /**
     Allocate memory.

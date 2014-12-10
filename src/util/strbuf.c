@@ -1,6 +1,9 @@
 /* vi: set ts=4 sw=4 et : */
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
+/** @file
+    String buffer implementation.
+*/
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -33,11 +36,11 @@ strblk_new(size_t payload_sz)
 /**
     Destroy a string block.
 
-    @param[in] blk Block being destroyed.
+    @param[in] blk Block being deleted.
     @return None
 */
 static void
-strblk_destroy(strblk_t *blk)
+strblk_delete(strblk_t *blk)
 {
     free(blk);
 }
@@ -79,17 +82,17 @@ strbuf_new_from_memory(const void *start, size_t size)
 }
 
 void
-strbuf_destroy(strbuf_t *buf)
+strbuf_delete(strbuf_t *buf)
 {
     strblk_t *blk;
 
     while ((blk = STAILQ_FIRST(&buf->content)) != NULL) {
         STAILQ_REMOVE_HEAD(&buf->content, link);
-        strblk_destroy(blk);
+        strblk_delete(blk);
     }
     while ((blk = STAILQ_FIRST(&buf->free)) != NULL) {
         STAILQ_REMOVE_HEAD(&buf->free, link);
-        strblk_destroy(blk);
+        strblk_delete(blk);
     }
     free(buf);
 }

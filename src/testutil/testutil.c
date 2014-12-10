@@ -17,7 +17,7 @@ main(int argc, char *argv[])
 
     buf = strbuf_new_from_memory(text_utf16be_bom, sizeof(text_utf16be_bom));
     printf("%p\n", buf);
-    strbuf_destroy(buf);
+    strbuf_delete(buf);
 
     return 0;
 }

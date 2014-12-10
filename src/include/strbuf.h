@@ -11,12 +11,6 @@
 #include <stdint.h>
 #include "queue.h"
 
-/// String buffer status codes
-enum {
-    STATUS_OK   = 0,        ///< OK
-    STATUS_NEEDINPUT,       ///< Need more input data
-};
-
 /// Buffer flags
 enum {
     BUF_FIRST       = 0x0001,           ///< First block in the list is the beginning of the document
@@ -69,6 +63,6 @@ strbuf_t *strbuf_new_from_memory(const void *start, size_t size);
     @param[in] buf String buffer to destroy
     @return None
 */
-void strbuf_destroy(strbuf_t *buf);
+void strbuf_delete(strbuf_t *buf);
 
 #endif
