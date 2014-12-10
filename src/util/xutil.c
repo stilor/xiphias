@@ -6,13 +6,6 @@
 
 #include "xutil.h"
 
-// FIXME: For now, just print and exit. Will implement cleanup registration
-// later.
-#define OOPS do { \
-    fprintf(stderr, "OOPS at %s:%d\n", __FILE__, __LINE__); \
-    abort(); \
-} while (0)
-
 void *
 xmalloc(size_t sz)
 {

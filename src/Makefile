@@ -3,7 +3,7 @@
 TARGETS = libxiphias testutil
 
 SUBDIRS-libxiphias		:= util
-FILES-util				:= xutil.c
+FILES-util				:= xutil.c strbuf.c
 CFLAGS-libxiphias		:= -fPIC
 LDFLAGS-libxiphias		:= -shared -fPIC -Wl,-soname=libxiphias.so
 PROGNAME-libxiphias		:= libxiphias.so
@@ -22,23 +22,25 @@ CFLAGS					:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wmaybe-uninitialized -Wpointer-arith -Wtype-limits -Wbad-function-cast \
 						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered -Wconversion \
 						   -Wsign-compare -Wlogical-op -Waggregate-return -Wmissing-field-initializers \
-						   -Wnested-externs -O2 -iquote include
+						   -Wnested-externs -g -O2 -iquote include
 LDFLAGS					:= -L. -Wl,-rpath=.
 
 #########################################
 # Common rules
 
-.DEFAULT: all
+.DEFAULT_GOAL	:= all
+
+__makefiles		:= $(filter-out %.d,$(MAKEFILE_LIST))
 
 define targetrules
 srcs-$t         := $$(foreach d,$$(SUBDIRS-$t),$$(patsubst %,$$d/%,$$(FILES-$$d)))
 objs-$t         := $$(patsubst %.c,%.o,$$(srcs-$t))
 deps-$t         := $$(patsubst %.c,%.d,$$(srcs-$t))
 
-$$(objs-$t): %.o: %.c $$(MAKEFILE_LIST)
+$$(objs-$t): %.o: %.c $$(__makefiles)
 	$$(CC) -c -MMD $$(CFLAGS) $$(CFLAGS-$t) -o $$@ $$<
 
-$$(PROGNAME-$t): $$(objs-$t) $$(foreach d,$$(DEPS-$t),$$(PROGNAME-$$d)) $$(MAKEFILE_LIST)
+$$(PROGNAME-$t): $$(objs-$t) $$(foreach d,$$(DEPS-$t),$$(PROGNAME-$$d)) $$(__makefiles)
 	$$(CC) -o $$@ $$(objs-$t) $$(LDFLAGS) $$(LDFLAGS-$t)
 
 endef
@@ -46,11 +48,12 @@ $(foreach t,$(TARGETS),$(eval $(targetrules)))
 
 __all_objs		:= $(foreach t,$(TARGETS),$(objs-$t))
 __all_deps		:= $(foreach t,$(TARGETS),$(deps-$t))
+__all_progs		:= $(foreach t,$(TARGETS),$(PROGNAME-$t))
 
-all: $(foreach t,$(TARGETS),$(PROGNAME-$t))
+all: $(__all_progs)
 	@:
 
 clean:
-	rm -f $(__all_objs) $(__all_deps)
+	rm -f $(__all_objs) $(__all_deps) $(__all_progs)
 
 -include $(__all_deps)
