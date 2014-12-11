@@ -43,9 +43,10 @@ typedef struct encoding_s {
         block in the outbut buffer).
 
         @param[in] baton Pointer returned by initializer
+        @param[in] nchars Number of characters to translate
         @return Baton (argument passed to xlate/destroy methods)
     */
-    void (*xlate)(void *baton);
+    void (*xlate)(void *baton, size_t nchars);
 } encoding_t;
 
 

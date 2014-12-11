@@ -3,11 +3,27 @@
 
 /** @file
     Operations on linked string buffers.
+
+    String buffer is organized as a series of blocks, which store the actual data.
+    The buffer maintains two cursors, for writing and reading. By definition, read
+    cursor may never advance past the write cursor (or it would read uninitialized
+    data).
+
+    There are two modes of operation for a string buffer, pull and push. In pull mode
+    the string buffer is read by the consumer. Whenever it becomes empty (no content
+    to read), the io() function is called to put additional content into the buffer.
+    In push mode, the content is written into the buffer; whenever a full block becomes
+    available, the io() method is called to flush it. The selection of the mode is
+    the responsibility of the caller/user of the interface; if the buffer is used in both
+    ways at the same time, io() method will be called on both conditions.
+
+    THe destroy() method is called right before the string buffer is destroyed.
 */
 
 #ifndef __strbuf_h_
 #define __strbuf_h_
 
+#include <stdbool.h>
 #include <stdint.h>
 #include "queue.h"
 
@@ -33,12 +49,30 @@ typedef struct strcursor_s {
 
 /// Linked list of text blocks - string buffer
 typedef struct strbuf_s {
-    STAILQ_HEAD(, strblk_s) content;    ///< Current content
-    STAILQ_HEAD(, strblk_s) free;       ///< Free blocks
-    strcursor_t write;                  ///< Write cursor
-    strcursor_t read;                   ///< Read cursor
-    uint8_t flags;                      ///< Buffer flags
+    STAILQ_HEAD(, strblk_s) content;        ///< Current content
+    strcursor_t write;                      ///< Write cursor
+    strcursor_t read;                       ///< Read cursor
+    uint8_t flags;                          ///< Buffer flags
+    void *arg;                              ///< Argument for virtual methods
+    void (*io)(struct strbuf_s *, size_t);  ///< Read more data into the buffer, or write from it
+    void (*destroy)(struct strbuf_s *);     ///< Called when the string buffer is destroyed
 } strbuf_t;
+
+/**
+    Allocate a new string block with a given payload size.
+
+    @param[in] payload_sz Size of the payload
+    @return Allocated string block
+*/
+strblk_t *strblk_new(size_t payload_sz);
+
+/**
+    Destroy a string block.
+
+    @param[in] blk Block being deleted.
+    @return None
+*/
+void strblk_delete(strblk_t *blk);
 
 /**
     Allocate a new empty string buffer.
@@ -64,5 +98,39 @@ strbuf_t *strbuf_new_from_memory(const void *start, size_t size);
     @return None
 */
 void strbuf_delete(strbuf_t *buf);
+
+/**
+    Calculate the size of the content available for reading in the buffer.
+
+    @param[in] buf Buffer string
+    @return Content size, in bytes
+*/
+size_t strbuf_content_size(strbuf_t *buf);
+
+/**
+    Calculate the size of the empty space available for writing in the buffer.
+
+    @param[in] buf Buffer string
+    @return Space size, in bytes
+*/
+size_t strbuf_space_size(strbuf_t *buf);
+
+/**
+    Advance read cursor by a number of bytes.
+
+    @param[in] buf Buffer
+    @param[in] nbytes Advance amount
+    @return None
+*/
+void strbuf_advance_read(strbuf_t *buf, size_t nbytes);
+
+/**
+    Advance write cursor by a number of bytes.
+
+    @param[in] buf Buffer
+    @param[in] nbytes Advance amount
+    @return None
+*/
+void strbuf_advance_write(strbuf_t *buf, size_t nbytes);
 
 #endif

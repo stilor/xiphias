@@ -10,13 +10,7 @@
 #include "xutil.h"
 #include "strbuf.h"
 
-/**
-    Allocate a new string block with a given payload size.
-
-    @param[in] payload_sz Size of the payload
-    @return Allocated string block
-*/
-static strblk_t *
+strblk_t *
 strblk_new(size_t payload_sz)
 {
     strblk_t *blk;
@@ -33,13 +27,7 @@ strblk_new(size_t payload_sz)
     return blk;
 }
 
-/**
-    Destroy a string block.
-
-    @param[in] blk Block being deleted.
-    @return None
-*/
-static void
+void
 strblk_delete(strblk_t *blk)
 {
     free(blk);
@@ -52,12 +40,14 @@ strbuf_new(void)
 
     buf = xmalloc(sizeof(strbuf_t));
     STAILQ_INIT(&buf->content);
-    STAILQ_INIT(&buf->free);
     buf->write.block = NULL;
     buf->write.ptr = NULL;
     buf->read.block = NULL;
     buf->read.ptr = NULL;
     buf->flags = 0;
+    buf->arg = NULL;
+    buf->io = NULL;
+    buf->destroy = NULL;
     return buf;
 }
 
@@ -86,13 +76,98 @@ strbuf_delete(strbuf_t *buf)
 {
     strblk_t *blk;
 
+    if (buf->destroy) {
+        buf->destroy(buf);
+    }
     while ((blk = STAILQ_FIRST(&buf->content)) != NULL) {
         STAILQ_REMOVE_HEAD(&buf->content, link);
         strblk_delete(blk);
     }
-    while ((blk = STAILQ_FIRST(&buf->free)) != NULL) {
-        STAILQ_REMOVE_HEAD(&buf->free, link);
+    free(buf);
+}
+
+size_t
+strbuf_content_size(strbuf_t *buf)
+{
+    strblk_t *blk;
+    uint8_t *begin, *end;
+    size_t avail = 0;
+    bool brk = false;
+
+    OOPS_ASSERT(buf->read.block && buf->write.block);
+    blk = buf->read.block;
+    STAILQ_FOREACH_FROM(blk, &buf->content, link) {
+        // Read cursor is always behind the write cursor
+        begin = (blk == buf->read.block) ? buf->read.ptr : blk->begin;
+        if (blk == buf->write.block) {
+            end = buf->write.ptr;
+            brk = true;
+        }
+        else {
+            end = blk->end;
+        }
+        avail += (size_t)(end - begin);
+        if (brk) {
+            break;
+        }
+    }
+    return avail;
+}
+
+size_t
+strbuf_space_size(strbuf_t *buf)
+{
+    strblk_t *blk;
+    uint8_t *begin;
+    size_t avail = 0;
+
+    OOPS_ASSERT(buf->write.block);
+    blk = buf->write.block;
+    STAILQ_FOREACH_FROM(blk, &buf->content, link) {
+        begin = (blk == buf->write.block) ? buf->write.ptr : blk->begin;
+        avail += (size_t)((uint8_t *)blk->end - begin);
+    }
+    return avail;
+}
+
+void
+strbuf_advance_read(strbuf_t *buf, size_t nbytes)
+{
+    strblk_t *blk, *tmp;
+    uint8_t *begin, *end;
+    bool brk = false;
+
+    OOPS_ASSERT(buf->read.block && buf->write.block);
+    blk = buf->read.block;
+    STAILQ_FOREACH_FROM_SAFE(blk, &buf->content, link, tmp) {
+        begin = (blk == buf->read.block) ? buf->read.ptr : blk->begin;
+        if (blk == buf->write.block) {
+            end = buf->write.ptr;
+            brk = true;
+        }
+        else {
+            end = blk->end;
+        }
+        if (begin + nbytes <= end) {
+            // Remains in the current block - advance and be done
+            buf->read.block = blk;
+            buf->read.ptr = begin + nbytes;
+            return;
+        }
+        // nbytes covers all the available content and then maybe some
+        OOPS_ASSERT(!brk); // advancing past the write cursor
+
+        // this block goes away - both reader and writer are done with it
+        OOPS_ASSERT(blk == STAILQ_FIRST(&buf->content));
+        STAILQ_REMOVE_HEAD(&buf->content, link);
         strblk_delete(blk);
     }
-    free(buf);
+
+    OOPS; // Advanced to the end and wanted some more
+}
+
+void
+strbuf_advance_write(strbuf_t *buf, size_t nbytes)
+{
+    // TBD
 }
