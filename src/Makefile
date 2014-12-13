@@ -4,8 +4,8 @@ TARGETS = libxiphias testutil
 
 SUBDIRS-libxiphias		:= util
 FILES-util				:= xutil.c strbuf.c encoding.c
-CFLAGS-libxiphias		:= -fPIC
-LDFLAGS-libxiphias		:= -shared -fPIC -Wl,-soname=libxiphias.so
+CFLAGS-libxiphias		:= -fPIC $(shell curl-config --cflags)
+LDFLAGS-libxiphias		:= -shared -fPIC -Wl,-soname=libxiphias.so $(shell curl-config --libs)
 PROGNAME-libxiphias		:= libxiphias.so
 DEPS-libxiphias			:=
 
@@ -20,7 +20,7 @@ CC						:= gcc
 CFLAGS					:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wstrict-overflow=4 -Wignored-qualifiers -Wunused-but-set-parameter \
 						   -Wmaybe-uninitialized -Wpointer-arith -Wtype-limits -Wbad-function-cast \
-						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered -Wconversion \
+						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered \
 						   -Wsign-compare -Wlogical-op -Waggregate-return -Wmissing-field-initializers \
 						   -Wnested-externs -g -O2 -iquote include
 LDFLAGS					:= -L. -Wl,-rpath=.

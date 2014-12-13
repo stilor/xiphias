@@ -7,7 +7,9 @@
     String buffer is organized as a series of blocks, which store the actual data.
     The buffer maintains two cursors, for writing and reading. By definition, read
     cursor may never advance past the write cursor (or it would read uninitialized
-    data).
+    data). Read cursor always points somewhere in the first block on the list
+    (once read cursor moves past the first block, the first block is no longer
+    accessible and will be dequeued/freed).
 
     There are two modes of operation for a string buffer, pull and push. In pull mode
     the string buffer is read by the consumer. Whenever it becomes empty (no content
@@ -52,7 +54,9 @@ typedef struct strbuf_s {
     STAILQ_HEAD(, strblk_s) content;        ///< Current content
     strcursor_t write;                      ///< Write cursor
     strcursor_t read;                       ///< Read cursor
-    uint8_t flags;                          ///< Buffer flags
+    uint32_t readable;                      ///< Length of readable content
+    uint32_t writable;                      ///< Length of writable space
+    uint32_t flags;                         ///< Buffer flags
     void *arg;                              ///< Argument for virtual methods
     void (*io)(struct strbuf_s *, size_t);  ///< Read more data into the buffer, or write from it
     void (*destroy)(struct strbuf_s *);     ///< Called when the string buffer is destroyed
@@ -82,8 +86,17 @@ void strblk_delete(strblk_t *blk);
 strbuf_t *strbuf_new(void);
 
 /**
+    Append an empty block to a buffer.
+
+    @param[in] buf Buffer
+    @param[in] blk Block to be appended
+    @return None
+*/
+void strbuf_append_block(strbuf_t *buf, strblk_t *blk);
+
+/**
     Create a string buffer representing a single contiguous block
-    of memory.
+    of memory for reading.
 
     @param[in] start Memory start address
     @param[in] size Memory size
@@ -116,21 +129,25 @@ size_t strbuf_content_size(strbuf_t *buf);
 size_t strbuf_space_size(strbuf_t *buf);
 
 /**
-    Advance read cursor by a number of bytes.
+    Read certain amount from the buffer.
 
     @param[in] buf Buffer
-    @param[in] nbytes Advance amount
+    @param[out] dest Destination memory, or NULL to advance the cursor
+            without actually reading
+    @param[in] nbytes Read amount
     @return None
 */
-void strbuf_advance_read(strbuf_t *buf, size_t nbytes);
+void strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes);
 
 /**
     Advance write cursor by a number of bytes.
 
     @param[in] buf Buffer
-    @param[in] nbytes Advance amount
+    @param[in] src Source memory, or NULL to advance the cursor without
+            actually writing
+    @param[in] nbytes Write amount
     @return None
 */
-void strbuf_advance_write(strbuf_t *buf, size_t nbytes);
+void strbuf_write(strbuf_t *buf, const uint8_t *src, size_t nbytes);
 
 #endif
