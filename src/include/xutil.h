@@ -31,6 +31,17 @@
 // FIXME: find a better place for such common defs?
 #define DECONST(v)  ((void *)(uintptr_t)(v))
 #define __constructor __attribute__((__constructor__))
+#define min(a,b)    ({ \
+            __typeof__(a) __a = (a); \
+            __typeof__(b) __b = (b); \
+            (__a < __b) ? __a : __b; \
+        })
+
+#define max(a,b)    ({ \
+            __typeof__(a) __a = (a); \
+            __typeof__(b) __b = (b); \
+            (__a > __b) ? __a : __b; \
+        })
 
 /**
     Allocate memory.
