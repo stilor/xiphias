@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "util/strbuf.h"
+#include "util/encoding.h"
 #include "util/xutil.h"
 
 #define C(x) ((x) ? "PASS" : "FAIL")
@@ -19,19 +20,24 @@ main(int argc, char *argv[])
     strbuf_t *buf;
     uint8_t xxx[sizeof(text_utf16be_bom)];
     size_t readable;
+    const char *enc;
 
     buf = strbuf_new_from_memory(text_utf16be_bom, sizeof(text_utf16be_bom));
     printf("%s %p\n", C(buf != NULL), buf);
     readable = strbuf_content_size(buf);
     printf("%s %zu\n", C(readable == sizeof(text_utf16be_bom)), readable);
     memset(xxx, 0, sizeof(xxx));
-    strbuf_read(buf, xxx, sizeof(xxx), 1);
+    strbuf_read(buf, xxx, sizeof(xxx), true);
     printf("%s\n", C(memcmp(xxx, text_utf16be_bom, sizeof(xxx)) == 0));
     readable = strbuf_content_size(buf);
     printf("%s %zu\n", C(readable == sizeof(text_utf16be_bom)), readable);
+    enc = encoding_detect_byte_order(buf);
+    printf("%s %s\n", C(enc && !strcmp(enc, "UTF-16BE")), enc ? enc : "<NULL>");
+    readable = strbuf_content_size(buf);
+    printf("%s %zu\n", C(readable == sizeof(text_utf16be_bom) - 2), readable);
     memset(xxx, 0, sizeof(xxx));
-    strbuf_read(buf, xxx, sizeof(xxx), 0);
-    printf("%s\n", C(memcmp(xxx, text_utf16be_bom, sizeof(xxx)) == 0));
+    strbuf_read(buf, xxx, sizeof(xxx), false);
+    printf("%s\n", C(memcmp(xxx, text_utf16be_bom + 2, sizeof(xxx) - 2) == 0));
     readable = strbuf_content_size(buf);
     printf("%s %zu\n", C(readable == 0), readable);
     strbuf_delete(buf);

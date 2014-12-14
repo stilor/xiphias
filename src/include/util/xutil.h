@@ -29,6 +29,7 @@
 } while (0)
 
 // FIXME: find a better place for such common defs?
+#define sizeofarray(a) (sizeof(a) / sizeof(*a))
 #define DECONST(v)  ((void *)(uintptr_t)(v))
 #define __constructor __attribute__((__constructor__))
 #define min(a,b)    ({ \
