@@ -8,8 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "xutil.h"
-#include "strbuf.h"
+#include "util/xutil.h"
+#include "util/strbuf.h"
 
 /// One block of text in a string buffer
 struct strblk_s {

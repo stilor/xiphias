@@ -4,8 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "strbuf.h"
-#include "xutil.h"
+#include "util/strbuf.h"
+#include "util/xutil.h"
 
 #define C(x) ((x) ? "PASS" : "FAIL")
 

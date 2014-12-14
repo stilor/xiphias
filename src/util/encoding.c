@@ -6,9 +6,9 @@
 */
 #include <string.h>
 
-#include "xutil.h"
-#include "strbuf.h"
-#include "encoding.h"
+#include "util/xutil.h"
+#include "util/strbuf.h"
+#include "util/encoding.h"
 
 // FIXME: this is not thread-safe. Protect registration/search with a mutex? Or require
 // that registration be done before using anything else in multithreaded context?

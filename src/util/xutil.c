@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "xutil.h"
+#include "util/xutil.h"
 
 void *
 xmalloc(size_t sz)
