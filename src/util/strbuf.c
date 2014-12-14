@@ -167,35 +167,53 @@ strbuf_content_size(strbuf_t *buf)
     return buf->readable;
 }
 
-// Advance read cursor
+// Lookahead/read
 void
-strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes)
+strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
 {
-    strblk_t *blk;
-    uint8_t *begin, *end;
+    strblk_t *blk, *next;
+    uint8_t *begin, *end, *readptr;
     size_t avail;
 
+    readptr = buf->readptr;
+    next = STAILQ_FIRST(&buf->content);
+    blk = NULL;
     do {
-        if ((blk = STAILQ_FIRST(&buf->content)) != NULL) {
-            // Have some queued data
-            begin = buf->readptr;
-            end = blk->end;
-            OOPS_ASSERT(begin <= end);
-            avail = min(nbytes, (size_t)(end - begin));
-            memcpy(dest, begin, avail);
-            dest += avail;
-            buf->readptr = begin + avail;
-            nbytes -= avail;
-            OOPS_ASSERT((uint8_t *)buf->readptr <= end);
-            if (buf->readptr == end) {
+        if (!next) {
+            // Not enough queued data, need to fetch
+            buf->ops->input(buf, buf->arg, nbytes);
+            next = blk ? STAILQ_NEXT(blk, link) : STAILQ_FIRST(&buf->content);
+            if (!next) {
+                OOPS; // TBD return partial read?
+            }
+        }
+        // Have some queued data
+        blk = next;
+        begin = readptr ? readptr : blk->begin;
+        end = blk->end;
+        OOPS_ASSERT(begin <= end);
+        avail = min(nbytes, (size_t)(end - begin));
+        memcpy(dest, begin, avail);
+        dest += avail;
+        readptr = begin + avail;
+        nbytes -= avail;
+        if (!lookahead) {
+            buf->readable -= avail;
+        }
+        OOPS_ASSERT((uint8_t *)readptr <= end);
+        if (readptr == end) {
+            next = NULL;
+            readptr = NULL;
+            if (!lookahead) {
                 // This block is done; release it and advance
                 STAILQ_REMOVE_HEAD(&buf->content, link);
                 strblk_delete(blk);
+                blk = NULL;
             }
         }
-        else {
-            // No queued data, need to fetch
-            buf->ops->input(buf, buf->arg, nbytes);
-        }
     } while (nbytes && !(buf->flags & BUF_LAST));
+
+    if (!lookahead) {
+        buf->readptr = readptr;
+    }
 }

@@ -24,8 +24,16 @@ main(int argc, char *argv[])
     printf("%s %p\n", C(buf != NULL), buf);
     readable = strbuf_content_size(buf);
     printf("%s %zu\n", C(readable == sizeof(text_utf16be_bom)), readable);
-    strbuf_read(buf, xxx, sizeof(xxx));
+    memset(xxx, 0, sizeof(xxx));
+    strbuf_read(buf, xxx, sizeof(xxx), 1);
     printf("%s\n", C(memcmp(xxx, text_utf16be_bom, sizeof(xxx)) == 0));
+    readable = strbuf_content_size(buf);
+    printf("%s %zu\n", C(readable == sizeof(text_utf16be_bom)), readable);
+    memset(xxx, 0, sizeof(xxx));
+    strbuf_read(buf, xxx, sizeof(xxx), 0);
+    printf("%s\n", C(memcmp(xxx, text_utf16be_bom, sizeof(xxx)) == 0));
+    readable = strbuf_content_size(buf);
+    printf("%s %zu\n", C(readable == 0), readable);
     strbuf_delete(buf);
 
     return 0;

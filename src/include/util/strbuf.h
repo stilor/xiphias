@@ -133,8 +133,9 @@ size_t strbuf_content_size(strbuf_t *buf);
     @param[in] buf Buffer
     @param[out] dest Destination memory
     @param[in] nbytes Read amount
+    @param[in] lookahead If true, does not advance current read pointer
     @return None
 */
-void strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes);
+void strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead);
 
 #endif
