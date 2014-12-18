@@ -2,8 +2,9 @@
 
 TARGETS = libxiphias testutil
 
-SUBDIRS-libxiphias		:= util
+SUBDIRS-libxiphias		:= util xml
 FILES-util				:= xutil.c strbuf.c encoding.c
+FILES-xml				:= reader.c
 CFLAGS-libxiphias		:= -fPIC $(shell curl-config --cflags)
 LDFLAGS-libxiphias		:= -shared -fPIC -Wl,-soname=libxiphias.so $(shell curl-config --libs)
 PROGNAME-libxiphias		:= libxiphias.so

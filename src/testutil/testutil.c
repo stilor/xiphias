@@ -7,21 +7,37 @@
 #include "util/strbuf.h"
 #include "util/encoding.h"
 #include "util/xutil.h"
+#include "xml/reader.h"
 
 #define C(x) ((x) ? "PASS" : "FAIL")
 
+#define TO_UTF16LE(x) (x & 0xFF), ((x >> 8) & 0xFF)
+#define TO_UTF16BE(x) ((x >> 8) & 0xFF), (x & 0xFF)
+
+#define SAMPLE_TEXT_WITHOUT_BOM \
+    _('<'), _('?'), _('x'), _('m'), _('l'), _(' '), \
+    _('e'), _('n'), _('c'), _('o'), _('d'), _('i'), _('n'), _('g'), _(' '), _('='), _('\a'), _('"'), _('U'), _('T'), _('F'), _('-'), _('8'), _('"'), \
+    _('\t'), _('?'), _('>'),
+
+#define SAMPLE_TEXT_WITH_BOM \
+    _(0xFEFF), SAMPLE_TEXT_WITHOUT_BOM
+
 const uint8_t text_utf16be_bom[] = {
-    0xFE, 0xFF, 0x00, 0x3C, 0x00, 0x3F, 0x00, 0x78, 0x00, 0x6d,
+#define _ TO_UTF16BE
+    SAMPLE_TEXT_WITH_BOM
+#undef _
 };
 
 int
 main(int argc, char *argv[])
 {
+    xml_reader_t *reader;
     strbuf_t *buf;
     uint8_t xxx[sizeof(text_utf16be_bom)];
     size_t readable;
     const char *enc;
 
+    // Basic strbuf
     buf = strbuf_new_from_memory(text_utf16be_bom, sizeof(text_utf16be_bom));
     printf("%s %p\n", C(buf != NULL), buf);
     readable = strbuf_content_size(buf);
@@ -41,6 +57,13 @@ main(int argc, char *argv[])
     readable = strbuf_content_size(buf);
     printf("%s %zu\n", C(readable == 0), readable);
     strbuf_delete(buf);
+
+    // Now via the XML reader
+    buf = strbuf_new_from_memory(text_utf16be_bom, sizeof(text_utf16be_bom));
+    reader = xml_reader_new(buf);
+    xml_reader_set_transport_encoding(reader, "UTF-8");
+    xml_reader_start(reader, NULL);
+    xml_reader_delete(reader);
 
     return 0;
 }

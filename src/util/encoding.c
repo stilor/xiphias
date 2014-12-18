@@ -6,8 +6,10 @@
 */
 #include <string.h>
 
+#include "util/defs.h"
 #include "util/xutil.h"
 #include "util/strbuf.h"
+
 #include "util/encoding.h"
 
 // FIXME: this is not thread-safe. Protect registration/search with a mutex? Or require
@@ -142,6 +144,14 @@ static const bom_encdesc_t bom_encodings[] = {
     },
 };
 
+bool
+encoding_compatible(const encoding_t *enc1, const encoding_t *enc2)
+{
+    // Have the same compatibility tag, and neither is 'unknown'.
+    return enc1->enctype != ENCODING_T_UNKNOWN
+            && enc1->enctype == enc2->enctype;
+}
+
 const char *
 encoding_detect_byte_order(strbuf_t *buf)
 {
@@ -184,7 +194,7 @@ destroy_utf8(strbuf_t **pbuf, void *baton)
 ///
 static encoding_t enc_utf8 = {
     .name = "UTF-8",
-    .codeunit = 1,
+    .enctype = ENCODING_T_UTF8,
     .init = init_utf8,
     .destroy = destroy_utf8,
 };

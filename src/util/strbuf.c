@@ -8,7 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "util/defs.h"
 #include "util/xutil.h"
+
 #include "util/strbuf.h"
 
 /// One block of text in a string buffer
@@ -32,9 +34,9 @@ struct strbuf_s {
 /**
     Dummy input for a string buffer.
 
-    @param[in] buf Buffer
-    @param[in] arg Argument
-    @param[in] sz Desired input size
+    @param buf Buffer
+    @param arg Argument
+    @param sz Desired input size
     @return None
 */
 static void
@@ -46,8 +48,8 @@ null_input(strbuf_t *buf, void *arg, size_t sz)
 /**
     Dummy destructor; no-op.
 
-    @param[in] buf Buffer
-    @param[in] arg Argument
+    @param buf Buffer
+    @param arg Argument
     @return None
 */
 static void
