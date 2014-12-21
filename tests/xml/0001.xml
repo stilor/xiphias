@@ -1,0 +1,9 @@
+<?xml
+version="1.0"?>
+<!DOCTYPE foo [
+<!ELEMENT foo (bar)>
+<!ELEMENT bar (#PCDATA)>
+<!ENTITY next SYSTEM "0001-inc.xml">
+<!ENTITY xxx "bar">
+]>
+<foo>&next;</foo>
