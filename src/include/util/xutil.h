@@ -40,5 +40,5 @@ char *xstrdup(const char *s);
 /// If this library is ever to support non-UTF-8 systems, will need to implement them (EBCDIC?)
 #define xstrcmp(s1, s2)         strcmp((s1), (s2))
 #define xstrncmp(s1, s2, l)     strcmp((s1), (s2), (l))
-
+#define xchareq(c1, c2)         ((c1) == (c2))
 #endif

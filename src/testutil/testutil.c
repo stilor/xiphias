@@ -34,32 +34,25 @@ main(int argc, char *argv[])
     xml_reader_t *reader;
     strbuf_t *buf;
     uint8_t xxx[sizeof(text_utf16be_bom)];
-    size_t readable;
     const char *enc;
+    bool had_bom;
 
     // Basic strbuf
-    buf = strbuf_new_from_memory(text_utf16be_bom, sizeof(text_utf16be_bom));
+    buf = strbuf_new_from_memory(text_utf16be_bom, sizeof(text_utf16be_bom), false);
     printf("%s %p\n", C(buf != NULL), buf);
-    readable = strbuf_content_size(buf);
-    printf("%s %zu\n", C(readable == sizeof(text_utf16be_bom)), readable);
     memset(xxx, 0, sizeof(xxx));
     strbuf_read(buf, xxx, sizeof(xxx), true);
     printf("%s\n", C(memcmp(xxx, text_utf16be_bom, sizeof(xxx)) == 0));
-    readable = strbuf_content_size(buf);
-    printf("%s %zu\n", C(readable == sizeof(text_utf16be_bom)), readable);
-    enc = encoding_detect_byte_order(buf);
+    enc = encoding_detect_byte_order(buf, &had_bom);
     printf("%s %s\n", C(enc && !strcmp(enc, "UTF-16BE")), enc ? enc : "<NULL>");
-    readable = strbuf_content_size(buf);
-    printf("%s %zu\n", C(readable == sizeof(text_utf16be_bom) - 2), readable);
+    printf("%s %s BOM\n", C(had_bom), had_bom ? "had" : "did not have");
     memset(xxx, 0, sizeof(xxx));
     strbuf_read(buf, xxx, sizeof(xxx), false);
     printf("%s\n", C(memcmp(xxx, text_utf16be_bom + 2, sizeof(xxx) - 2) == 0));
-    readable = strbuf_content_size(buf);
-    printf("%s %zu\n", C(readable == 0), readable);
     strbuf_delete(buf);
 
     // Now via the XML reader
-    buf = strbuf_new_from_memory(text_utf16be_bom, sizeof(text_utf16be_bom));
+    buf = strbuf_new_from_memory(text_utf16be_bom, sizeof(text_utf16be_bom), false);
     reader = xml_reader_new(buf);
     xml_reader_set_transport_encoding(reader, "UTF-8");
     xml_reader_start(reader, NULL);

@@ -43,13 +43,13 @@ xml_reader_set_encoding(xml_reader_t *h, const encoding_t *enc)
         OOPS;
     }
     if (h->encoding) {
-        h->encoding->destroy(&h->buf, h->encoding_baton);
+        h->encoding->destroy(h->encoding_baton);
         h->encoding = NULL;
         h->encoding_baton = NULL;
     }
     if (enc) {
         h->encoding = enc;
-        h->encoding_baton = h->encoding->init(&h->buf, enc->data);
+        h->encoding_baton = h->encoding->init(enc->data);
     }
 }
 
@@ -94,17 +94,114 @@ xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname)
     h->enc_transport = xstrdup(encname);
 }
 
+/**
+    Check if a given Unicode code point is white space per XML spec.
+    XML spec says, #x20, #x9, #xA and #xD are whitespace, the rest is not.
+
+    @param cp Code point to check
+    @return true if @a cp is whitespace, false otherwise
+*/
+static bool
+xml_is_whitespace(uint32_t cp)
+{
+    return xchareq(cp, 0x20) || xchareq(cp, 0x9) || xchareq(cp, 0xA)
+            || xchareq(cp, 0xD);
+}
+
+/**
+    Perform the translation and normalization checks prescribed by the XML
+    specifications.
+
+    End-of-Line handling:
+
+    For XML 1.0: To simplify the tasks of applications, the XML processor MUST
+    behave as if it normalized all line breaks in external parsed entities
+    (including the document entity) on input, before parsing, by translating
+    both the two-character sequence #xD #xA and any #xD that is not followed
+    by #xA to a single #xA character.
+
+    For XML 1.1: To simplify the tasks of applications, the XML processor MUST
+    behave as if it normalized all line breaks in external parsed entities
+    (including the document entity) on input, before parsing, by translating
+    all of the following to a single #xA character:
+    1. the two-character sequence #xD #xA
+    2. the two-character sequence #xD #x85
+    3. the single character #x85
+    4. the single character #x2028
+    5. any #xD character that is not immediately followed by #xA or #x85.
+
+    Normalization checking (XML 1.1 only):
+
+    All XML parsed entities (including document entities) SHOULD be fully
+    normalized as per the definition of B Definitions for Character
+    Normalization supplemented by the following definitions of relevant
+    constructs for XML:
+    1. The replacement text of all parsed entities
+    2. All text matching, in context, one of the following productions:
+       - CData
+       - CharData
+       - content
+       - Name
+       - Nmtoken
+
+    From this definition of normalization, it looks like the whole document
+    inside the root element is expected to be fully normalized. At the top
+    level, the following are expected to be normalized: PI targets,
+    element names and attribute names (but not attribute values!), and parts
+    of the document type definition.
+
+    @param input Input buffer, in UCS-4
+    @param nchars Number of characters in the input buffer
+    @param output Output buffer, in UTF-8. Must point at least 4 times @a nchars
+        bytes.
+    @return Number of bytes consumed in the output buffer
+*/
+static size_t
+xml_reader_input_filter(uint32_t *input, size_t nchars, uint8_t *output)
+{
+    uint8_t *ptr = output;
+
+    // TBD EOL transltion
+    // TBD normalization check
+
+    // Just pack the characters for now
+    while (nchars--) {
+        encoding_utf8_store(&ptr, *input++);
+    }
+    return ptr - output;
+}
+
+/**
+    Create a transcoding string buffer that decodes the input as determined
+    by the reader start.
+
+    @param h Reader handle
+    @param xlate_buf Translation buffer, either empty or with content rejected
+        while looking for XML/text declaration.
+    @return None
+*/
+static void
+xml_reader_set_input(xml_reader_t *h, strbuf_t *xlate_buf)
+{
+    // TBD: set the buffer ops to transcoder + xml_reader_input_filter
+}
+
 void
 xml_reader_start(xml_reader_t *h, const char *const *xmldeclattr)
 {
+    uint32_t xmldecl[6];
+    uint8_t xmldecl_utf8[sizeofarray(xmldecl) * 4]; // max 4 bytes per char
+    size_t len;
     const encoding_t *enc;
     const char *encname;
+    bool had_bom;
+    strbuf_t *xlate_buf;
 
     // No more setup changes
     h->flags |= READER_STARTED;
 
     // Check the stream for Byte Order Mark (BOM) and switch the encoding, if needed
-    if ((encname = encoding_detect_byte_order(h->buf)) != NULL) {
+    if ((encname = encoding_detect_byte_order(h->buf, &had_bom)) != NULL) {
         if ((enc = encoding_search(encname)) == NULL) {
             OOPS;
         }
@@ -113,9 +210,57 @@ xml_reader_start(xml_reader_t *h, const char *const *xmldeclattr)
         h->enc_detected = xstrdup(encname);
     }
 
+    // If no encoding passed from the transport layer, and autodetect didn't help,
+    // try UTF-8.
+    if (!h->encoding) {
+        enc = encoding_search("UTF-8");
+        OOPS_ASSERT(enc);   // UTF-8 must be built int
+        xml_reader_set_encoding(h, enc);
+    }
+
     // We should at least know the encoding type by now: whether it is 1/2/4-byte based,
     // and the endianness. Read and parse the XML/Text declaration, if any, and set
-    // the final encoding as specified therein.
+    // the final encoding as specified therein. Until then, though, we need to be careful
+    // and read one character at a time; otherwise, we may assume a partially compatible
+    // encoding and transcode too much.
 
-    // TBD
+    // We are looking for '<?xml' string, followed by XML whitespace
+    len = h->encoding->xlate(h->buf, h->encoding_baton, xmldecl, sizeofarray(xmldecl));
+    if (len == sizeofarray(xmldecl)
+            && xchareq(xmldecl[0], '<')
+            && xchareq(xmldecl[1], '?')
+            && xchareq(xmldecl[2], 'x')
+            && xchareq(xmldecl[3], 'm')
+            && xchareq(xmldecl[4], 'l')
+            && xml_is_whitespace(xmldecl[5])) {
+        // We have a declaration; consume the declaration and start with empty buffer
+        // TBD parse the decl
+        xlate_buf = strbuf_new(); // Consume the declaration and start with empty buffer
+    }
+    else {
+        // No declaration, "unget" the characters we've read.
+        len = xml_reader_input_filter(xmldecl, len, xmldecl_utf8);
+        xlate_buf = strbuf_new_from_memory(xmldecl_utf8, len, true);
+    }
+
+    // Set operations for reading in the discovered encoding
+    xml_reader_set_input(h, xlate_buf);
+
+    // TBD Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
+    // begin with the Byte Order Mark described in ISO/IEC 10646 [ISO/IEC
+    // 10646] or Unicode [Unicode] (the ZERO WIDTH NO-BREAK SPACE character, #xFEFF).
+    (void)&had_bom;
+
+    // TBD In the absence of external character encoding information (such as MIME
+    // headers), parsed entities which are stored in an encoding other than UTF-8
+    // or UTF-16 MUST begin with a text declaration (see 4.3.1 The Text Declaration)
+    // containing an encoding declaration.
+
+    // TBD Unless an encoding is determined by a higher-level protocol, it is also a fatal
+    // error if an XML entity contains no encoding declaration and its content is not
+    // legal UTF-8 or UTF-16.
+
+    // TBD emit an event (callback) for XML declaration, containing the following:
+    // - whether the declaration was implicit
+    // - values for version/encoding/standalone
 }

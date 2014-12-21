@@ -29,7 +29,7 @@ typedef struct strbuf_s strbuf_t;
 
 /// Operations on a string buffer
 typedef struct strbuf_opts_s {
-    void (*input)(strbuf_t *, void *, size_t);  ///< Request add'l input
+    void (*input)(strbuf_t *, void *);          ///< Request add'l input
     void (*destroy)(strbuf_t *, void *);        ///< Destroy the buffer
 } strbuf_ops_t;
 
@@ -108,9 +108,10 @@ void strbuf_append_block(strbuf_t *buf, strblk_t *blk);
 
     @param start Memory start address
     @param size Memory size
+    @param copy Copy the provided buffer
     @return String buffer
 */
-strbuf_t *strbuf_new_from_memory(const void *start, size_t size);
+strbuf_t *strbuf_new_from_memory(const void *start, size_t size, bool copy);
 
 /**
     Destroy a string buffer along with associated blocks.
@@ -119,14 +120,6 @@ strbuf_t *strbuf_new_from_memory(const void *start, size_t size);
     @return None
 */
 void strbuf_delete(strbuf_t *buf);
-
-/**
-    Calculate the size of the content available for reading in the buffer.
-
-    @param buf Buffer string
-    @return Content size, in bytes
-*/
-size_t strbuf_content_size(strbuf_t *buf);
 
 /**
     Read certain amount from the buffer.
@@ -138,5 +131,15 @@ size_t strbuf_content_size(strbuf_t *buf);
     @return None
 */
 void strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead);
+
+/**
+    Get pointers to start/end of a current contiguous block.
+
+    @param buf Buffer
+    @param pbegin Pointer to the beginning of a block will be stored here
+    @param pend Pointer to the end of a block will be stored here
+    @return None (if no more input available, *pbegin and *pend are both set to NULL)
+*/
+void strbuf_getptr(strbuf_t *buf, void **pbegin, void **pend);
 
 #endif

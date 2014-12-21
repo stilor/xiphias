@@ -24,8 +24,9 @@ struct strblk_s {
 /// Linked list of text blocks - string buffer
 struct strbuf_s {
     STAILQ_HEAD(, strblk_s) content;            ///< Current content
+    // TBD: is readptr needed? Or just advance the beginning of the first block?
+    // TBD: this would remove the restriction of prepending only to unread buffers
     void *readptr;                              ///< Read pointer (1st block)
-    uint32_t readable;                          ///< Length of readable content
     uint32_t flags;                             ///< Buffer flags
     void *arg;                                  ///< Argument passed to ops
     const strbuf_ops_t *ops;                    ///< Operations vtable
@@ -36,11 +37,10 @@ struct strbuf_s {
 
     @param buf Buffer
     @param arg Argument
-    @param sz Desired input size
     @return None
 */
 static void
-null_input(strbuf_t *buf, void *arg, size_t sz)
+null_input(strbuf_t *buf, void *arg)
 {
     OOPS;
 }
@@ -103,28 +103,32 @@ strbuf_new(void)
     return buf;
 }
 
-// Append empty block
+// Prepend a block
+
+// Append a block
 void
 strbuf_append_block(strbuf_t *buf, strblk_t *blk)
 {
     OOPS_ASSERT(blk->end >= blk->begin);
 
     STAILQ_INSERT_TAIL(&buf->content, blk, link);
-    if (!buf->readptr) {
-        buf->readptr = blk->begin;
-    }
-    buf->readable += (uint8_t *)blk->end - (uint8_t *)blk->begin;
 }
 
 // New buffer for reading from memory
 strbuf_t *
-strbuf_new_from_memory(const void *start, size_t size)
+strbuf_new_from_memory(const void *start, size_t size, bool copy)
 {
     strbuf_t *buf = strbuf_new();
-    strblk_t *blk = strblk_new(0);
+    strblk_t *blk = strblk_new(copy ? size : 0);
 
     // Point the block to the memory passed in and append it
-    blk->begin = DECONST(start);
+    if (copy) {
+        memcpy(blk->data, start, size);
+        blk->begin = blk->data;
+    }
+    else {
+        blk->begin = DECONST(start);
+    }
     blk->end = (uint8_t *)blk->begin + size;
     strbuf_append_block(buf, blk);
 
@@ -162,13 +166,6 @@ strbuf_getf(strbuf_t *buf, uint32_t *flags)
     *flags = buf->flags;
 }
 
-// Readable amount
-size_t
-strbuf_content_size(strbuf_t *buf)
-{
-    return buf->readable;
-}
-
 // Lookahead/read
 void
 strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
@@ -183,7 +180,7 @@ strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
     do {
         if (!next) {
             // Not enough queued data, need to fetch
-            buf->ops->input(buf, buf->arg, nbytes);
+            buf->ops->input(buf, buf->arg);
             next = blk ? STAILQ_NEXT(blk, link) : STAILQ_FIRST(&buf->content);
             if (!next) {
                 OOPS; // TBD return partial read?
@@ -195,13 +192,12 @@ strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
         end = blk->end;
         OOPS_ASSERT(begin <= end);
         avail = min(nbytes, (size_t)(end - begin));
-        memcpy(dest, begin, avail);
-        dest += avail;
+        if (dest) {
+            memcpy(dest, begin, avail);
+            dest += avail;
+        }
         readptr = begin + avail;
         nbytes -= avail;
-        if (!lookahead) {
-            buf->readable -= avail;
-        }
         OOPS_ASSERT((uint8_t *)readptr <= end);
         if (readptr == end) {
             next = NULL;
@@ -217,5 +213,26 @@ strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
 
     if (!lookahead) {
         buf->readptr = readptr;
+    }
+}
+
+// Obtain contiguous readable block
+void
+strbuf_getptr(strbuf_t *buf, void **pbegin, void **pend)
+{
+    strblk_t *blk;
+
+    if (STAILQ_EMPTY(&buf->content) && !(buf->flags & BUF_LAST)) {
+        // Nothing yet? Try to fetch
+        buf->ops->input(buf, buf->arg);
+    }
+    if ((blk = STAILQ_FIRST(&buf->content)) == NULL) {
+        // Tried and couldn't get anything
+        buf->flags |= BUF_LAST;
+        *pbegin = *pend = NULL;
+    }
+    else {
+        *pbegin = buf->readptr ? buf->readptr : blk->begin;
+        *pend = blk->end;
     }
 }
