@@ -51,6 +51,7 @@ typedef struct {
     bool is_bom;            ///< Consume the signature
 } bom_encdesc_t;
 
+/// List of "signatures"
 static const bom_encdesc_t bom_encodings[] = {
     {
         .encname = "UTF-32BE",
@@ -179,18 +180,18 @@ encoding_detect_byte_order(strbuf_t *buf, bool *had_bom)
 */
 
 
-// --- UTF-8 encoding: dummy functions, this library operates in UTF8 ---
-
 static void *
-init_utf8(const void *data)
+init_dummy(const void *data)
 {
     return NULL;
 }
 
 static void
-destroy_utf8(void *baton)
+destroy_dummy(void *baton)
 {
 }
+
+// --- UTF-8 encoding: dummy functions, this library operates in UTF8 ---
 
 /// Length of the multibyte sequence (0: invalid starting char)
 static const uint8_t utf8_len[256] = {
@@ -212,10 +213,10 @@ static const uint8_t utf8_len[256] = {
     4, 4, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xF0 - 4-byte chars up to 0x10FFFF
 };
 
-static size_t
-xlate_utf8(strbuf_t *buf, void *baton, uint32_t *out, size_t nchars)
+static void
+xlate_UTF8(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
 {
-    uint32_t *orig_out = out;
+    uint32_t *out = *pout;
     uint32_t val;
     uint8_t *ptr, *begin, *end;
     size_t len;
@@ -231,7 +232,7 @@ xlate_utf8(strbuf_t *buf, void *baton, uint32_t *out, size_t nchars)
             break;
         }
         ptr = begin;
-        while (nchars && ptr < end) {
+        while (out < end_out && ptr < end) {
             if (!len) {
                 // New character
                 val = *ptr++;
@@ -253,32 +254,70 @@ xlate_utf8(strbuf_t *buf, void *baton, uint32_t *out, size_t nchars)
             if (!len) {
                 // Character complete
                 *out++ = val;
-                nchars--;
             }
         }
         // Mark the number of bytes we consumed as read
         strbuf_read(buf, NULL, ptr - begin, false);
-    } while (nchars);
+    } while (out < end_out);
 
-    return out - orig_out;
+    *pout = out;
 }
 
 ///
-static encoding_t enc_utf8 = {
+static encoding_t enc_UTF8 = {
     .name = "UTF-8",
     .enctype = ENCODING_T_UTF8,
-    .init = init_utf8,
-    .destroy = destroy_utf8,
-    .xlate = xlate_utf8,
+    .init = init_dummy,
+    .destroy = destroy_dummy,
+    .xlate = xlate_UTF8,
+};
+
+// --- UTF-16LE encoding: replace 16-bit encoding with UTF-8 multibytes
+
+// TBD: implement optimized versions if byte order matches host?
+// TBD: move to <util/defs.h> or new <util/byteorder.h>
+static inline uint16_t
+le16tohost(const uint8_t *p)
+{
+    return (p[1] << 8) | p[0];
+}
+
+#define FUNC xlate_UTF16LE
+#define TOHOST le16tohost
+#include "encoding-utf16.c"
+
+static encoding_t enc_UTF16LE = {
+    .name = "UTF-16LE",
+    .enctype = ENCODING_T_UTF16LE,
+    .init = init_dummy,
+    .destroy = destroy_dummy,
+    .xlate = xlate_UTF16LE,
 };
 
 
-// --- UTF-16BE encoding: replace 16-bit encoding with UTF-8 multibytes
+static inline uint16_t
+be16tohost(const uint8_t *p)
+{
+    return (p[0] << 8) | p[1];
+}
 
+#define FUNC xlate_UTF16BE
+#define TOHOST be16tohost
+#include "encoding-utf16.c"
+
+static encoding_t enc_UTF16BE = {
+    .name = "UTF-16BE",
+    .enctype = ENCODING_T_UTF16BE,
+    .init = init_dummy,
+    .destroy = destroy_dummy,
+    .xlate = xlate_UTF16BE,
+};
 
 // --- Register known encodings
 static void __constructor
 encodings_autoinit(void)
 {
-    encoding_register(&enc_utf8);
+    encoding_register(&enc_UTF8);
+    encoding_register(&enc_UTF16LE);
+    encoding_register(&enc_UTF16BE);
 }

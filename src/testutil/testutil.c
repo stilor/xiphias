@@ -16,8 +16,11 @@
 
 #define SAMPLE_TEXT_WITHOUT_BOM \
     _('<'), _('?'), _('x'), _('m'), _('l'), _(' '), \
-    _('e'), _('n'), _('c'), _('o'), _('d'), _('i'), _('n'), _('g'), _(' '), _('='), _('\a'), _('"'), _('U'), _('T'), _('F'), _('-'), _('8'), _('"'), \
-    _('\t'), _('?'), _('>'),
+    _('v'), _('e'), _('r'), _('s'), _('i'), _('o'), _('n'), _('='), \
+    _('"'), _('1'), _('.'), _('0'), _('"'), _(' '), \
+    _('e'), _('n'), _('c'), _('o'), _('d'), _('i'), _('n'), _('g'), _('='), \
+    _('"'), _('U'), _('T'), _('F'), _('-'), _('1'), _('6'), _('"'), \
+    _('?'), _('>'), _('<'), _('a'), _('/'), _('>')
 
 #define SAMPLE_TEXT_WITH_BOM \
     _(0xFEFF), SAMPLE_TEXT_WITHOUT_BOM
@@ -27,6 +30,30 @@ const uint8_t text_utf16be_bom[] = {
     SAMPLE_TEXT_WITH_BOM
 #undef _
 };
+
+// TBD
+static void
+xmldecl_cb(void *arg, const xml_reader_cbparam_t *cbparam)
+{
+    static const char * const stdalone[] = {
+        [XML_INFO_STANDALONE_NO_VALUE] = "???",
+        [XML_INFO_STANDALONE_YES] = "yes",
+        [XML_INFO_STANDALONE_NO] = "no",
+    };
+    static const char * const xmlversion[] = {
+        [XML_INFO_VERSION_NO_VALUE] = "???",
+        [XML_INFO_VERSION_1_0] = "1.0",
+        [XML_INFO_VERSION_1_1] = "1.1",
+    };
+    const xml_reader_cbparam_xmldecl_t *x = &cbparam->xmldecl;
+
+    printf("%s: %s, encoding '%s', standalone '%s', version '%s'\n",
+            __func__,
+            x->has_decl ? "has declaration" : "implied declaration",
+            x->encoding ? x->encoding : "<unknown>",
+            stdalone[x->standalone],
+            xmlversion[x->version]);
+}
 
 int
 main(int argc, char *argv[])
@@ -54,8 +81,8 @@ main(int argc, char *argv[])
     // Now via the XML reader
     buf = strbuf_new_from_memory(text_utf16be_bom, sizeof(text_utf16be_bom), false);
     reader = xml_reader_new(buf);
-    xml_reader_set_transport_encoding(reader, "UTF-8");
-    xml_reader_start(reader, NULL);
+    xml_reader_set_callback(reader, XML_READER_CB_XMLDECL, xmldecl_cb, NULL);
+    xml_reader_process_xml(reader, true);
     xml_reader_delete(reader);
 
     return 0;

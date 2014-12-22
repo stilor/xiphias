@@ -57,11 +57,11 @@ typedef struct encoding_s {
 
         @param buf Buffer to read from
         @param baton Pointer returned by initializer
-        @param out Output UCS-4 buffer
-        @param nchars Number of characters to output
-        @return Number of characters translated
+        @param out Output UCS-4 buffer (adjusted to the next unused character)
+        @param end_out Pointer at the next byte past the end of output buffer
+        @return None
     */
-    size_t (*xlate)(strbuf_t *buf, void *baton, uint32_t *out, size_t nchars);
+    void (*xlate)(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out);
 } encoding_t;
 
 
