@@ -56,7 +56,7 @@ FUNC(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
             NEXTCHAR_UTF16;
             ptr += 2;
         }
-        if (ptr < end) {
+        if (out < end_out && ptr < end) {
             // Incomplete character remains in the block - save for next block
             tmp[0] = *ptr++;
             needmore = 1;

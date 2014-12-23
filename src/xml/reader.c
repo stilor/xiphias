@@ -4,6 +4,8 @@
 /** @file
     XML reader handle operations.
 */
+#include <string.h>
+
 #include "util/defs.h"
 #include "util/xutil.h"
 #include "util/strbuf.h"
@@ -172,6 +174,65 @@ xml_is_whitespace(uint32_t cp)
 }
 
 /**
+    Read one character from input.
+
+    @param h Reader handle
+    @return Character read
+*/
+static uint32_t
+xml_read_1(xml_reader_t *h)
+{
+    uint32_t tmp, *ptr = &tmp;
+
+    h->encoding->xlate(h->buf, h->encoding_baton, &ptr, ptr + 1);
+    if (ptr == &tmp) {
+        OOPS; // No input
+    }
+    else if (tmp >= 0x7f) {
+        OOPS; // Only ASCII characters in the XML declaration
+    }
+    return tmp;
+}
+
+/**
+    Read from the buffer until the first non-whitespace character is encountered.
+
+    @param h Reader handle
+    @return First non-whitespace character
+*/
+static uint32_t
+xml_skip_whitespace(xml_reader_t *h)
+{
+    uint32_t tmp;
+
+    do {
+        tmp = xml_read_1(h);
+    } while (xml_is_whitespace(tmp));
+    return tmp;
+}
+
+/**
+    Compare a string in host encoding to UCS-4 array.
+
+    @param ucs UCS-4 array
+    @param s String to compare
+    @param sz Number of characters to compare
+    @return true if strings are equal
+*/
+static bool
+ucs4_equal(const uint32_t *ucs, const char *s, size_t sz)
+{
+    // We know that everything we've read at this point is ASCII (<= 0x7E) and thus
+    // safe to compare as unsigned.
+    while (sz--) {
+        if (!xchareq(*ucs++, (uint8_t)*s++)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
     Parse the "attributes" in the XML declaration.
 
     @param h Reader handle
@@ -184,7 +245,112 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
         const struct xml_reader_xmldecl_attrdesc_s *attrlist,
         xml_reader_cbparam_t *cbparam)
 {
-    // TBD
+    uint32_t *buf;
+    size_t bufsz = 32; // Initial buffer size; sufficient for all attribute names
+    uint32_t eq, quote;
+    size_t nread, i;
+    char *encname;
+
+    buf = xmalloc(bufsz);
+    // TBD register a clean-up to free buf on OOPS
+    while (true) {
+        buf[0] = xml_skip_whitespace(h);
+        if (xchareq(buf[0], '?')) {
+            // Seems like the end of the declaration... Verify the next character,
+            // verify there are no more required attributes and be done.
+            buf[1] = xml_read_1(h);
+            if (xchareq(buf[1], '>')) {
+                while (attrlist->name) {
+                    if (attrlist->mandatory) {
+                        OOPS; // Required and missing
+                    }
+                    attrlist++;
+                }
+                xfree(buf);
+                return;
+            }
+            OOPS; // Malformed declaration
+        }
+        if (!attrlist->name) {
+            OOPS; // Another attribute? We are not expecting anything!
+        }
+        nread = 1; // 1 character in buffer
+        // Find an attribute that matches
+        do {
+            // This immediately reads 2nd character. Fortunately, there are no 1-char
+            // attribute names in XMLDecl/TextDecl
+            buf[nread++] = xml_read_1(h);
+            while (!ucs4_equal(buf, attrlist->name, nread)) {
+                if (attrlist->mandatory) {
+                    OOPS; // Mandatory attribute missing
+                }
+                // Doesn't match and is optional - advance to the next attribute
+                attrlist++;
+                if (!attrlist->name) {
+                    OOPS; // The input is not a name of any expected attribute
+                }
+            }
+        } while (nread != strlen(attrlist->name));
+
+        // Found the attribute name, now look for Eq production: S* '=' S*
+        eq = xml_skip_whitespace(h);
+        if (!xchareq(eq, '=')) {
+            OOPS; // No equal size
+        }
+        quote = xml_skip_whitespace(h);
+        if (!xchareq(quote, '"') && !xchareq(quote, '\'')) {
+            OOPS; // Attribute value does not start with a quote
+        }
+        // Look for a matching quote
+        nread = 0;
+        do {
+            if (nread == bufsz) {
+                // Double the buffer capacity. Should not be needed on a real document
+                // with a sensible encoding name (the rest of the attributes are 3 characters
+                // at most)
+                bufsz *= 2;
+                buf = xrealloc(buf, bufsz);
+            }
+        } while ((buf[nread++] = xml_read_1(h)) != quote);
+
+        // Verify/save the attribute value. Note that 'nread' includes closing quote
+        if (!strcmp(attrlist->name, "version")) {
+            if (nread == 4 && ucs4_equal(buf, "1.0", 3)) {
+                cbparam->xmldecl.version = XML_INFO_VERSION_1_0;
+            }
+            else if (nread == 4 && ucs4_equal(buf, "1.1", 3)) {
+                cbparam->xmldecl.version = XML_INFO_VERSION_1_1;
+            }
+            else {
+                OOPS; // Unsupported version
+            }
+        }
+        else if (!strcmp(attrlist->name, "encoding")) {
+            encname = xmalloc(nread);
+            for (i = 0; i < nread - 1; i++) {
+                encname[i] = buf[i]; // Convert to UTF-8/ASCII
+            }
+            encname[i] = 0;
+            cbparam->xmldecl.encoding = encname;
+        }
+        else if (!strcmp(attrlist->name, "standalone")) {
+            if (nread == 4 && ucs4_equal(buf, "yes", 3)) {
+                cbparam->xmldecl.standalone = XML_INFO_STANDALONE_YES;
+            }
+            else if (nread == 3 && ucs4_equal(buf, "no", 2)) {
+                cbparam->xmldecl.standalone = XML_INFO_STANDALONE_NO;
+            }
+            else {
+                OOPS; // Invalid value for standalone="..."
+            }
+        }
+        else {
+            OOPS;
+        }
+
+        // Advance to the next attribute
+        attrlist++;
+    }
 }
 
 /**
@@ -332,7 +498,8 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
         // allows ASCII characterts in the XMLDecl/TextDecl production: "The characters
         // #x85 and #x2028 cannot be reliably recognized and translated until an entity's
         // encoding declaration (if present) has been read. Therefore, it is a fatal error
-        // to use them within the XML declaration or text declaration. 
+        // to use them within the XML declaration or text declaration.
+        cbparam.xmldecl.has_decl = true;
         xml_reader_xmldecl_getattr(h, attrlist, &cbparam);
         xlate_buf = strbuf_new(); // Consumed the declaration; start with empty buffer
     }

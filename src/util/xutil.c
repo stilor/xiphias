@@ -20,6 +20,17 @@ xmalloc(size_t sz)
     return rv;
 }
 
+void *
+xrealloc(const void *ptr, size_t sz)
+{
+    void *rv;
+
+    if ((rv = realloc(DECONST(ptr), sz)) == NULL) {
+        OOPS;
+    }
+    return rv;
+}
+
 void
 xfree(const void *ptr)
 {

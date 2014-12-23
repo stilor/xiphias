@@ -20,6 +20,15 @@
 void *xmalloc(size_t sz);
 
 /**
+    Reallocate memory.
+
+    @param ptr Current allocation
+    @param sz Desired size
+    @return Reallocated memory
+*/
+void *xrealloc(const void *ptr, size_t sz);
+
+/**
     Free memory.
 
     @param ptr Pointer to be freed
