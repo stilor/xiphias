@@ -77,11 +77,6 @@ xml_reader_set_encoding(xml_reader_t *h, const encoding_t *enc)
         // that has been read previously cannot be trusted then.
         OOPS;
     }
-    // Is new encoding a "meta-encoding"? If it is, keep the old one (which is
-    // compatible)
-    if (enc && !enc->xlate) {
-        return;
-    }
     // TBD handle UTF-16 (w/o endianness specified) here; if the old encoding
     // is compatible, leave the old one.
     if (h->encoding) {
@@ -483,7 +478,6 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
         OOPS_ASSERT(enc);   // UTF-8 must be built in
         xml_reader_set_encoding(h, enc);
     }
-    OOPS_ASSERT(h->encoding->xlate); // Must not be "meta-encoding"
 
     // We should at least know the encoding type by now: whether it is 1/2/4-byte based,
     // and the endianness. Read and parse the XML/Text declaration, if any, and set
