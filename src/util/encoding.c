@@ -148,7 +148,15 @@ static const bom_encdesc_t bom_encodings[] = {
 bool
 encoding_compatible(const encoding_t *enc1, const encoding_t *enc2)
 {
-    // Have the same compatibility tag, and neither is 'unknown'.
+    // If either of them has compatibility check method, use it
+    if (enc1->compatible) {
+        return enc1->compatible(enc2);
+    }
+    if (enc2->compatible) {
+        return enc2->compatible(enc1);
+    }
+    // Otherwise, check if they have the same compatibility tag,
+    // and neither is 'unknown'.
     return enc1->enctype != ENCODING_T_UNKNOWN
             && enc1->enctype == enc2->enctype;
 }
@@ -313,6 +321,20 @@ static encoding_t enc_UTF16BE = {
     .xlate = xlate_UTF16BE,
 };
 
+
+static bool
+compat_UTF16(const encoding_t *other)
+{
+    // UTF-16 is a compatible declaration for either big- or little-endian flavor
+    return other->enctype == ENCODING_T_UTF16LE
+            || other->enctype == ENCODING_T_UTF16BE;
+}
+
+static encoding_t enc_UTF16 = {
+    .name = "UTF-16",
+    .compatible = compat_UTF16,
+};
+
 // --- Register known encodings
 static void __constructor
 encodings_autoinit(void)
@@ -320,4 +342,5 @@ encodings_autoinit(void)
     encoding_register(&enc_UTF8);
     encoding_register(&enc_UTF16LE);
     encoding_register(&enc_UTF16BE);
+    encoding_register(&enc_UTF16);
 }

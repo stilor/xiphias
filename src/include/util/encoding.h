@@ -62,6 +62,14 @@ typedef struct encoding_s {
         @return None
     */
     void (*xlate)(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out);
+
+    /**
+        Check if the encoding is compatible with another encoding.
+
+        @param other Other encoding
+        @return true if the encodings are compatible
+    */
+    bool (*compatible)(const struct encoding_s *other);
 } encoding_t;
 
 
