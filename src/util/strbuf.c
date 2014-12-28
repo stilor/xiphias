@@ -25,7 +25,6 @@ struct strblk_s {
 struct strbuf_s {
     STAILQ_HEAD(, strblk_s) content;            ///< Current content
     // TBD: is readptr needed? Or just advance the beginning of the first block?
-    // TBD: this would remove the restriction of prepending only to unread buffers
     void *readptr;                              ///< Read pointer (1st block)
     uint32_t flags;                             ///< Buffer flags
     void *arg;                                  ///< Argument passed to ops

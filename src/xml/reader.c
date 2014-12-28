@@ -498,7 +498,7 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
         // allows ASCII characterts in the XMLDecl/TextDecl production: "The characters
         // #x85 and #x2028 cannot be reliably recognized and translated until an entity's
         // encoding declaration (if present) has been read. Therefore, it is a fatal error
-        // to use them within the XML declaration or text declaration.
+        // to use them within the XML declaration or text declaration."
         cbparam.xmldecl.has_decl = true;
         xml_reader_xmldecl_getattr(h, attrlist, &cbparam);
         xlate_buf = strbuf_new(); // Consumed the declaration; start with empty buffer
