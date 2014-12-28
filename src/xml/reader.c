@@ -77,8 +77,11 @@ xml_reader_set_encoding(xml_reader_t *h, const encoding_t *enc)
         // that has been read previously cannot be trusted then.
         OOPS;
     }
-    // TBD handle UTF-16 (w/o endianness specified) here; if the old encoding
-    // is compatible, leave the old one.
+    // If the new encoding is "meta-encoding" (just specifying the compatibility
+    // information, but not providing actual translation routine), keep the old one.
+    if (enc && !enc->xlate) {
+        return;
+    }
     if (h->encoding) {
         h->encoding->destroy(h->encoding_baton);
         h->encoding = NULL;
@@ -479,6 +482,22 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
         xml_reader_set_encoding(h, enc);
     }
 
+    // Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
+    // begin with the Byte Order Mark described in ISO/IEC 10646 [ISO/IEC
+    // 10646] or Unicode [Unicode] (the ZERO WIDTH NO-BREAK SPACE character, #xFEFF).
+    //
+    // Note that we don't know the final encoding from the XML declaration at this
+    // point, but if it different - it must be compatible and thus must have the same
+    // encoding type.
+    if (!had_bom && h->encoding->enctype == ENCODING_T_UTF16) {
+        OOPS;
+    }
+
+    // The selected encoding must not be "meta-encoding"
+    if (!h->encoding->xlate) {
+        OOPS;
+    }
+
     // We should at least know the encoding type by now: whether it is 1/2/4-byte based,
     // and the endianness. Read and parse the XML/Text declaration, if any, and set
     // the final encoding as specified therein. Until then, though, we need to be careful
@@ -512,11 +531,6 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
 
     // Set operations for reading in the discovered encoding
     xml_reader_set_input(h, xlate_buf);
-
-    // TBD Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
-    // begin with the Byte Order Mark described in ISO/IEC 10646 [ISO/IEC
-    // 10646] or Unicode [Unicode] (the ZERO WIDTH NO-BREAK SPACE character, #xFEFF).
-    (void)&had_bom;
 
     // TBD In the absence of external character encoding information (such as MIME
     // headers), parsed entities which are stored in an encoding other than UTF-8

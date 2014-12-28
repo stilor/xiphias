@@ -148,9 +148,15 @@ static const bom_encdesc_t bom_encodings[] = {
 bool
 encoding_compatible(const encoding_t *enc1, const encoding_t *enc2)
 {
-    // Have the same compatibility tag, and neither is 'unknown'.
-    return enc1->enctype != ENCODING_T_UNKNOWN
-            && enc1->enctype == enc2->enctype;
+    if (enc1->enctype == ENCODING_T_UNKNOWN
+            || enc2->enctype != enc1->enctype) {
+        return false;
+    }
+    if (enc1->endian != ENCODING_E_ANY
+            && enc1->endian != enc2->endian) {
+        return false;
+    }
+    return true;
 }
 
 const char *
@@ -288,7 +294,8 @@ le16tohost(const uint8_t *p)
 
 static encoding_t enc_UTF16LE = {
     .name = "UTF-16LE",
-    .enctype = ENCODING_T_UTF16LE,
+    .enctype = ENCODING_T_UTF16,
+    .endian = ENCODING_E_LE,
     .init = init_dummy,
     .destroy = destroy_dummy,
     .xlate = xlate_UTF16LE,
@@ -307,10 +314,18 @@ be16tohost(const uint8_t *p)
 
 static encoding_t enc_UTF16BE = {
     .name = "UTF-16BE",
-    .enctype = ENCODING_T_UTF16BE,
+    .enctype = ENCODING_T_UTF16,
+    .endian = ENCODING_E_BE,
     .init = init_dummy,
     .destroy = destroy_dummy,
     .xlate = xlate_UTF16BE,
+};
+
+/// Meta-encoding: UTF-16 with any endianness, as detected
+static encoding_t enc_UTF16 = {
+    .name = "UTF-16",
+    .enctype = ENCODING_T_UTF16,
+    .endian = ENCODING_E_ANY,
 };
 
 // --- Register known encodings
@@ -320,4 +335,5 @@ encodings_autoinit(void)
     encoding_register(&enc_UTF8);
     encoding_register(&enc_UTF16LE);
     encoding_register(&enc_UTF16BE);
+    encoding_register(&enc_UTF16);
 }

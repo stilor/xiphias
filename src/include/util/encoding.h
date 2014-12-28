@@ -17,19 +17,25 @@ enum encoding_compat_e {
     ENCODING_T_UNKNOWN,             ///< Unknown compatibility (always incompatible)
     ENCODING_T_UTF8,                ///< UTF-8 or other byte encoding with ASCII for 00..7e chars
     ENCODING_T_EBCDIC,              ///< Byte encodings compatible with EBCDIC
-    ENCODING_T_UTF16LE,             ///< UTF-16, little endian
-    ENCODING_T_UTF16BE,             ///< UTF-16, big endian
-    ENCODING_T_UTF32LE,             ///< UTF-32, little endian
-    ENCODING_T_UTF32BE,             ///< UTF-32, big endian
-    ENCODING_T_UTF32_2143,          ///< UTF-32, unusual byte order (2143)
-    ENCODING_T_UTF32_3412,          ///< UTF-32, unusual byte order (3412)
+    ENCODING_T_UTF16,               ///< UTF-16
+    ENCODING_T_UTF32,               ///< UTF-32
+};
+
+/// Endianness of the encoding
+enum encoding_endian_e {
+    ENCODING_E_ANY,                 ///< Don't care (or describing any flavor, for meta-encodings)
+    ENCODING_E_LE,                  ///< Little-endian
+    ENCODING_E_BE,                  ///< Big-endian
+    ENCODING_E_2143,                ///< Unusual byte order (2143)
+    ENCODING_E_3412,                ///< Unusual byte order (3412)
 };
 
 /// Encoding structure
 typedef struct encoding_s {
     STAILQ_ENTRY(encoding_s) link;  ///< Linked list pointers
     const char *name;               ///< Encoding name
-    enum encoding_compat_e enctype; ///< Encoding compatibility type
+    enum encoding_compat_e enctype; ///< Encoding type
+    enum encoding_endian_e endian;  ///< Endianness
     const void *data;               ///< Encoding-specific data (e.g. equivalence chart)
 
 
