@@ -529,20 +529,25 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
         strbuf_setf(xlate_buf, 0, BUF_LAST); // Ops to get the rest will be set below
     }
 
-    // Set operations for reading in the discovered encoding
-    xml_reader_set_input(h, xlate_buf);
-
-    // TBD In the absence of external character encoding information (such as MIME
+    // In the absence of external character encoding information (such as MIME
     // headers), parsed entities which are stored in an encoding other than UTF-8
     // or UTF-16 MUST begin with a text declaration (see 4.3.1 The Text Declaration)
     // containing an encoding declaration.
-
-    // TBD Unless an encoding is determined by a higher-level protocol, it is also a fatal
+    //
+    // Unless an encoding is determined by a higher-level protocol, it is also a fatal
     // error if an XML entity contains no encoding declaration and its content is not
     // legal UTF-8 or UTF-16.
+    if (!cbparam.xmldecl.encoding && !h->enc_transport
+            && h->encoding->enctype != ENCODING_T_UTF16
+            && h->encoding->enctype != ENCODING_T_UTF8) {
+        OOPS;
+    }
 
     // Emit an event (callback) for XML declaration
     xml_reader_invoke_callback(h, XML_READER_CB_XMLDECL, &cbparam);
+
+    // Set operations for reading in the discovered encoding
+    xml_reader_set_input(h, xlate_buf);
 }
 
 void
