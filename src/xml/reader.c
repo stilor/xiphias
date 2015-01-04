@@ -25,7 +25,8 @@ struct xml_reader_s {
     const char *enc_xmldecl;        ///< Encoding declared in <?xml ... ?>
     const encoding_t *encoding;     ///< Actual encoding being used
     void *encoding_baton;           ///< Encoding data
-    strbuf_t *buf;                  ///< Input buffer
+    strbuf_t *buf_raw;              ///< Raw input buffer (in document's encoding)
+    strbuf_t *buf_proc;             ///< Processed input buffer (transcoded + translated)
     uint32_t flags;                 ///< Reader flags
 
     struct {
@@ -104,7 +105,8 @@ xml_reader_new(strbuf_t *buf)
     h->enc_xmldecl = NULL;
     h->encoding = NULL;
     h->encoding_baton = NULL;
-    h->buf = buf;
+    h->buf_raw = buf;
+    h->buf_proc = NULL;
     h->flags = 0;
     return h;
 }
@@ -113,7 +115,10 @@ void
 xml_reader_delete(xml_reader_t *h)
 {
     xml_reader_set_encoding(h, NULL);
-    strbuf_delete(h->buf);
+    strbuf_delete(h->buf_raw);
+    if (h->buf_proc) {
+        strbuf_delete(h->buf_proc);
+    }
     xfree(h->enc_transport);
     xfree(h->enc_detected);
     xfree(h->enc_xmldecl);
@@ -187,7 +192,7 @@ xml_read_1(xml_reader_t *h)
 {
     uint32_t tmp, *ptr = &tmp;
 
-    h->encoding->xlate(h->buf, h->encoding_baton, &ptr, ptr + 1);
+    h->encoding->xlate(h->buf_raw, h->encoding_baton, &ptr, ptr + 1);
     if (ptr == &tmp) {
         OOPS; // No input
     }
@@ -409,7 +414,7 @@ xml_reader_input_filter(uint32_t *input, size_t nchars, uint8_t *output)
 {
     uint8_t *ptr = output;
 
-    // TBD EOL translation
+    // TBD EOL translation; BTW, does it happen in CDATA blocks?
     // TBD normalization check
 
     // Just pack the characters for now
@@ -419,20 +424,73 @@ xml_reader_input_filter(uint32_t *input, size_t nchars, uint8_t *output)
     return ptr - output;
 }
 
-/**
-    Create a transcoding string buffer that decodes the input as determined
-    by the reader start.
+#define TMP_BUF_CHARS   4096    ///< Number of characters in temporary transcoding buffer
+#define WASTE_SHIFT     5       ///< The fraction of the buffer that may be left unused in each block
 
-    @param h Reader handle
-    @param xlate_buf Translation buffer, either empty or with content rejected
-        while looking for XML/text declaration.
+/**
+    Produce more characters for a XML input buffer: transcode and translate EOLs.
+
+    @param buf Destination string buffer 
+    @param arg TBD
     @return None
 */
 static void
-xml_reader_set_input(xml_reader_t *h, strbuf_t *xlate_buf)
+xml_reader_op_input(strbuf_t *buf, void *arg)
 {
-    // TBD: set the buffer ops to transcoder + xml_reader_input_filter
+    const size_t dst_block_sz = TMP_BUF_CHARS * MAX_UTF8_LEN;
+    xml_reader_t *h = arg;
+    uint32_t tmp[TMP_BUF_CHARS], *tptr;
+    size_t avail, len;
+    strblk_t *blk;
+    uint8_t *cptr;
+
+    // If we commit to writing more, we need at least one character to fit
+    OOPS_ASSERT((TMP_BUF_CHARS >> WASTE_SHIFT) >= MAX_UTF8_LEN);
+
+    avail = dst_block_sz;   // Bytes available in destination memory
+    blk = strblk_new(avail);
+    cptr = strblk_getptr(blk);
+    while (avail >= (dst_block_sz >> WASTE_SHIFT)) {
+        tptr = tmp;
+        h->encoding->xlate(h->buf_raw, h->encoding_baton,
+                &tptr, tmp + (avail / MAX_UTF8_LEN));
+        if (tptr == tmp) {
+            strbuf_setf(buf, BUF_LAST, BUF_LAST); // This input, if any, is final
+            break;
+        }
+        len = xml_reader_input_filter(tmp, tptr - tmp, cptr);
+        cptr += len;
+        avail -= len;
+    };
+
+    if (avail != dst_block_sz) {
+        // Fetched something
+        strblk_trim(blk, dst_block_sz - avail);
+        strbuf_append_block(buf, blk);
+    }
+    else {
+        // EOF before we fetched anything
+        strblk_delete(blk);
+    }
 }
+
+/**
+    Clean up no longer used XML input buffer.
+
+    @param buf Destination string buffer 
+    @param arg TBD
+    @return None
+*/
+static void
+xml_reader_op_destroy(strbuf_t *buf, void *arg)
+{
+    // No-op
+}
+
+static const strbuf_ops_t xml_reader_translation_ops = {
+    .input = xml_reader_op_input,
+    .destroy = xml_reader_op_destroy,
+};
 
 /**
     Start parsing an input stream: read the XML/text declaration, determine final
@@ -446,7 +504,7 @@ static void
 xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *attrlist)
 {
     uint32_t xmldecl[6], *ptr = xmldecl;
-    uint8_t xmldecl_utf8[sizeofarray(xmldecl) * 4]; // max 4 bytes per char
+    uint8_t xmldecl_utf8[sizeofarray(xmldecl) * MAX_UTF8_LEN];
     size_t len;
     const encoding_t *enc;
     const char *encname;
@@ -465,7 +523,7 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
     h->flags |= READER_STARTED;
 
     // Check the stream for Byte Order Mark (BOM) and switch the encoding, if needed
-    if ((encname = encoding_detect_byte_order(h->buf, &had_bom)) != NULL) {
+    if ((encname = encoding_detect_byte_order(h->buf_raw, &had_bom)) != NULL) {
         if ((enc = encoding_search(encname)) == NULL) {
             OOPS;
         }
@@ -505,7 +563,7 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
     // encoding and transcode too much.
 
     // We are looking for '<?xml' string, followed by XML whitespace
-    h->encoding->xlate(h->buf, h->encoding_baton, &ptr, xmldecl + sizeofarray(xmldecl));
+    h->encoding->xlate(h->buf_raw, h->encoding_baton, &ptr, xmldecl + sizeofarray(xmldecl));
     if (ptr == xmldecl + sizeofarray(xmldecl)
             && xchareq(xmldecl[0], '<')
             && xchareq(xmldecl[1], '?')
@@ -547,7 +605,8 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
     xml_reader_invoke_callback(h, XML_READER_CB_XMLDECL, &cbparam);
 
     // Set operations for reading in the discovered encoding
-    xml_reader_set_input(h, xlate_buf);
+    strbuf_setops(xlate_buf, &xml_reader_translation_ops, h);
+    h->buf_proc = xlate_buf;
 }
 
 void

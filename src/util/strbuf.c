@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "util/defs.h"
+#include "util/queue.h"
 #include "util/xutil.h"
 
 #include "util/strbuf.h"
@@ -84,7 +85,24 @@ strblk_new(size_t payload_sz)
 void
 strblk_delete(strblk_t *blk)
 {
-    free(blk);
+    xfree(blk);
+}
+
+// Get pointer to the memory in this block
+void *
+strblk_getptr(strblk_t *blk)
+{
+    return blk->begin;
+}
+
+// Trim a block
+void
+strblk_trim(strblk_t *blk, size_t sz)
+{
+    void *new_end = (uint8_t *)blk->begin + sz;
+
+    OOPS_ASSERT(new_end <= blk->end);
+    blk->end = new_end;
 }
 
 // New buffer
@@ -147,7 +165,15 @@ strbuf_delete(strbuf_t *buf)
         STAILQ_REMOVE_HEAD(&buf->content, link);
         strblk_delete(blk);
     }
-    free(buf);
+    xfree(buf);
+}
+
+// Set buffer operations
+void
+strbuf_setops(strbuf_t *buf, const strbuf_ops_t *ops, void *arg)
+{
+    buf->ops = ops;
+    buf->arg = arg;
 }
 
 // Set flags

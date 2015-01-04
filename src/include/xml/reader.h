@@ -45,6 +45,8 @@ enum xml_reader_cbtype_e {
 /**
     Create an XML reading handle.
 
+    @param buf String buffer to read the input from; will be destroyed along with
+          the handle returned by this function.
     @return Handle
 */
 xml_reader_t *xml_reader_new(struct strbuf_s *buf);

@@ -14,7 +14,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include "queue.h"
 
 /// Buffer flags
 enum {
@@ -28,7 +27,7 @@ typedef struct strblk_s strblk_t;
 typedef struct strbuf_s strbuf_t;
 
 /// Operations on a string buffer
-typedef struct strbuf_opts_s {
+typedef struct strbuf_ops_s {
     void (*input)(strbuf_t *, void *);          ///< Request add'l input
     void (*destroy)(strbuf_t *, void *);        ///< Destroy the buffer
 } strbuf_ops_t;
@@ -48,6 +47,23 @@ strblk_t *strblk_new(size_t payload_sz);
     @return None
 */
 void strblk_delete(strblk_t *blk);
+
+/**
+    Get the pointer to the beginning of the block's memory.
+
+    @param blk Block to get the pointer for
+    @return Pointer value
+*/
+void *strblk_getptr(strblk_t *blk);
+
+/**
+    Set the size of a block (possibly losing some memory at the end of the block)
+
+    @param blk Block being trimmed
+    @param sz New size; must be less than the old size
+    @return None
+*/
+void strblk_trim(strblk_t *blk, size_t sz);
 
 /**
     Allocate a new empty string buffer.
@@ -72,7 +88,7 @@ void strbuf_delete(strbuf_t *buf);
     @param arg Argument passed to operation methods
     @return None
 */
-void strbuf_setops(strbuf_t *buf, strbuf_ops_t *ops, void *arg);
+void strbuf_setops(strbuf_t *buf, const strbuf_ops_t *ops, void *arg);
 
 /**
     Set flags on a buffer.
