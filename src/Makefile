@@ -3,7 +3,7 @@
 TARGETS = libxiphias testutil
 
 SUBDIRS-libxiphias		:= util xml
-FILES-util				:= xutil.c strbuf.c encoding.c
+FILES-util				:= xutil.c eh.c strbuf.c encoding.c
 FILES-xml				:= reader.c
 CFLAGS-libxiphias		:= -fPIC $(shell curl-config --cflags)
 LDFLAGS-libxiphias		:= -shared -fPIC -Wl,-soname=libxiphias.so $(shell curl-config --libs)
@@ -23,7 +23,7 @@ CFLAGS					:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wmaybe-uninitialized -Wpointer-arith -Wtype-limits -Wbad-function-cast \
 						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered \
 						   -Wsign-compare -Wlogical-op -Waggregate-return -Wmissing-field-initializers \
-						   -Wnested-externs -g -O2 -fno-common -iquote include
+						   -Wnested-externs -g -O2 -fno-common -iquote include -D_GNU_SOURCE
 LDFLAGS					:= -L. -Wl,-rpath=.
 
 #########################################

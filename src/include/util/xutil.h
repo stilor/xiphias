@@ -8,6 +8,7 @@
 #ifndef __util_xutil_h_
 #define __util_xutil_h_
 
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 

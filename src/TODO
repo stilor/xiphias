@@ -1,0 +1,20 @@
+Milestones:
+- XML reader
+- XML DOM
+- Element content
+- DTD validation
+- XPath 1.0
+- XSchema 1.0
+- XSchema 1.1
+- XPath 2.0
+- XSLT 1.0
+- XSLT 1.1
+- XProc
+- Tree differ
+
+General:
+
+Open questions:
+- XML 1.1 normalization - scope of applicability (seems inconsistent as it
+would apply to non-root element's attribute values, but not to root's attribute
+values)
