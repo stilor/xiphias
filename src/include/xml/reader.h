@@ -12,9 +12,25 @@
 #include <stdint.h>
 
 #include "infoset.h"
+#include "xmlerr.h"
 
 // Forward declarations
 struct strbuf_s;
+
+/// Callback types (in parentheses: field in the callback parameter union)
+enum xml_reader_cbtype_e {
+    XML_READER_CB_MESSAGE,         ///< Note/warning/error message
+    XML_READER_CB_XMLDECL,         ///< XML declaration (xmldecl)
+
+    XML_READER_CB_MAX
+};
+
+/// Parameter for message callback
+typedef struct {
+    xmlerr_loc_t loc;              ///< Location of the error
+    xmlerr_info_t info;            ///< Error info
+    const char *msg;               ///< Error message
+} xml_reader_cbparam_message_t;
 
 /// Parameter for XML or text declaration callback
 typedef struct {
@@ -25,8 +41,12 @@ typedef struct {
 } xml_reader_cbparam_xmldecl_t;
 
 /// Combined callback parameter type
-typedef union {
-    xml_reader_cbparam_xmldecl_t xmldecl;    ///< XML or text declaration
+typedef struct {
+    enum xml_reader_cbtype_e cbtype;              ///< Callback type
+    union {
+        xml_reader_cbparam_message_t message;     ///< Error/warning message
+        xml_reader_cbparam_xmldecl_t xmldecl;     ///< XML or text declaration
+    };
 } xml_reader_cbparam_t;
 
 /// Opaque handle for reading XML entity
@@ -34,13 +54,6 @@ typedef struct xml_reader_s xml_reader_t;
 
 /// Reader callback function type
 typedef void (*xml_reader_cb_t)(void *arg, const xml_reader_cbparam_t *cbparam);
-
-/// Callback types (in parentheses: field in the callback parameter union)
-enum xml_reader_cbtype_e {
-    XML_READER_CB_XMLDECL,         ///< XML declaration (xmldecl)
-
-    XML_READER_CB_MAX
-};
 
 /**
     Create an XML reading handle.

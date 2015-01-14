@@ -47,8 +47,9 @@ xmldecl_cb(void *arg, const xml_reader_cbparam_t *cbparam)
     };
     const xml_reader_cbparam_xmldecl_t *x = &cbparam->xmldecl;
 
-    printf("%s: %s, encoding '%s', standalone '%s', version '%s'\n",
+    printf("%s: [%u] %s, encoding '%s', standalone '%s', version '%s'\n",
             __func__,
+            cbparam->cbtype,
             x->has_decl ? "has declaration" : "implied declaration",
             x->encoding ? x->encoding : "<unknown>",
             stdalone[x->standalone],

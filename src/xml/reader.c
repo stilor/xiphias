@@ -158,10 +158,11 @@ xml_reader_set_callback(xml_reader_t *h, enum xml_reader_cbtype_e evt,
 */
 static void
 xml_reader_invoke_callback(xml_reader_t *h, enum xml_reader_cbtype_e evt,
-        const xml_reader_cbparam_t *cbparam)
+        xml_reader_cbparam_t *cbparam)
 {
     OOPS_ASSERT(evt < XML_READER_CB_MAX);
     if (h->callbacks[evt].func) {
+        cbparam->cbtype = evt;
         h->callbacks[evt].func(h->callbacks[evt].arg, cbparam);
     }
 }
