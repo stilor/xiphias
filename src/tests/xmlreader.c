@@ -165,38 +165,7 @@ equal_events(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 #define E(t, ...)       { .cbtype = XML_READER_CB_##t, .FL(t) = { __VA_ARGS__ }, }
 #define END             { .cbtype = XML_READER_CB_NONE, }
 
-static const testcase_t testcases[] = {
-    {
-        .desc = "Simple XML in UTF-16BE, with BOM",
-        .input = "reader-000.xml",
-        .use_bom = true,
-        .encoding = "UTF-16BE",
-        .events = (const xml_reader_cbparam_t[]){
-            E(XMLDECL,
-                    .has_decl = true,
-                    .encoding = "UTF-16",
-                    .standalone = XML_INFO_STANDALONE_NO_VALUE,
-                    .version = XML_INFO_VERSION_1_0,
-            ),
-            END,
-        },
-    },
-    {
-        .desc = "Simple XML in UTF-16LE, with BOM",
-        .input = "reader-000.xml",
-        .use_bom = true,
-        .encoding = "UTF-16LE",
-        .events = (const xml_reader_cbparam_t[]){
-            E(XMLDECL,
-                    .has_decl = true,
-                    .encoding = "UTF-16",
-                    .standalone = XML_INFO_STANDALONE_NO_VALUE,
-                    .version = XML_INFO_VERSION_1_0,
-            ),
-            END,
-        },
-    },
-};
+#include "xmlreader-tests.c"
 
 typedef enum result_e {
     PASS,
@@ -226,9 +195,9 @@ test_cb(void *arg, const xml_reader_cbparam_t *cbparam)
         cbarg->expect += 1;
     }
     else {
-        printf("  FAIL: ");
+        printf("  FAIL: (received) ");
         print_event(cbparam);
-        printf("      : ");
+        printf("      : (expected) ");
         print_event(cbarg->expect);
         cbarg->failed = true;
     }
