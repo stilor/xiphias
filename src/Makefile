@@ -23,7 +23,7 @@ CFLAGS					:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wmaybe-uninitialized -Wpointer-arith -Wtype-limits -Wbad-function-cast \
 						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered \
 						   -Wsign-compare -Wlogical-op -Waggregate-return -Wmissing-field-initializers \
-						   -Wnested-externs -g -O2 -fno-common -iquote include -D_GNU_SOURCE
+						   -Wnested-externs -g -O0 -fno-common -iquote include -D_GNU_SOURCE
 LDFLAGS					:= -L. -Wl,-rpath=.
 
 #########################################
