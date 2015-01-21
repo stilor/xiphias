@@ -1,6 +1,6 @@
 # vi: set sw=4 ts=4 :
 
-TARGETS = libxiphias testutil
+TARGETS = libxiphias tests
 
 SUBDIRS-libxiphias		:= util xml
 FILES-util				:= xutil.c strbuf.c encoding.c
@@ -10,12 +10,12 @@ LDFLAGS-libxiphias		:= -shared -fPIC -Wl,-soname=libxiphias.so $(shell curl-conf
 PROGNAME-libxiphias		:= libxiphias.so
 DEPS-libxiphias			:=
 
-SUBDIRS-testutil		:= testutil
-FILES-testutil			:= testutil.c
-CFLAGS-testutil			:=
-LDFLAGS-testutil		:= -lxiphias
-PROGNAME-testutil		:= dotest
-DEPS-testutil			:= libxiphias
+SUBDIRS-tests			:= tests
+FILES-tests				:= xmlreader.c
+CFLAGS-tests			:=
+LDFLAGS-tests			:= -lxiphias
+PROGNAME-tests			:= tests/xmlreader
+DEPS-tests				:= libxiphias
 
 CC						:= gcc
 CFLAGS					:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
