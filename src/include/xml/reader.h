@@ -87,13 +87,11 @@ void xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname);
     Set callback functions for the reader.
 
     @param h Reader handle
-    @param evt Event for which callback is set
     @param func Function to be called
     @param arg Argument to callback function
     @return None
 */
-void xml_reader_set_callback(xml_reader_t *h, enum xml_reader_cbtype_e evt,
-        xml_reader_cb_t func, void *arg);
+void xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg);
 
 /**
     Read in the XML content and emit the callbacks as necessary.

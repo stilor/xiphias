@@ -286,10 +286,9 @@ run_testcase(const testcase_t *tc)
     sbuf = strbuf_new_from_memory(conv_buf, conv_len - len2, false);
     reader = xml_reader_new(sbuf);
 
-    // TBD: use single callback for all events
     cbarg.expect = tc->events;
     cbarg.failed = false;
-    xml_reader_set_callback(reader, XML_READER_CB_XMLDECL, test_cb, &cbarg);
+    xml_reader_set_callback(reader, test_cb, &cbarg);
     xml_reader_process_xml(reader, true);
     xml_reader_delete(reader);
     // Check that there were no mismatches and all events were seen

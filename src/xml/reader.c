@@ -29,10 +29,8 @@ struct xml_reader_s {
     strbuf_t *buf_proc;             ///< Processed input buffer (transcoded + translated)
     uint32_t flags;                 ///< Reader flags
 
-    struct {
-        xml_reader_cb_t func;       ///< Callback function
-        void *arg;                  ///< Argument to callback function
-    } callbacks[XML_READER_CB_MAX]; ///< Reader callbacks
+    xml_reader_cb_t func;           ///< Callback function
+    void *arg;                      ///< Argument to callback function
 };
 
 /**
@@ -140,30 +138,24 @@ xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname)
 }
 
 void
-xml_reader_set_callback(xml_reader_t *h, enum xml_reader_cbtype_e evt,
-        xml_reader_cb_t func, void *arg)
+xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg)
 {
-    OOPS_ASSERT(evt < XML_READER_CB_MAX);
-    h->callbacks[evt].func = func;
-    h->callbacks[evt].arg = arg;
+    h->func = func;
+    h->arg = arg;
 }
 
 /**
     Call a user-registered function for the specified event.
 
     @param h Reader handle
-    @param evt Event for which the callback is to be invoked
     @param cbparam Parameter for the callback
     @return None
 */
 static void
-xml_reader_invoke_callback(xml_reader_t *h, enum xml_reader_cbtype_e evt,
-        xml_reader_cbparam_t *cbparam)
+xml_reader_invoke_callback(xml_reader_t *h, const xml_reader_cbparam_t *cbparam)
 {
-    OOPS_ASSERT(evt < XML_READER_CB_MAX);
-    if (h->callbacks[evt].func) {
-        cbparam->cbtype = evt;
-        h->callbacks[evt].func(h->callbacks[evt].arg, cbparam);
+    if (h->func) {
+        h->func(h->arg, cbparam);
     }
 }
 
@@ -512,12 +504,13 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
     bool had_bom;
     strbuf_t *xlate_buf;
     xml_reader_cbparam_t cbparam = {
+        .cbtype = XML_READER_CB_XMLDECL,
         .xmldecl = {
             .has_decl = false,
             .encoding = NULL,
             .standalone = XML_INFO_STANDALONE_NO_VALUE,
             .version = XML_INFO_VERSION_NO_VALUE,
-        }
+        },
     };
 
     // No more setup changes
@@ -603,7 +596,7 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
     }
 
     // Emit an event (callback) for XML declaration
-    xml_reader_invoke_callback(h, XML_READER_CB_XMLDECL, &cbparam);
+    xml_reader_invoke_callback(h, &cbparam);
 
     // Set operations for reading in the discovered encoding
     strbuf_setops(xlate_buf, &xml_reader_translation_ops, h);
