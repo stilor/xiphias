@@ -17,6 +17,8 @@
 enum {
     READER_STARTED  = 0x0001,       ///< Reader has started the operation
     READER_FATAL    = 0x0002,       ///< Reader encountered a fatal error
+    READER_SAW_CR   = 0x0004,       ///< Converting CRLF: saw #D, ignore next #xA/#x85
+    READER_POS_RESET= 0x0008,       ///< Reset position before reading the next char
 };
 
 /**
@@ -47,7 +49,7 @@ struct xml_reader_s {
     strbuf_t *buf_raw;              ///< Raw input buffer (in document's encoding)
     strbuf_t *buf_proc;             ///< Processed input buffer (transcoded + translated)
     uint32_t flags;                 ///< Reader flags
-    xmlerr_loc_t curloc;            ///< Current reader's position
+    xmlerr_loc_t loc;               ///< Current reader's position
     const xml_reader_xmldecl_declinfo_t *declinfo;  ///< Expected declaration
 
     xml_reader_cb_t func;           ///< Callback function
@@ -138,9 +140,9 @@ xml_reader_new(strbuf_t *buf, const char *location)
     h->buf_raw = buf;
     h->buf_proc = NULL;
     h->flags = 0;
-    h->curloc.src = xstrdup(location);
-    h->curloc.line = 1;
-    h->curloc.pos = 1;
+    h->loc.src = xstrdup(location);
+    h->loc.line = 1;
+    h->loc.pos = 0;
     return h;
 }
 
@@ -155,7 +157,7 @@ xml_reader_delete(xml_reader_t *h)
     xfree(h->enc_transport);
     xfree(h->enc_detected);
     xfree(h->enc_xmldecl);
-    xfree(h->curloc.src);
+    xfree(h->loc.src);
     xfree(h);
 }
 
@@ -205,7 +207,7 @@ xml_reader_message(xml_reader_t *h, xmlerr_info_t info, const char *fmt, ...)
     };
     va_list ap;
 
-    cbparam.message.loc = h->curloc;
+    cbparam.message.loc = h->loc;
     cbparam.message.info = info;
     va_start(ap, fmt);
     cbparam.message.msg = xvasprintf(fmt, ap);
@@ -233,26 +235,51 @@ xml_is_whitespace(uint32_t cp)
     Read one character from input.
 
     @param h Reader handle
-    @return Character read
+    @return Character read, or (uint32_t)-1 on error
 */
 static uint32_t
 xml_read_1(xml_reader_t *h)
 {
     uint32_t tmp, *ptr = &tmp;
+    bool next = false;
 
-    h->encoding->xlate(h->buf_raw, h->encoding_baton, &ptr, ptr + 1);
-    if (ptr == &tmp) {
-        xml_reader_message(h, h->declinfo->generr,
-                "%s truncated", h->declinfo->name);
-        h->flags |= READER_FATAL;
-        return -1;
+    if (h->flags & READER_POS_RESET) {
+        h->loc.line++;
+        h->loc.pos = 0;
     }
-    else if (tmp >= 0x7f) {
+
+    /*
+        XML processor MUST behave as if it normalized all line breaks in external
+        parsed entities ...
+    */
+    do {
+        h->encoding->xlate(h->buf_raw, h->encoding_baton, &ptr, ptr + 1);
+        if (ptr == &tmp) {
+            xml_reader_message(h, h->declinfo->generr,
+                    "%s truncated", h->declinfo->name);
+            h->flags |= READER_FATAL;
+            return -1;
+        }
+        if ((h->flags & READER_SAW_CR) && tmp == 0x0A) {
+            next = true;
+        }
+        h->flags &= ~READER_SAW_CR;
+    } while (next);
+
+    if (tmp >= 0x7f) {
         xml_reader_message(h, h->declinfo->generr,
                 "%s contains non-ASCII characters", h->declinfo->name);
         h->flags |= READER_FATAL;
         return -1;
     }
+    if (tmp == 0x0D) {
+        tmp = 0x0A;
+        h->flags |= READER_SAW_CR;
+    }
+    if (tmp == 0x0A) {
+        h->flags |= READER_POS_RESET;
+    }
+    h->loc.pos++;
     return tmp;
 }
 
@@ -411,7 +438,13 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
                 encname[i] = buf[i]; // Convert to UTF-8/ASCII
             }
             encname[i] = 0;
+            if (!xml_reader_set_encoding(h, encname)) {
+                // Non-fatal: recover by assuming the encoding currently used
+                xml_reader_message(h, XMLERR_NOTE, "(encoding from XML declaration)");
+            }
             cbparam->xmldecl.encoding = encname;
+            xfree(h->enc_xmldecl);
+            h->enc_xmldecl = encname;
         }
         else if (!strcmp(attrlist->name, "standalone")) {
             if (nread == 4 && ucs4_equal(buf, "yes", 3)) {
@@ -496,6 +529,7 @@ xml_reader_input_filter(uint32_t *input, size_t nchars, uint8_t *output)
     uint8_t *ptr = output;
 
     // TBD EOL translation; BTW, does it happen in CDATA blocks?
+    // TBD update location info somewhere
     // TBD normalization check
 
     // Just pack the characters for now
@@ -583,9 +617,9 @@ static const strbuf_ops_t xml_reader_translation_ops = {
 static void
 xml_reader_start(xml_reader_t *h)
 {
-    uint32_t xmldecl[6], *ptr = xmldecl;
+    uint32_t xmldecl[6];
     uint8_t xmldecl_utf8[sizeofarray(xmldecl) * MAX_UTF8_LEN];
-    size_t len;
+    size_t i, len;
     const char *encname;
     bool had_bom;
     strbuf_t *xlate_buf;
@@ -646,13 +680,15 @@ xml_reader_start(xml_reader_t *h)
     // encoding and transcode too much.
 
     // We are looking for '<?xml' string, followed by XML whitespace
-    h->encoding->xlate(h->buf_raw, h->encoding_baton, &ptr, xmldecl + sizeofarray(xmldecl));
-    if (ptr == xmldecl + sizeofarray(xmldecl)
-            && xchareq(xmldecl[0], '<')
-            && xchareq(xmldecl[1], '?')
-            && xchareq(xmldecl[2], 'x')
-            && xchareq(xmldecl[3], 'm')
-            && xchareq(xmldecl[4], 'l')
+    for (i = 0; i < sizeofarray(xmldecl); i++) {
+        if ((xmldecl[i] = xml_read_1(h)) == (uint32_t)-1) {
+            // We'll unget and retry with what we got as if it were regular XML content
+            h->flags &= ~READER_FATAL;
+            break;
+        }
+    }
+    if (i == sizeofarray(xmldecl)
+            && ucs4_equal(xmldecl, "<?xml", 5)
             && xml_is_whitespace(xmldecl[5])) {
         // We have a declaration; parse the rest of arguments (if any). XML spec only
         // allows ASCII characterts in the XMLDecl/TextDecl production: "The characters
@@ -665,7 +701,9 @@ xml_reader_start(xml_reader_t *h)
     }
     else {
         // No declaration, "unget" the characters we've read.
-        len = xml_reader_input_filter(xmldecl, ptr - xmldecl, xmldecl_utf8);
+        h->loc.line = 1;
+        h->loc.pos = 0;
+        len = xml_reader_input_filter(xmldecl, i, xmldecl_utf8);
         xlate_buf = strbuf_new_from_memory(xmldecl_utf8, len, true);
         strbuf_setf(xlate_buf, 0, BUF_LAST); // Ops to get the rest will be set below
     }
@@ -681,17 +719,6 @@ xml_reader_start(xml_reader_t *h)
         xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "No external encoding information, no encoding in %s, content in %s encoding",
                 h->declinfo->name, h->encoding->name);
-    }
-
-    // Switch to encoding from declaration
-    if (cbparam.xmldecl.encoding) {
-        if (!xml_reader_set_encoding(h, cbparam.xmldecl.encoding)) {
-            xml_reader_message(h, XMLERR_NOTE, "(encoding from XML declaration)");
-            h->flags |= READER_FATAL;
-            return;
-        }
-        xfree(h->enc_xmldecl);
-        h->enc_xmldecl = xstrdup(cbparam.xmldecl.encoding);
     }
 
     // If everything was alright so far, notify the application of the XML declaration

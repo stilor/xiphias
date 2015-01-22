@@ -33,7 +33,9 @@ enum xmlerr_spec_e {
 
 /// XML 1.x messages (TBD: move to a separate header)
 enum {
+    // TBD: sort XML 1.0 codes first, then XML 1.1 codes
     // Production mismatches
+    XMLERR_XML_P_BASE              = 0x0000,
     XMLERR_XML_P_XMLDecl,
     XMLERR_XML_P_TextDecl,
     XMLERR_XML_P_VersionInfo,
@@ -41,9 +43,11 @@ enum {
     XMLERR_XML_P_SDDecl,
 
     // Other errors (spelled in text of the spec)
+    XMLERR_XML_OTHER_BASE          = 0x0100,
     XMLERR_XML_ENCODING_ERROR,
 
     // Well-formedness constraints (spelled in production comments)
+    XMLERR_XML_WFC_BASE            = 0x0200,
     XMLERR_XML_WFC_PES_IN_INTERNAL_SUBSET,
     XMLERR_XML_WFC_EXTERNAL_SUBSET,
     XMLERR_XML_WFC_PE_BETWEEN_DECLARATIONS,
@@ -58,6 +62,7 @@ enum {
     XMLERR_XML_WFC_IN_DTD,
 
     // Validity constraints
+    XMLERR_XML_VC_BASE             = 0x0300,
 };
 
 /// Error code and severity

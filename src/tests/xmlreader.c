@@ -55,14 +55,20 @@ evequal_none(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 static void
 evprint_message(const xml_reader_cbparam_t *cbparam)
 {
+    static const char * const severity[] = {
+        [XMLERR_NOTE]  = "NOTE",
+        [XMLERR_WARN]  = "WARN",
+        [XMLERR_ERROR] = "ERR",
+    };
     const xml_reader_cbparam_message_t *x = &cbparam->message;
+    uint32_t s = XMLERR_SEVERITY(x->info);
 
-    printf("%s:%u:%u: %s [S%u C%03u:%04u]",
+    printf("%s:%u:%u: %s [%s %03u:%04u]",
             x->loc.src ? x->loc.src : "<undef>",
             x->loc.line,
             x->loc.pos,
             x->msg ? x->msg : "<no message>",
-            XMLERR_SEVERITY(x->info),
+            s < sizeofarray(severity) ? severity[s] : "???",
             XMLERR_SPEC(x->info),
             XMLERR_CODE(x->info));
 }
