@@ -28,6 +28,7 @@
 #define sizeofarray(a) (sizeof(a) / sizeof(*a))
 #define DECONST(v)  ((void *)(uintptr_t)(v))
 #define __constructor __attribute__((__constructor__))
+#define __printflike(f,a) __attribute__((__format__(__printf__,f,a)))
 #define min(a,b)    ({ \
             __typeof__(a) __a = (a); \
             __typeof__(b) __b = (b); \

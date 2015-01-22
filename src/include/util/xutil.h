@@ -45,6 +45,14 @@ void xfree(const void *ptr);
 */
 char *xstrdup(const char *s);
 
+/**
+    Allocating sprintf.
+
+    @param fmt Format
+    @param ap Arguments
+    @return Allocated string
+*/
+char *xvasprintf(const char *fmt, va_list ap);
 
 /// FIXME: these functions assume the host compiler uses UTF-8 or something similarly compatible.
 /// If this library is ever to support non-UTF-8 systems, will need to implement them (EBCDIC?)

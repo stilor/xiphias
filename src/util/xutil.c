@@ -1,6 +1,7 @@
 /* vi: set ts=4 sw=4 et : */
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,4 +49,24 @@ xstrdup(const char *s)
         OOPS_ASSERT(0);
     }
     return rv;
+}
+
+#define DFLT_VASPRINTF_SIZE     128
+char *
+xvasprintf(const char *fmt, va_list ap)
+{
+    size_t alloc, reqd;
+    char *buf;
+
+    // Start with default-size buffer. Most messages are smaller than that; if
+    // we see the message has been truncated - reallocate it with a proper size
+    alloc = DFLT_VASPRINTF_SIZE;
+    buf = xmalloc(alloc);
+    reqd = vsnprintf(buf, alloc, fmt, ap);
+    if (reqd >= alloc) {
+        alloc = reqd + 1;
+        buf = xrealloc(buf, alloc);
+        (void)vsnprintf(buf, alloc, fmt, ap);
+    }
+    return buf;
 }

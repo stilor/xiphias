@@ -203,11 +203,15 @@ xml_reader_message(xml_reader_t *h, xmlerr_info_t info, const char *fmt, ...)
     xml_reader_cbparam_t cbparam = {
         .cbtype = XML_READER_CB_MESSAGE,
     };
+    va_list ap;
 
     cbparam.message.loc = h->curloc;
     cbparam.message.info = info;
-    cbparam.message.msg = "TBD";
+    va_start(ap, fmt);
+    cbparam.message.msg = xvasprintf(fmt, ap);
+    va_end(ap);
     xml_reader_invoke_callback(h, &cbparam);
+    xfree(cbparam.message.msg);
 }
 
 

@@ -102,8 +102,8 @@ void xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg);
     @param fmt Message format
     @return Nothing
 */
-void
-xml_reader_message(xml_reader_t *h, xmlerr_info_t info, const char *fmt, ...);
+void xml_reader_message(xml_reader_t *h, xmlerr_info_t info,
+        const char *fmt, ...) __printflike(3,4);
 
 /**
     Read in the XML content and emit the callbacks as necessary.
