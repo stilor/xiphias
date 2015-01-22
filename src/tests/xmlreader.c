@@ -170,6 +170,9 @@ equal_events(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 #define E(t, ...)       { .cbtype = XML_READER_CB_##t, .FL(t) = { __VA_ARGS__ }, }
 #define END             { .cbtype = XML_READER_CB_NONE, }
 
+// Initializer for location info
+#define LOC(s,l,p)      { .src = (s), .line = (l), .pos = (p), }
+
 #include "xmlreader-tests.c"
 
 typedef enum result_e {
@@ -241,7 +244,7 @@ run_testcase(const testcase_t *tc)
     if (tc->use_bom) {
         orig_len += 3;   // BOM is 3 bytes in UTF-8
     }
-    buf = orig_buf = xmalloc(len);
+    buf = orig_buf = xmalloc(orig_len);
     if (tc->use_bom) {
         buf[0] = 0xEF;
         buf[1] = 0xBB;
@@ -324,16 +327,17 @@ out:
 
     @param tcs Testcases
     @param num Number of testcases
-    @return Nothing
+    @return true if all tests passed, false otherwise
 */
-static void
+static bool
 run(const testcase_t *tcs, size_t num)
 {
     size_t i;
     result_t rc;
+    bool all_passed = true;
 
     for (i = 0; i < num; i++) {
-        printf("Running test: %s\n", tcs[i].desc);
+        printf("Running test #%04zu: %s\n", i, tcs[i].desc);
         rc = run_testcase(&tcs[i]);
         switch (rc) {
         case PASS:
@@ -341,13 +345,16 @@ run(const testcase_t *tcs, size_t num)
             break;
         case FAIL:
             printf("FAIL: %s\n", tcs[i].desc);
+            all_passed = false;
             break;
         default:
             printf("UNRESOLVED: %s\n", tcs[i].desc);
+            all_passed = false;
             break;
         }
         printf("\n");
     }
+    return all_passed;
 }
 
 /**
@@ -360,8 +367,5 @@ run(const testcase_t *tcs, size_t num)
 int
 main(int argc, char *argv[])
 {
-    // TBD function to run all the test cases
-    run(testcases, sizeofarray(testcases));
-
-    return 0;
+    return run(testcases, sizeofarray(testcases)) ? 0 : 1;
 }

@@ -340,7 +340,7 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
     size_t nread, i;
     char *encname;
 
-    buf = xmalloc(bufsz);
+    buf = xmalloc(bufsz * sizeof(uint32_t));
     while (true) {
         buf[0] = xml_skip_whitespace(h);
         if (xchareq(buf[0], '?')) {
@@ -415,7 +415,7 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
                 // with a sensible encoding name (the rest of the attributes are 3 characters
                 // at most)
                 bufsz *= 2;
-                buf = xrealloc(buf, bufsz);
+                buf = xrealloc(buf, bufsz * sizeof(uint32_t));
             }
         } while ((buf[nread++] = xml_read_1(h)) != quote);
 

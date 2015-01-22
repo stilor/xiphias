@@ -55,8 +55,12 @@ xstrdup(const char *s)
 char *
 xvasprintf(const char *fmt, va_list ap)
 {
+    va_list ap0;
     size_t alloc, reqd;
     char *buf;
+
+    // Save in case we need to redo the vsnprintf()
+    va_copy(ap0, ap);
 
     // Start with default-size buffer. Most messages are smaller than that; if
     // we see the message has been truncated - reallocate it with a proper size
@@ -66,7 +70,7 @@ xvasprintf(const char *fmt, va_list ap)
     if (reqd >= alloc) {
         alloc = reqd + 1;
         buf = xrealloc(buf, alloc);
-        (void)vsnprintf(buf, alloc, fmt, ap);
+        (void)vsnprintf(buf, alloc, fmt, ap0);
     }
     return buf;
 }
