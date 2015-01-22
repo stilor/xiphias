@@ -33,7 +33,17 @@ enum xmlerr_spec_e {
 
 /// XML 1.x messages (TBD: move to a separate header)
 enum {
-    // Well-formedness constraints
+    // Production mismatches
+    XMLERR_XML_P_XMLDecl,
+    XMLERR_XML_P_TextDecl,
+    XMLERR_XML_P_VersionInfo,
+    XMLERR_XML_P_EncodingDecl,
+    XMLERR_XML_P_SDDecl,
+
+    // Other errors (spelled in text of the spec)
+    XMLERR_XML_ENCODING_ERROR,
+
+    // Well-formedness constraints (spelled in production comments)
     XMLERR_XML_WFC_PES_IN_INTERNAL_SUBSET,
     XMLERR_XML_WFC_EXTERNAL_SUBSET,
     XMLERR_XML_WFC_PE_BETWEEN_DECLARATIONS,
@@ -48,23 +58,34 @@ enum {
     XMLERR_XML_WFC_IN_DTD,
 
     // Validity constraints
-
-    // Other errors (spelled in text of the spec)
 };
 
 /// Error code and severity
-typedef struct {
-    enum xmlerr_severity_e severity:4;  ///< Severity of the message
-    enum xmlerr_spec_e spec:12;         ///< Defining specification for this message
-    unsigned int code:16;               ///< Message code
-} xmlerr_info_t;
+typedef uint32_t xmlerr_info_t;
+
+/// Combine severity, specification & code into a single number
+#define XMLERR_MK(s, sp, cd) (((s) << 28) | ((sp) << 16) | (cd))
+
+/// Get severity from combined code
+#define XMLERR_SEVERITY(x)    (((x) >> 28) & 0x000F)
+
+/// Get defining spec from combined code
+#define XMLERR_SPEC(x)        (((x) >> 16) & 0x0FFF)
+
+/// Get error code from combined code
+#define XMLERR_CODE(x)        ((x) & 0xFFFF)
+
 
 /// Combine severity/specification/code into a single initializer
 #define XMLERR(s, sp, cd)                         \
-        ((xmlerr_info_t){                         \
-               .severity = XMLERR_##s,            \
-               .spec = XMLERR_SPEC_##sp,          \
-               .code = XMLERR_##sp##_##cd         \
-         })
+        XMLERR_MK(XMLERR_##s, XMLERR_SPEC_##sp, XMLERR_##sp##_##cd)
+
+/// Code for a undescript note
+#define XMLERR_NOTE                               \
+        XMLERR_MK(XMLERR_NOTE, XMLERR_SPEC_NONE, 0)
+
+/// Code for internal errors
+#define XMLERR_INTERNAL                           \
+        XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_NONE, 0)
 
 #endif

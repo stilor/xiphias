@@ -136,7 +136,7 @@ encoding_utf8_len(uint32_t cp)
         return 4;   // 3-bit start, 3x 6-bit trailing
     }
     else {
-        OOPS;
+        OOPS_ASSERT(0);
     }
 }
 
@@ -172,7 +172,7 @@ encoding_utf8_store(uint8_t **pp, uint32_t cp)
         *p++ = 0x80 | (cp & 0x3F);
     }
     else {
-        OOPS;
+        OOPS_ASSERT(0);
     }
 }
 

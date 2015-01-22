@@ -7,6 +7,7 @@ static const testcase_t testcases[] = {
         .input = "reader-000.xml",
         .use_bom = true,
         .encoding = "UTF-16BE",
+        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL,
                     .has_decl = true,
@@ -22,6 +23,7 @@ static const testcase_t testcases[] = {
         .input = "reader-000.xml",
         .use_bom = true,
         .encoding = "UTF-16LE",
+        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL,
                     .has_decl = true,

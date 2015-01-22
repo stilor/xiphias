@@ -15,8 +15,27 @@
 
 /// Reader flags
 enum {
-    READER_STARTED = 0x0001,        ///< Reader has started the operation
+    READER_STARTED  = 0x0001,       ///< Reader has started the operation
+    READER_FATAL    = 0x0002,       ///< Reader encountered a fatal error
 };
+
+/**
+    XML declaration comes in two flavors, XMLDecl and TextDecl, with different
+    set of allowed/mandatory/optional attributes. This structure describes an
+    attribute in the expected list.
+*/
+typedef struct xml_reader_xmldecl_attrdesc_s {
+    const char *name;       ///< Name of the attribute
+    bool mandatory;         ///< True if the attribute is mandatory
+    xmlerr_info_t errinfo;  ///< Error info used for errors in this attribute
+} xml_reader_xmldecl_attrdesc_t;
+
+/// Declaration info for XMLDecl/TextDecl:
+typedef struct xml_reader_xmldecl_declinfo_s {
+    const char *name;           ///< Declaration name in XML grammar
+    const xmlerr_info_t generr; ///< Generic error in this production
+    const xml_reader_xmldecl_attrdesc_t *attrlist; ///< Allowed/required attributes
+} xml_reader_xmldecl_declinfo_t;
 
 /// XML reader structure
 struct xml_reader_s {
@@ -28,34 +47,34 @@ struct xml_reader_s {
     strbuf_t *buf_raw;              ///< Raw input buffer (in document's encoding)
     strbuf_t *buf_proc;             ///< Processed input buffer (transcoded + translated)
     uint32_t flags;                 ///< Reader flags
+    xmlerr_loc_t curloc;            ///< Current reader's position
+    const xml_reader_xmldecl_declinfo_t *declinfo;  ///< Expected declaration
 
     xml_reader_cb_t func;           ///< Callback function
     void *arg;                      ///< Argument to callback function
 };
 
-/**
-    XML declaration comes in two flavors, XMLDecl and TextDecl, with different
-    set of allowed/mandatory/optional attributes. This structure describes an
-    attribute in the expected list.
-*/
-struct xml_reader_xmldecl_attrdesc_s {
-    const char *name;       ///< Name of the attribute
-    bool mandatory;         ///< True if the attribute is mandatory
-};
-
 /// Handle TextDecl ::= '<?xml' VersionInfo? EncodingDecl S? '?>'
-static const struct xml_reader_xmldecl_attrdesc_s attrlist_textdecl[] = {
-    { "version", false },
-    { "encoding", true },
-    { NULL, false },
+static const struct xml_reader_xmldecl_declinfo_s declinfo_textdecl = {
+    .name = "TextDecl",
+    .generr = XMLERR(ERROR, XML, P_TextDecl),
+    .attrlist = (const xml_reader_xmldecl_attrdesc_t[]){
+        { "version", false, XMLERR(ERROR, XML, P_VersionInfo) },
+        { "encoding", true, XMLERR(ERROR, XML, P_EncodingDecl) },
+        { NULL, false, XMLERR_NOTE },
+    },
 };
 
 /// Handle XMLDecl  ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
-static const struct xml_reader_xmldecl_attrdesc_s attrlist_xmldecl[] = {
-    { "version", true },
-    { "encoding", false },
-    { "standalone", false },
-    { NULL, false },
+static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
+    .name = "XMLDecl",
+    .generr = XMLERR(ERROR, XML, P_XMLDecl),
+    .attrlist = (const struct xml_reader_xmldecl_attrdesc_s[]){
+        { "version", true, XMLERR(ERROR, XML, P_VersionInfo) },
+        { "encoding", false, XMLERR(ERROR, XML, P_EncodingDecl) },
+        { "standalone", false, XMLERR(ERROR, XML, P_SDDecl) },
+        { NULL, false, XMLERR_NOTE },
+    },
 };
 
 /**
@@ -63,23 +82,35 @@ static const struct xml_reader_xmldecl_attrdesc_s attrlist_xmldecl[] = {
 
     @param h Reader handle
     @param enc Encoding to be set, NULL to clear current encoding processor
-    @return None
+    @return true if successful, false otherwise
 */
-static void
-xml_reader_set_encoding(xml_reader_t *h, const encoding_t *enc)
+static bool
+xml_reader_set_encoding(xml_reader_t *h, const char *encname)
 {
+    const encoding_t *enc = NULL;
+
+    if (encname != NULL) {
+        if ((enc = encoding_search(encname)) == NULL) {
+            xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                    "Unsupported encoding '%s'", encname);
+            return false;
+        }
+    }
+
     if (h->encoding == enc) {
-        return; // Same encoding, nothing to do
+        return true; // Same encoding, nothing to do
     }
     if (h->encoding && enc && !encoding_compatible(h->encoding, enc)) {
         // Replacing with an incompatible encoding is not possible; the data
         // that has been read previously cannot be trusted then.
-        OOPS;
+        xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                "Incompatible encodings: '%s' and '%s'", h->encoding->name, enc->name);
+        return false;
     }
     // If the new encoding is "meta-encoding" (just specifying the compatibility
     // information, but not providing actual translation routine), keep the old one.
     if (enc && !enc->xlate) {
-        return;
+        return true;
     }
     if (h->encoding) {
         h->encoding->destroy(h->encoding_baton);
@@ -90,10 +121,11 @@ xml_reader_set_encoding(xml_reader_t *h, const encoding_t *enc)
         h->encoding = enc;
         h->encoding_baton = h->encoding->init(enc->data);
     }
+    return true;
 }
 
 xml_reader_t *
-xml_reader_new(strbuf_t *buf)
+xml_reader_new(strbuf_t *buf, const char *location)
 {
     xml_reader_t *h;
 
@@ -106,13 +138,16 @@ xml_reader_new(strbuf_t *buf)
     h->buf_raw = buf;
     h->buf_proc = NULL;
     h->flags = 0;
+    h->curloc.src = xstrdup(location);
+    h->curloc.line = 1;
+    h->curloc.pos = 1;
     return h;
 }
 
 void
 xml_reader_delete(xml_reader_t *h)
 {
-    xml_reader_set_encoding(h, NULL);
+    (void)xml_reader_set_encoding(h, NULL);
     strbuf_delete(h->buf_raw);
     if (h->buf_proc) {
         strbuf_delete(h->buf_proc);
@@ -120,21 +155,24 @@ xml_reader_delete(xml_reader_t *h)
     xfree(h->enc_transport);
     xfree(h->enc_detected);
     xfree(h->enc_xmldecl);
+    xfree(h->curloc.src);
     xfree(h);
 }
 
-void
+bool
 xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname)
 {
-    const encoding_t *enc;
-
     OOPS_ASSERT(!(h->flags & READER_STARTED));
-    if ((enc = encoding_search(encname)) == NULL) {
-        OOPS;
+
+    // Delete old encoding so that compatibility check is not performed:
+    // we have not read any data yet
+    (void)xml_reader_set_encoding(h, NULL);
+    if (!xml_reader_set_encoding(h, encname)) {
+        return false;
     }
-    xml_reader_set_encoding(h, enc);
     xfree(h->enc_transport);
     h->enc_transport = xstrdup(encname);
+    return true;
 }
 
 void
@@ -157,6 +195,19 @@ xml_reader_invoke_callback(xml_reader_t *h, const xml_reader_cbparam_t *cbparam)
     if (h->func) {
         h->func(h->arg, cbparam);
     }
+}
+
+void
+xml_reader_message(xml_reader_t *h, xmlerr_info_t info, const char *fmt, ...)
+{
+    xml_reader_cbparam_t cbparam = {
+        .cbtype = XML_READER_CB_MESSAGE,
+    };
+
+    cbparam.message.loc = h->curloc;
+    cbparam.message.info = info;
+    cbparam.message.msg = "TBD";
+    xml_reader_invoke_callback(h, &cbparam);
 }
 
 
@@ -187,10 +238,16 @@ xml_read_1(xml_reader_t *h)
 
     h->encoding->xlate(h->buf_raw, h->encoding_baton, &ptr, ptr + 1);
     if (ptr == &tmp) {
-        OOPS; // No input
+        xml_reader_message(h, h->declinfo->generr,
+                "%s truncated", h->declinfo->name);
+        h->flags |= READER_FATAL;
+        return -1;
     }
     else if (tmp >= 0x7f) {
-        OOPS; // Only ASCII characters in the XML declaration
+        xml_reader_message(h, h->declinfo->generr,
+                "%s contains non-ASCII characters", h->declinfo->name);
+        h->flags |= READER_FATAL;
+        return -1;
     }
     return tmp;
 }
@@ -234,18 +291,18 @@ ucs4_equal(const uint32_t *ucs, const char *s, size_t sz)
 }
 
 /**
-    Parse the "attributes" in the XML declaration.
+    Parse the "attributes" in the XML declaration (XMLDecl/TextDecl).
 
     @param h Reader handle
-    @param attrlist Allowed/required "attributes"
     @param cbparam Callback parameter structure being filled
     @return None
 */
 static void
 xml_reader_xmldecl_getattr(xml_reader_t *h,
-        const struct xml_reader_xmldecl_attrdesc_s *attrlist,
         xml_reader_cbparam_t *cbparam)
 {
+    const xml_reader_xmldecl_declinfo_t *declinfo = h->declinfo;
+    const xml_reader_xmldecl_attrdesc_t *attrlist = declinfo->attrlist;
     uint32_t *buf;
     size_t bufsz = 32; // Initial buffer size; sufficient for all attribute names
     uint32_t eq, quote;
@@ -253,7 +310,6 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
     char *encname;
 
     buf = xmalloc(bufsz);
-    // TBD register a clean-up to free buf on OOPS
     while (true) {
         buf[0] = xml_skip_whitespace(h);
         if (xchareq(buf[0], '?')) {
@@ -263,32 +319,45 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
             if (xchareq(buf[1], '>')) {
                 while (attrlist->name) {
                     if (attrlist->mandatory) {
-                        OOPS; // Required and missing
+                        xml_reader_message(h, declinfo->generr,
+                                "Mandatory pseudo-attribute '%s' missing in %s",
+                                attrlist->name, declinfo->name);
                     }
                     attrlist++;
                 }
-                xfree(buf);
-                return;
+                goto out;
             }
-            OOPS; // Malformed declaration
+            xml_reader_message(h, declinfo->generr, "Malformed %s", declinfo->name);
+            h->flags |= READER_FATAL;
+            goto out;
         }
         if (!attrlist->name) {
-            OOPS; // Another attribute? We are not expecting anything!
+            // Another attribute? We are not expecting anything!
+            xml_reader_message(h, declinfo->generr, "Malformed %s", declinfo->name);
+            h->flags |= READER_FATAL;
+            goto out;
         }
         nread = 1; // 1 character in buffer
         // Find an attribute that matches
         do {
             // This immediately reads 2nd character. Fortunately, there are no 1-char
-            // attribute names in XMLDecl/TextDecl
+            // pseudo-attribute names in XMLDecl/TextDecl
             buf[nread++] = xml_read_1(h);
             while (!ucs4_equal(buf, attrlist->name, nread)) {
                 if (attrlist->mandatory) {
-                    OOPS; // Mandatory attribute missing
+                    xml_reader_message(h, declinfo->generr,
+                            "Mandatory pseudo-attribute '%s' missing",
+                            attrlist->name);
+                    h->flags |= READER_FATAL;
+                    goto out;
                 }
                 // Doesn't match and is optional - advance to the next attribute
                 attrlist++;
                 if (!attrlist->name) {
-                    OOPS; // The input is not a name of any expected attribute
+                    xml_reader_message(h, declinfo->generr,
+                            "Unexpected pseudo-attribute");
+                    h->flags |= READER_FATAL;
+                    goto out;
                 }
             }
         } while (nread != strlen(attrlist->name));
@@ -296,11 +365,16 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
         // Found the attribute name, now look for Eq production: S* '=' S*
         eq = xml_skip_whitespace(h);
         if (!xchareq(eq, '=')) {
-            OOPS; // No equal size
+            xml_reader_message(h, attrlist->errinfo, "No equal sign pseudo-attribute");
+            h->flags |= READER_FATAL;
+            goto out;
         }
         quote = xml_skip_whitespace(h);
         if (!xchareq(quote, '"') && !xchareq(quote, '\'')) {
-            OOPS; // Attribute value does not start with a quote
+            xml_reader_message(h, attrlist->errinfo,
+                    "Pseudo-attribute value does not start with a quote");
+            h->flags |= READER_FATAL;
+            goto out;
         }
         // Look for a matching quote
         nread = 0;
@@ -323,7 +397,8 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
                 cbparam->xmldecl.version = XML_INFO_VERSION_1_1;
             }
             else {
-                OOPS; // Unsupported version
+                // Non-fatal: recover by assuming version was missing
+                xml_reader_message(h, attrlist->errinfo, "Unsupported XML version");
             }
         }
         else if (!strcmp(attrlist->name, "encoding")) {
@@ -342,16 +417,25 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
                 cbparam->xmldecl.standalone = XML_INFO_STANDALONE_NO;
             }
             else {
-                OOPS; // Invalid value for standalone="..."
+                // Non-fatal: recover by assuming standalone was not specified
+                xml_reader_message(h, attrlist->errinfo, "Unsupported standalone status");
             }
         }
         else {
-            OOPS;
+            // attrlist contained some unknown attribute name
+            xml_reader_message(h, XMLERR_INTERNAL, "Unexpected attribute name in %s()",
+                    __func__);
+            h->flags |= READER_FATAL;
+            goto out;
         }
 
         // Advance to the next attribute
         attrlist++;
     }
+
+out:
+    // TBD register a clean-up to free buf on OOPS
+    xfree(buf);
 }
 
 /**
@@ -490,16 +574,14 @@ static const strbuf_ops_t xml_reader_translation_ops = {
     encodings (or err out).
 
     @param h Reader handle
-    @param attrlist Allowed/required attributes on an XML/text declaration
     @return None
 */
 static void
-xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *attrlist)
+xml_reader_start(xml_reader_t *h)
 {
     uint32_t xmldecl[6], *ptr = xmldecl;
     uint8_t xmldecl_utf8[sizeofarray(xmldecl) * MAX_UTF8_LEN];
     size_t len;
-    const encoding_t *enc;
     const char *encname;
     bool had_bom;
     strbuf_t *xlate_buf;
@@ -518,20 +600,22 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
 
     // Check the stream for Byte Order Mark (BOM) and switch the encoding, if needed
     if ((encname = encoding_detect_byte_order(h->buf_raw, &had_bom)) != NULL) {
-        if ((enc = encoding_search(encname)) == NULL) {
-            OOPS;
+        if (!xml_reader_set_encoding(h, encname)) {
+            xml_reader_message(h, XMLERR_NOTE, "(autodetected from %s)",
+                    had_bom ? "Byte-order Mark" : "content");
+            h->flags |= READER_FATAL;
+            return;
         }
-        xml_reader_set_encoding(h, enc);
         xfree(h->enc_detected);
         h->enc_detected = xstrdup(encname);
     }
 
     // If no encoding passed from the transport layer, and autodetect didn't help,
-    // try UTF-8.
+    // try UTF-8. UTF-8 is built-in, so it should always work.
     if (!h->encoding) {
-        enc = encoding_search("UTF-8");
-        OOPS_ASSERT(enc);   // UTF-8 must be built in
-        xml_reader_set_encoding(h, enc);
+        if (!xml_reader_set_encoding(h, "UTF-8")) {
+            OOPS_ASSERT(0);
+        }
     }
 
     // Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
@@ -542,13 +626,14 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
     // point, but if it different - it must be compatible and thus must have the same
     // encoding type.
     if (!had_bom && h->encoding->enctype == ENCODING_T_UTF16) {
-        OOPS;
+        // Non-fatal: managed to detect the encoding somehow
+        xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                "UTF-16 encoding without byte-order mark");
     }
 
-    // The selected encoding must not be "meta-encoding"
-    if (!h->encoding->xlate) {
-        OOPS;
-    }
+    // The selected encoding must not be "meta-encoding". If autodetect determined
+    // such encoding, it's a bug.
+    OOPS_ASSERT(h->encoding->xlate);
 
     // We should at least know the encoding type by now: whether it is 1/2/4-byte based,
     // and the endianness. Read and parse the XML/Text declaration, if any, and set
@@ -571,7 +656,7 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
         // encoding declaration (if present) has been read. Therefore, it is a fatal error
         // to use them within the XML declaration or text declaration."
         cbparam.xmldecl.has_decl = true;
-        xml_reader_xmldecl_getattr(h, attrlist, &cbparam);
+        xml_reader_xmldecl_getattr(h, &cbparam);
         xlate_buf = strbuf_new(); // Consumed the declaration; start with empty buffer
     }
     else {
@@ -585,27 +670,43 @@ xml_reader_start(xml_reader_t *h, const struct xml_reader_xmldecl_attrdesc_s *at
     // headers), parsed entities which are stored in an encoding other than UTF-8
     // or UTF-16 MUST begin with a text declaration (see 4.3.1 The Text Declaration)
     // containing an encoding declaration.
-    //
-    // Unless an encoding is determined by a higher-level protocol, it is also a fatal
-    // error if an XML entity contains no encoding declaration and its content is not
-    // legal UTF-8 or UTF-16.
     if (!cbparam.xmldecl.encoding && !h->enc_transport
             && h->encoding->enctype != ENCODING_T_UTF16
             && h->encoding->enctype != ENCODING_T_UTF8) {
-        OOPS;
+        // Non-fatal: recover by using whatever encoding we detected
+        xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                "No external encoding information, no encoding in %s, content in %s encoding",
+                h->declinfo->name, h->encoding->name);
     }
 
-    // Emit an event (callback) for XML declaration
-    xml_reader_invoke_callback(h, &cbparam);
+    // Switch to encoding from declaration
+    if (cbparam.xmldecl.encoding) {
+        if (!xml_reader_set_encoding(h, cbparam.xmldecl.encoding)) {
+            xml_reader_message(h, XMLERR_NOTE, "(encoding from XML declaration)");
+            h->flags |= READER_FATAL;
+            return;
+        }
+        xfree(h->enc_xmldecl);
+        h->enc_xmldecl = xstrdup(cbparam.xmldecl.encoding);
+    }
 
-    // Set operations for reading in the discovered encoding
-    strbuf_setops(xlate_buf, &xml_reader_translation_ops, h);
-    h->buf_proc = xlate_buf;
+    // If everything was alright so far, notify the application of the XML declaration
+    // (either real or implied) and prepare for parsing the content after it.
+    if ((h->flags & READER_FATAL) == 0) {
+
+        // Emit an event (callback) for XML declaration
+        xml_reader_invoke_callback(h, &cbparam);
+
+        // Set operations for reading in the discovered encoding
+        strbuf_setops(xlate_buf, &xml_reader_translation_ops, h);
+        h->buf_proc = xlate_buf;
+    }
 }
 
 void
 xml_reader_process_xml(xml_reader_t *h, bool is_document_entity)
 {
-    xml_reader_start(h, is_document_entity ? attrlist_xmldecl : attrlist_textdecl);
+    h->declinfo = is_document_entity ? &declinfo_xmldecl : &declinfo_textdecl;
+    xml_reader_start(h);
     // TBD process the rest of the content
 }

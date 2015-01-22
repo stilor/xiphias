@@ -61,9 +61,10 @@ typedef void (*xml_reader_cb_t)(void *arg, const xml_reader_cbparam_t *cbparam);
 
     @param buf String buffer to read the input from; will be destroyed along with
           the handle returned by this function.
+    @param location Location that will be used for reporting errors
     @return Handle
 */
-xml_reader_t *xml_reader_new(struct strbuf_s *buf);
+xml_reader_t *xml_reader_new(struct strbuf_s *buf, const char *location);
 
 /**
     Destroy an XML reading handle.
@@ -79,9 +80,9 @@ void xml_reader_delete(xml_reader_t *h);
     @param h Reader handle
     @param enc Encoding reported by higher-level protocol
                (e.g. Content-Type header in HTTP).
-    @return None
+    @return true if encoding set successfully, false otherwise
 */
-void xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname);
+bool xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname);
 
 /**
     Set callback functions for the reader.
@@ -92,6 +93,17 @@ void xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname);
     @return None
 */
 void xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg);
+
+/**
+    Report an error/warning/note for the current location in a handle.
+
+    @param h Reader handle
+    @param info Error code
+    @param fmt Message format
+    @return Nothing
+*/
+void
+xml_reader_message(xml_reader_t *h, xmlerr_info_t info, const char *fmt, ...);
 
 /**
     Read in the XML content and emit the callbacks as necessary.

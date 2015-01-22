@@ -22,6 +22,7 @@ typedef struct testcase_s {
     const char *input;                      ///< Input file name
     bool use_bom;                           ///< Prepend byte order mark to this file?
     const char *encoding;                   ///< Transcode the file to this encoding
+    const char *transport_encoding;         ///< If not NULL, configure XML reader with it
     const xml_reader_cbparam_t *events;     ///< Events expected while parsing this input
 } testcase_t;
 
@@ -56,14 +57,14 @@ evprint_message(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_message_t *x = &cbparam->message;
 
-    printf("%s:%u:%u: %s [S%u C%u:%u]",
+    printf("%s:%u:%u: %s [S%u C%03u:%04u]",
             x->loc.src ? x->loc.src : "<undef>",
             x->loc.line,
             x->loc.pos,
             x->msg ? x->msg : "<no message>",
-            x->info.severity,
-            x->info.spec,
-            x->info.code);
+            XMLERR_SEVERITY(x->info),
+            XMLERR_SPEC(x->info),
+            XMLERR_CODE(x->info));
 }
 
 static bool
@@ -76,9 +77,7 @@ evequal_message(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
             && x1->loc.line == x2->loc.line
             && x1->loc.pos == x2->loc.pos
             && str_null_or_equal(x1->msg, x2->msg)
-            && x1->info.severity == x2->info.severity
-            && x1->info.spec == x2->info.spec
-            && x1->info.code == x2->info.code;
+            && x1->info == x2->info;
 }
 
 static void
@@ -284,11 +283,16 @@ run_testcase(const testcase_t *tc)
 
     // Run the test
     sbuf = strbuf_new_from_memory(conv_buf, conv_len - len2, false);
-    reader = xml_reader_new(sbuf);
+    reader = xml_reader_new(sbuf, tc->input);
 
     cbarg.expect = tc->events;
     cbarg.failed = false;
     xml_reader_set_callback(reader, test_cb, &cbarg);
+
+    if (tc->transport_encoding) {
+        xml_reader_set_transport_encoding(reader, tc->transport_encoding);
+    }
+
     xml_reader_process_xml(reader, true);
     xml_reader_delete(reader);
     // Check that there were no mismatches and all events were seen

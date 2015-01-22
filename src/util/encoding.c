@@ -19,10 +19,10 @@ static STAILQ_HEAD(, encoding_s) encodings = STAILQ_HEAD_INITIALIZER(encodings);
 void
 encoding_register(encoding_t *enc)
 {
-    if (encoding_search(enc->name)) {
-        OOPS;
+    if (!encoding_search(enc->name)) {
+        // TBD insert at head to give later registrations higher precedence?
+        STAILQ_INSERT_TAIL(&encodings, enc, link);
     }
-    STAILQ_INSERT_TAIL(&encodings, enc, link);
 }
 
 const encoding_t *
@@ -153,6 +153,7 @@ encoding_compatible(const encoding_t *enc1, const encoding_t *enc2)
         return false;
     }
     if (enc1->endian != ENCODING_E_ANY
+            && enc2->endian != ENCODING_E_ANY
             && enc1->endian != enc2->endian) {
         return false;
     }
@@ -233,7 +234,8 @@ xlate_UTF8(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
         if (begin == end) {
             // No more input available. Check if we're in the middle of the sequence
             if (len) {
-                OOPS;
+                // TBD need to pass this to higher level - how?
+                OOPS_ASSERT(0);
             }
             break;
         }
@@ -243,7 +245,8 @@ xlate_UTF8(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
                 // New character
                 val = *ptr++;
                 if ((len = utf8_len[val]) == 0) {
-                    OOPS;   // Bad byte sequence
+                    // TBD need to pass this to higher level - how?
+                    OOPS_ASSERT(0);   // Bad byte sequence
                 }
                 else if (len > 1) {
                     // Multibyte, mask out length encoding

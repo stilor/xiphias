@@ -42,7 +42,7 @@ struct strbuf_s {
 static void
 null_input(strbuf_t *buf, void *arg)
 {
-    OOPS;
+    OOPS_ASSERT(0); // This function should never have been called
 }
 
 /**
@@ -208,7 +208,7 @@ strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
             buf->ops->input(buf, buf->arg);
             next = blk ? STAILQ_NEXT(blk, link) : STAILQ_FIRST(&buf->content);
             if (!next) {
-                OOPS; // TBD return partial read?
+                OOPS_ASSERT(0); // TBD return partial read?
             }
         }
         // Have some queued data

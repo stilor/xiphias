@@ -22,7 +22,8 @@ FUNC(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
         if (begin == end) {
             // No more input available. Check if we're in the middle of the sequence
             if (surrogate || needmore) {
-                OOPS;
+                // TBD need to pass this upstream - how?
+                OOPS_ASSERT(0);
             }
             break;
         }
@@ -32,7 +33,8 @@ FUNC(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
 #define NEXTCHAR_UTF16 \
         if (surrogate) { \
             if ((val & 0xFC00) != 0xDC00) { \
-                OOPS; /* invalid byte sequence */ \
+                /* TBD need to pass this upstream - how? */ \
+                OOPS_ASSERT(0); /* invalid byte sequence */ \
             } \
             *out++ = 0x010000 + ((surrogate << 10) ^ val ^ 0x360DC00); \
             surrogate = 0; \

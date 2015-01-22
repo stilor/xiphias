@@ -15,10 +15,6 @@
 // later. Also, save errors into a given error handle.
 #include <stdio.h>
 #include <stdlib.h>
-#define OOPS do { \
-    fprintf(stderr, "OOPS at %s:%d\n", __FILE__, __LINE__); \
-    abort(); \
-} while (0)
 
 // FIXME: conditional OOPS -> convert to error handling or assert
 #define OOPS_ASSERT(c) do { \

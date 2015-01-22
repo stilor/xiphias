@@ -15,7 +15,7 @@ xmalloc(size_t sz)
     void *rv;
 
     if ((rv = malloc(sz)) == NULL) {
-        OOPS;
+        OOPS_ASSERT(0);
     }
     return rv;
 }
@@ -26,7 +26,7 @@ xrealloc(const void *ptr, size_t sz)
     void *rv;
 
     if ((rv = realloc(DECONST(ptr), sz)) == NULL) {
-        OOPS;
+        OOPS_ASSERT(0);
     }
     return rv;
 }
@@ -45,7 +45,7 @@ xstrdup(const char *s)
     char *rv;
 
     if ((rv = strdup(s)) == NULL) {
-        OOPS;
+        OOPS_ASSERT(0);
     }
     return rv;
 }
