@@ -53,96 +53,26 @@ typedef struct {
 
 /// List of "signatures"
 static const bom_encdesc_t bom_encodings[] = {
-    {
-        .encname = "UTF-32BE",
-        .sig = { 0x00, 0x00, 0xFE, 0xFF },
-        .siglen = 4,
-        .is_bom = true,
-    },
-    {
-        .encname = "UTF-32LE",
-        .sig = { 0xFF, 0xFE, 0x00, 0x00 },
-        .siglen = 4,
-        .is_bom = true,
-    },
-    {
-        .encname = "UTF-32-2143",
-        .sig = { 0x00, 0x00, 0xFF, 0xFE },
-        .siglen = 4,
-        .is_bom = true,
-    },
-    {
-        .encname = "UTF-32-3412",
-        .sig = { 0xFE, 0xFF, 0x00, 0x00 },
-        .siglen = 4,
-        .is_bom = true,
-    },
-    {
-        .encname = "UTF-16BE",
-        .sig = { 0xFE, 0xFF },
-        .siglen = 2,
-        .is_bom = true,
-    },
-    {
-        .encname = "UTF-16LE",
-        .sig = { 0xFF, 0xFE },
-        .siglen = 2,
-        .is_bom = true,
-    },
-    {
-        .encname = "UTF-8",
-        .sig = { 0xEF, 0xBB, 0xBF },
-        .siglen = 3,
-        .is_bom = true,
-    },
-    {
-        .encname = "UTF-32BE",
-        .sig = { 0x00, 0x00, 0x00, 0x3C },
-        .siglen = 4,
-        .is_bom = false,
-    },
-    {
-        .encname = "UTF-32LE",
-        .sig = { 0x3C, 0x00, 0x00, 0x00 },
-        .siglen = 4,
-        .is_bom = false,
-    },
-    {
-        .encname = "UTF-32-2143",
-        .sig = { 0x00, 0x00, 0x3C, 0x00 },
-        .siglen = 4,
-        .is_bom = false,
-    },
-    {
-        .encname = "UTF-32-3412",
-        .sig = { 0x00, 0x3C, 0x00, 0x00 },
-        .siglen = 4,
-        .is_bom = false,
-    },
-    {
-        .encname = "UTF-16BE",
-        .sig = { 0x00, 0x3C, 0x00, 0x3F },
-        .siglen = 4,
-        .is_bom = false,
-    },
-    {
-        .encname = "UTF-16LE",
-        .sig = { 0x3C, 0x00, 0x3F, 0x00 },
-        .siglen = 4,
-        .is_bom = false,
-    },
-    {
-        .encname = "UTF-8",
-        .sig = { 0x3C, 0x3F, 0x78, 0x6D },
-        .siglen = 4,
-        .is_bom = false,
-    },
-    {
-        .encname = "EBCDIC",
-        .sig = { 0x4C, 0x6F, 0xA7, 0x94 },
-        .siglen = 4,
-        .is_bom = false,
-    },
+    // Most reliable: have BOM symbol
+    { "UTF-32BE",       { 0x00, 0x00, 0xFE, 0xFF }, 4, true, },
+    { "UTF-32LE",       { 0xFF, 0xFE, 0x00, 0x00 }, 4, true, },
+    { "UTF-32-2143",    { 0x00, 0x00, 0xFF, 0xFE }, 4, true, },
+    { "UTF-32-3412",    { 0xFE, 0xFF, 0x00, 0x00 }, 4, true, },
+    { "UTF-16BE",       { 0xFE, 0xFF },             2, true, },
+    { "UTF-16LE",       { 0xFF, 0xFE },             2, true, },
+    { "UTF-8",          { 0xEF, 0xBB, 0xBF },       3, true, },
+
+    // Less reliable: assume '<' as the 1st character
+    { "UTF-32BE",       { 0x00, 0x00, 0x00, 0x3C }, 4, false, },
+    { "UTF-32LE",       { 0x3C, 0x00, 0x00, 0x00 }, 4, false, },
+    { "UTF-32-2143",    { 0x00, 0x00, 0x3C, 0x00 }, 4, false, },
+    { "UTF-32-3412",    { 0x00, 0x3C, 0x00, 0x00 }, 4, false, },
+    { "UTF-16BE",       { 0x00, 0x3C, },            2, false, },
+    { "UTF-16LE",       { 0x3C, 0x00, },            2, false, },
+    { "UTF-8",          { 0x3C, },                  1, false, },
+    { "EBCDIC",         { 0x4C, },                  1, false, },
+
+    // TBD: Try looking for whitespace? #x20/#x9/#xD/#xA/#x85/#x2028 as first character?
 };
 
 bool

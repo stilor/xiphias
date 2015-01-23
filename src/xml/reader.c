@@ -19,7 +19,11 @@ enum {
     READER_FATAL    = 0x0002,       ///< Reader encountered a fatal error
     READER_SAW_CR   = 0x0004,       ///< Converting CRLF: saw #D, ignore next #xA/#x85
     READER_POS_RESET= 0x0008,       ///< Reset position before reading the next char
+    READER_READDECL = 0x0010,       ///< Looking ahead for the declaration
 };
+
+/// Used as an indicator that no character was read
+#define NOCHAR      ((uint32_t)-1)
 
 /**
     XML declaration comes in two flavors, XMLDecl and TextDecl, with different
@@ -235,7 +239,7 @@ xml_is_whitespace(uint32_t cp)
     Read one character from input.
 
     @param h Reader handle
-    @return Character read, or (uint32_t)-1 on error
+    @return Character read, or NOCHAR on error
 */
 static uint32_t
 xml_read_1(xml_reader_t *h)
@@ -246,6 +250,7 @@ xml_read_1(xml_reader_t *h)
     if (h->flags & READER_POS_RESET) {
         h->loc.line++;
         h->loc.pos = 0;
+        h->flags &= ~READER_POS_RESET;
     }
 
     /*
@@ -255,10 +260,13 @@ xml_read_1(xml_reader_t *h)
     do {
         h->encoding->xlate(h->buf_raw, h->encoding_baton, &ptr, ptr + 1);
         if (ptr == &tmp) {
-            xml_reader_message(h, h->declinfo->generr,
-                    "%s truncated", h->declinfo->name);
-            h->flags |= READER_FATAL;
-            return -1;
+            // This is only error if we know declaration is present
+            if ((h->flags & READER_READDECL) == 0) {
+                xml_reader_message(h, h->declinfo->generr,
+                        "%s truncated", h->declinfo->name);
+                h->flags |= READER_FATAL;
+            }
+            return NOCHAR;
         }
         if ((h->flags & READER_SAW_CR) && tmp == 0x0A) {
             next = true;
@@ -266,11 +274,15 @@ xml_read_1(xml_reader_t *h)
         h->flags &= ~READER_SAW_CR;
     } while (next);
 
+    h->loc.pos++;
     if (tmp >= 0x7f) {
-        xml_reader_message(h, h->declinfo->generr,
-                "%s contains non-ASCII characters", h->declinfo->name);
-        h->flags |= READER_FATAL;
-        return -1;
+        // This is only error if we know declaration is present
+        if ((h->flags & READER_READDECL) == 0) {
+            xml_reader_message(h, h->declinfo->generr,
+                    "%s contains non-ASCII characters", h->declinfo->name);
+            h->flags |= READER_FATAL;
+        }
+        return NOCHAR;
     }
     if (tmp == 0x0D) {
         tmp = 0x0A;
@@ -279,7 +291,6 @@ xml_read_1(xml_reader_t *h)
     if (tmp == 0x0A) {
         h->flags |= READER_POS_RESET;
     }
-    h->loc.pos++;
     return tmp;
 }
 
@@ -340,13 +351,18 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
     size_t nread, i;
     char *encname;
 
+    // Lots of NOCHAR checks below: the application has been notified in xml_read_1
     buf = xmalloc(bufsz * sizeof(uint32_t));
     while (true) {
-        buf[0] = xml_skip_whitespace(h);
+        if ((buf[0] = xml_skip_whitespace(h)) == NOCHAR) {
+            goto out;
+        }
         if (xchareq(buf[0], '?')) {
             // Seems like the end of the declaration... Verify the next character,
             // verify there are no more required attributes and be done.
-            buf[1] = xml_read_1(h);
+            if ((buf[1] = xml_read_1(h)) == NOCHAR) {
+                goto out;
+            }
             if (xchareq(buf[1], '>')) {
                 while (attrlist->name) {
                     if (attrlist->mandatory) {
@@ -364,27 +380,31 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
         }
         if (!attrlist->name) {
             // Another attribute? We are not expecting anything!
-            xml_reader_message(h, declinfo->generr, "Malformed %s", declinfo->name);
+            xml_reader_message(h, declinfo->generr, "Unexpected pseudo-attribute");
             h->flags |= READER_FATAL;
             goto out;
         }
         nread = 1; // 1 character in buffer
         // Find an attribute that matches
         do {
+
             // This immediately reads 2nd character. Fortunately, there are no 1-char
             // pseudo-attribute names in XMLDecl/TextDecl
-            buf[nread++] = xml_read_1(h);
+            if ((buf[nread++] = xml_read_1(h)) == NOCHAR) {
+                goto out;
+            }
             while (!ucs4_equal(buf, attrlist->name, nread)) {
                 if (attrlist->mandatory) {
+                    // Non-fatal: continue with next pseudo-attributes
                     xml_reader_message(h, declinfo->generr,
-                            "Mandatory pseudo-attribute '%s' missing",
-                            attrlist->name);
-                    h->flags |= READER_FATAL;
-                    goto out;
+                            "Mandatory pseudo-attribute '%s' missing in %s",
+                            attrlist->name, declinfo->name);
                 }
                 // Doesn't match and is optional - advance to the next attribute
                 attrlist++;
                 if (!attrlist->name) {
+                    // TBD: make non-fatal: recover by parsing as if it were the following production:
+                    //    Attribute S* Eq S* ('"' Char* '"' | "'" Char* "'")
                     xml_reader_message(h, declinfo->generr,
                             "Unexpected pseudo-attribute");
                     h->flags |= READER_FATAL;
@@ -396,7 +416,7 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
         // Found the attribute name, now look for Eq production: S* '=' S*
         eq = xml_skip_whitespace(h);
         if (!xchareq(eq, '=')) {
-            xml_reader_message(h, attrlist->errinfo, "No equal sign pseudo-attribute");
+            xml_reader_message(h, attrlist->errinfo, "No equal sign in pseudo-attribute");
             h->flags |= READER_FATAL;
             goto out;
         }
@@ -417,7 +437,10 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
                 bufsz *= 2;
                 buf = xrealloc(buf, bufsz * sizeof(uint32_t));
             }
-        } while ((buf[nread++] = xml_read_1(h)) != quote);
+            if ((buf[nread] = xml_read_1(h)) == NOCHAR) {
+                goto out;
+            }
+        } while (buf[nread++] != quote);
 
         // Verify/save the attribute value. Note that 'nread' includes closing quote
         if (!strcmp(attrlist->name, "version")) {
@@ -622,7 +645,6 @@ xml_reader_start(xml_reader_t *h)
     size_t i, len;
     const char *encname;
     bool had_bom;
-    strbuf_t *xlate_buf;
     xml_reader_cbparam_t cbparam = {
         .cbtype = XML_READER_CB_XMLDECL,
         .xmldecl = {
@@ -630,6 +652,7 @@ xml_reader_start(xml_reader_t *h)
             .encoding = NULL,
             .standalone = XML_INFO_STANDALONE_NO_VALUE,
             .version = XML_INFO_VERSION_NO_VALUE,
+            .initial_encoding = NULL,
         },
     };
 
@@ -673,6 +696,9 @@ xml_reader_start(xml_reader_t *h)
     // such encoding, it's a bug.
     OOPS_ASSERT(h->encoding->xlate);
 
+    // Record the encoding we've used initially
+    cbparam.xmldecl.initial_encoding = h->encoding->name;
+
     // We should at least know the encoding type by now: whether it is 1/2/4-byte based,
     // and the endianness. Read and parse the XML/Text declaration, if any, and set
     // the final encoding as specified therein. Until then, though, we need to be careful
@@ -680,13 +706,15 @@ xml_reader_start(xml_reader_t *h)
     // encoding and transcode too much.
 
     // We are looking for '<?xml' string, followed by XML whitespace
+    h->flags |= READER_READDECL;
     for (i = 0; i < sizeofarray(xmldecl); i++) {
-        if ((xmldecl[i] = xml_read_1(h)) == (uint32_t)-1) {
+        if ((xmldecl[i] = xml_read_1(h)) == NOCHAR) {
             // We'll unget and retry with what we got as if it were regular XML content
-            h->flags &= ~READER_FATAL;
             break;
         }
     }
+    h->flags &= ~READER_READDECL;
+
     if (i == sizeofarray(xmldecl)
             && ucs4_equal(xmldecl, "<?xml", 5)
             && xml_is_whitespace(xmldecl[5])) {
@@ -697,15 +725,15 @@ xml_reader_start(xml_reader_t *h)
         // to use them within the XML declaration or text declaration."
         cbparam.xmldecl.has_decl = true;
         xml_reader_xmldecl_getattr(h, &cbparam);
-        xlate_buf = strbuf_new(); // Consumed the declaration; start with empty buffer
+        h->buf_proc = strbuf_new(); // Consumed the declaration; start with empty buffer
     }
     else {
         // No declaration, "unget" the characters we've read.
         h->loc.line = 1;
         h->loc.pos = 0;
         len = xml_reader_input_filter(xmldecl, i, xmldecl_utf8);
-        xlate_buf = strbuf_new_from_memory(xmldecl_utf8, len, true);
-        strbuf_setf(xlate_buf, 0, BUF_LAST); // Ops to get the rest will be set below
+        h->buf_proc = strbuf_new_from_memory(xmldecl_utf8, len, true);
+        strbuf_setf(h->buf_proc, 0, BUF_LAST); // Ops to get the rest will be set below
     }
 
     // In the absence of external character encoding information (such as MIME
@@ -729,8 +757,7 @@ xml_reader_start(xml_reader_t *h)
         xml_reader_invoke_callback(h, &cbparam);
 
         // Set operations for reading in the discovered encoding
-        strbuf_setops(xlate_buf, &xml_reader_translation_ops, h);
-        h->buf_proc = xlate_buf;
+        strbuf_setops(h->buf_proc, &xml_reader_translation_ops, h);
     }
 }
 

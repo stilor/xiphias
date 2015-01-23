@@ -101,11 +101,12 @@ evprint_xmldecl(const xml_reader_cbparam_t *cbparam)
     };
     const xml_reader_cbparam_xmldecl_t *x = &cbparam->xmldecl;
 
-    printf("%s, encoding '%s', standalone '%s', version '%s'",
+    printf("%s, encoding '%s', standalone '%s', version '%s' (initial encoding: '%s')",
             x->has_decl ? "has declaration" : "implied declaration",
             x->encoding ? x->encoding : "<unknown>",
             x->standalone < sizeofarray(stdalone) ? stdalone[x->standalone] : "???",
-            x->version < sizeofarray(xmlversion) ? xmlversion[x->version] : "???");
+            x->version < sizeofarray(xmlversion) ? xmlversion[x->version] : "???",
+            x->initial_encoding ? x->initial_encoding : "<unknown>");
 }
 
 static bool
@@ -117,7 +118,8 @@ evequal_xmldecl(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     return x1->has_decl == x2->has_decl
             && str_null_or_equal(x1->encoding, x2->encoding)
             && x1->standalone == x2->standalone
-            && x1->version == x2->version;
+            && x1->version == x2->version
+            && str_null_or_equal(x1->initial_encoding, x2->initial_encoding);
 }
 
 static const event_t events[] = {
@@ -198,17 +200,17 @@ test_cb(void *arg, const xml_reader_cbparam_t *cbparam)
     test_cb_t *cbarg = arg;
 
     if (equal_events(cbarg->expect, cbparam)) {
-        printf("  PASS: ");
+        printf("             PASS: ");
         print_event(cbparam);
-        cbarg->expect += 1;
     }
     else {
-        printf("  FAIL: (received) ");
+        printf("  (received) FAIL: ");
         print_event(cbparam);
-        printf("      : (expected) ");
+        printf("  (expected)     : ");
         print_event(cbarg->expect);
         cbarg->failed = true;
     }
+    cbarg->expect += 1;
 }
 
 /**
@@ -304,8 +306,15 @@ run_testcase(const testcase_t *tc)
 
     xml_reader_process_xml(reader, true);
     xml_reader_delete(reader);
-    // Check that there were no mismatches and all events were seen
-    if (!cbarg.failed && cbarg.expect->cbtype == XML_READER_CB_NONE) {
+
+    while (cbarg.expect->cbtype != XML_READER_CB_NONE) {
+        printf("  (not seen) FAIL: ");
+        print_event(cbarg.expect);
+        cbarg.expect += 1;
+        cbarg.failed = true;
+    }
+
+    if (!cbarg.failed) {
         rc = PASS;
     }
 
@@ -326,35 +335,57 @@ out:
     Run all the testcases in a suite.
 
     @param tcs Testcases
-    @param num Number of testcases
+    @param from Starting test case number
+    @param num Number of test cases
     @return true if all tests passed, false otherwise
 */
 static bool
-run(const testcase_t *tcs, size_t num)
+run(const testcase_t *tcs, size_t from, size_t num)
 {
     size_t i;
     result_t rc;
-    bool all_passed = true;
+    unsigned int passed = 0, failed = 0, unresolved = 0;
 
-    for (i = 0; i < num; i++) {
-        printf("Running test #%04zu: %s\n", i, tcs[i].desc);
+    for (i = from; i < from + num && i < sizeofarray(testcases); i++) {
+        printf("#%04zu: %s\n", i, tcs[i].desc);
         rc = run_testcase(&tcs[i]);
+        printf("#%04zu: ", i);
         switch (rc) {
         case PASS:
-            printf("PASS: %s\n", tcs[i].desc);
+            printf("PASS\n");
+            passed++;
             break;
         case FAIL:
-            printf("FAIL: %s\n", tcs[i].desc);
-            all_passed = false;
+            printf("FAIL\n");
+            failed++;
             break;
         default:
-            printf("UNRESOLVED: %s\n", tcs[i].desc);
-            all_passed = false;
+            printf("UNRESOLVED\n");
+            unresolved++;
             break;
         }
         printf("\n");
     }
-    return all_passed;
+    printf("SUMMARY:\n");
+    printf("  PASSED       : %5u\n", passed);
+    printf("  FAILED       : %5u\n", failed);
+    printf("  UNRESOLVED   : %5u\n", unresolved);
+    return !failed && !unresolved;
+}
+
+/**
+    Display usage for the test suite.
+
+    @param pgm Program name
+    @return Nothing
+*/
+static void
+usage(const char *pgm)
+{
+    printf("Usage: %s [testcase]\n", pgm);
+    printf("\n");
+    printf("Valid test case numbers: 0..%zu\n", sizeofarray(testcases) - 1);
+    printf("\n");
 }
 
 /**
@@ -367,5 +398,18 @@ run(const testcase_t *tcs, size_t num)
 int
 main(int argc, char *argv[])
 {
-    return run(testcases, sizeofarray(testcases)) ? 0 : 1;
+    char *eptr;
+    size_t tcn;
+
+    if (argc == 1) {
+        return run(testcases, 0, sizeofarray(testcases)) ? 0 : 1;
+    }
+    else if (argc == 2) {
+        tcn = strtoul(argv[1], &eptr, 10);
+        if (!*eptr) {
+            return run(testcases, tcn, 1) ? 0 : 1;
+        }
+    }
+    usage(argv[0]);
+    return 1;
 }

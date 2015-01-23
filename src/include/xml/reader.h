@@ -39,6 +39,7 @@ typedef struct {
     const char *encoding;                    ///< Encoding from the declaration
     enum xml_info_standalone_e standalone;   ///< Is the document is declared standalone
     enum xml_info_version_e version;         ///< XML version
+    const char *initial_encoding;            ///< Encoding assumed before reading declaration
 } xml_reader_cbparam_xmldecl_t;
 
 /// Combined callback parameter type
