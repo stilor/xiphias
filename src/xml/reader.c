@@ -333,6 +333,36 @@ ucs4_equal(const uint32_t *ucs, const char *s, size_t sz)
 }
 
 /**
+    Check if encoding name matches the EncName production:
+    [A-Za-z] ([A-Za-z0-9._] | '-')*
+
+    @param ucs UCS-4 array
+    @param sz Number of characters to check
+    @return true if matches, false otherwise
+*/
+static bool
+check_EncName(const uint32_t *ucs, size_t sz)
+{
+    size_t i;
+
+    for (i = 0; i < sz; i++, ucs++) {
+        if (xcharin(*ucs, 'A', 'Z') || xcharin(*ucs, 'a', 'z')) {
+            continue;
+        }
+        if (!i) {
+            return false;
+        }
+        if (!xcharin(*ucs, '0', '9')
+                && !xchareq(*ucs, '.')
+                && !xchareq(*ucs, '_')
+                && !xchareq(*ucs, '-')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
     Parse the "attributes" in the XML declaration (XMLDecl/TextDecl).
 
     @param h Reader handle
@@ -456,18 +486,24 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
             }
         }
         else if (!strcmp(attrlist->name, "encoding")) {
-            encname = xmalloc(nread);
-            for (i = 0; i < nread - 1; i++) {
-                encname[i] = buf[i]; // Convert to UTF-8/ASCII
+            if (check_EncName(buf, nread - 1)) {
+                encname = xmalloc(nread);
+                for (i = 0; i < nread - 1; i++) {
+                    encname[i] = buf[i]; // Convert to UTF-8/ASCII
+                }
+                encname[i] = 0;
+                if (!xml_reader_set_encoding(h, encname)) {
+                    // Non-fatal: recover by assuming the encoding currently used
+                    xml_reader_message(h, XMLERR_NOTE, "(encoding from XML declaration)");
+                }
+                cbparam->xmldecl.encoding = encname;
+                xfree(h->enc_xmldecl);
+                h->enc_xmldecl = encname;
             }
-            encname[i] = 0;
-            if (!xml_reader_set_encoding(h, encname)) {
-                // Non-fatal: recover by assuming the encoding currently used
-                xml_reader_message(h, XMLERR_NOTE, "(encoding from XML declaration)");
+            else {
+                // Non-fatal: recover by assuming no encoding specification
+                xml_reader_message(h, attrlist->errinfo, "Invalid encoding name");
             }
-            cbparam->xmldecl.encoding = encname;
-            xfree(h->enc_xmldecl);
-            h->enc_xmldecl = encname;
         }
         else if (!strcmp(attrlist->name, "standalone")) {
             if (nread == 4 && ucs4_equal(buf, "yes", 3)) {
@@ -743,6 +779,7 @@ xml_reader_start(xml_reader_t *h)
     if (!cbparam.xmldecl.encoding && !h->enc_transport
             && h->encoding->enctype != ENCODING_T_UTF16
             && h->encoding->enctype != ENCODING_T_UTF8) {
+        // TBD: test after adding support for codepage-based encodings (e.g. ISO8859-1)
         // Non-fatal: recover by using whatever encoding we detected
         xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "No external encoding information, no encoding in %s, content in %s encoding",

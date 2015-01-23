@@ -210,7 +210,9 @@ test_cb(void *arg, const xml_reader_cbparam_t *cbparam)
         print_event(cbarg->expect);
         cbarg->failed = true;
     }
-    cbarg->expect += 1;
+    if (cbarg->expect->cbtype != XML_READER_CB_NONE) {
+        cbarg->expect += 1;
+    }
 }
 
 /**

@@ -59,4 +59,5 @@ char *xvasprintf(const char *fmt, va_list ap);
 #define xstrcmp(s1, s2)         strcmp((s1), (s2))
 #define xstrncmp(s1, s2, l)     strcmp((s1), (s2), (l))
 #define xchareq(c1, c2)         ((c1) == (c2))
+#define xcharin(c1, cs, ce)     ((c1) >= (cs) && (c1) <= (ce))
 #endif
