@@ -2,8 +2,8 @@
 
 import re
 
+# Encoding names as defined by IANA (http://www.iana.org/assignments/character-sets/character-sets.xhtml)
 encodings = (
-        # TBD check names in IANA database
         ( "ISO-8859-1",     "MAPPINGS/ISO8859/8859-1.TXT" ),
         ( "ISO-8859-2",     "MAPPINGS/ISO8859/8859-2.TXT" ),
         ( "ISO-8859-3",     "MAPPINGS/ISO8859/8859-3.TXT" ),
@@ -22,35 +22,35 @@ encodings = (
         ( "KOI8-R",         "MAPPINGS/VENDORS/MISC/KOI8-R.TXT" ),
         ( "KOI8-U",         "MAPPINGS/VENDORS/MISC/KOI8-U.TXT" ),
         ( "US-ASCII",       "MAPPINGS/VENDORS/MISC/US-ASCII-QUOTES.TXT" ),
-        ( "EBCDIC-CP037",   "MAPPINGS/VENDORS/MICSFT/EBCDIC/CP037.TXT" ),
-        ( "EBCDIC-CP1026",  "MAPPINGS/VENDORS/MICSFT/EBCDIC/CP1026.TXT" ),
-        ( "EBCDIC-CP500",   "MAPPINGS/VENDORS/MICSFT/EBCDIC/CP500.TXT" ),
-        ( "EBCDIC-CP875",   "MAPPINGS/VENDORS/MICSFT/EBCDIC/CP875.TXT" ),
-        ( "CP437",          "MAPPINGS/VENDORS/MICSFT/PC/CP437.TXT" ),
-        ( "CP737",          "MAPPINGS/VENDORS/MICSFT/PC/CP737.TXT" ),
-        ( "CP775",          "MAPPINGS/VENDORS/MICSFT/PC/CP775.TXT" ),
-        ( "CP850",          "MAPPINGS/VENDORS/MICSFT/PC/CP850.TXT" ),
-        ( "CP852",          "MAPPINGS/VENDORS/MICSFT/PC/CP852.TXT" ),
-        ( "CP855",          "MAPPINGS/VENDORS/MICSFT/PC/CP855.TXT" ),
-        ( "CP857",          "MAPPINGS/VENDORS/MICSFT/PC/CP857.TXT" ),
-        ( "CP860",          "MAPPINGS/VENDORS/MICSFT/PC/CP860.TXT" ),
-        ( "CP861",          "MAPPINGS/VENDORS/MICSFT/PC/CP861.TXT" ),
-        ( "CP862",          "MAPPINGS/VENDORS/MICSFT/PC/CP862.TXT" ),
-        ( "CP863",          "MAPPINGS/VENDORS/MICSFT/PC/CP863.TXT" ),
-        ( "CP864",          "MAPPINGS/VENDORS/MICSFT/PC/CP864.TXT" ),
-        ( "CP865",          "MAPPINGS/VENDORS/MICSFT/PC/CP865.TXT" ),
-        ( "CP866",          "MAPPINGS/VENDORS/MICSFT/PC/CP866.TXT" ),
-        ( "CP869",          "MAPPINGS/VENDORS/MICSFT/PC/CP869.TXT" ),
-        ( "CP874",          "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP874.TXT" ),
-        ( "CP1250",         "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1250.TXT" ),
-        ( "CP1251",         "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1251.TXT" ),
-        ( "CP1252",         "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1252.TXT" ),
-        ( "CP1253",         "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1253.TXT" ),
-        ( "CP1254",         "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1254.TXT" ),
-        ( "CP1255",         "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1255.TXT" ),
-        ( "CP1256",         "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1256.TXT" ),
-        ( "CP1257",         "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1257.TXT" ),
-        ( "CP1258",         "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1258.TXT" ),
+        ( "IBM037",         "MAPPINGS/VENDORS/MICSFT/EBCDIC/CP037.TXT" ),
+        ( "IBM500",         "MAPPINGS/VENDORS/MICSFT/EBCDIC/CP500.TXT" ),
+        ( "IBM875",         "MAPPINGS/VENDORS/MICSFT/EBCDIC/CP875.TXT" ),
+        ( "IBM1026",        "MAPPINGS/VENDORS/MICSFT/EBCDIC/CP1026.TXT" ),
+        ( "IBM437",         "MAPPINGS/VENDORS/MICSFT/PC/CP437.TXT" ),
+        ( "IBM737",         "MAPPINGS/VENDORS/MICSFT/PC/CP737.TXT" ),
+        ( "IBM775",         "MAPPINGS/VENDORS/MICSFT/PC/CP775.TXT" ),
+        ( "IBM850",         "MAPPINGS/VENDORS/MICSFT/PC/CP850.TXT" ),
+        ( "IBM852",         "MAPPINGS/VENDORS/MICSFT/PC/CP852.TXT" ),
+        ( "IBM855",         "MAPPINGS/VENDORS/MICSFT/PC/CP855.TXT" ),
+        ( "IBM857",         "MAPPINGS/VENDORS/MICSFT/PC/CP857.TXT" ),
+        ( "IBM860",         "MAPPINGS/VENDORS/MICSFT/PC/CP860.TXT" ),
+        ( "IBM861",         "MAPPINGS/VENDORS/MICSFT/PC/CP861.TXT" ),
+        ( "IBM862",         "MAPPINGS/VENDORS/MICSFT/PC/CP862.TXT" ),
+        ( "IBM863",         "MAPPINGS/VENDORS/MICSFT/PC/CP863.TXT" ),
+        ( "IBM864",         "MAPPINGS/VENDORS/MICSFT/PC/CP864.TXT" ),
+        ( "IBM865",         "MAPPINGS/VENDORS/MICSFT/PC/CP865.TXT" ),
+        ( "IBM866",         "MAPPINGS/VENDORS/MICSFT/PC/CP866.TXT" ),
+        ( "IBM869",         "MAPPINGS/VENDORS/MICSFT/PC/CP869.TXT" ),
+        ( "windows-874",    "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP874.TXT" ),
+        ( "windows-1250",   "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1250.TXT" ),
+        ( "windows-1251",   "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1251.TXT" ),
+        ( "windows-1252",   "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1252.TXT" ),
+        ( "windows-1253",   "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1253.TXT" ),
+        ( "windows-1254",   "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1254.TXT" ),
+        ( "windows-1255",   "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1255.TXT" ),
+        ( "windows-1256",   "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1256.TXT" ),
+        ( "windows-1257",   "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1257.TXT" ),
+        ( "windows-1258",   "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1258.TXT" ),
         )
 
 # Check a few characters to detemine compatibility class. Currently supported
@@ -78,7 +78,7 @@ compat_patterns = (
         )
     )
 
-re_cname = re.compile(r'[^A-Z0-9_]')
+re_cname = re.compile(r'[^A-Za-z0-9_]')
 def gen_cname(name):
     return re_cname.sub('_', name)
 

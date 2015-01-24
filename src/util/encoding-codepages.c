@@ -4920,8 +4920,8 @@ static encoding_t encoding_US_ASCII = {
 };
 
 
-// Code page for 'EBCDIC-CP037' code page
-static const uint32_t codepage_table_EBCDIC_CP037[] = {
+// Code page for 'IBM037' code page
+static const uint32_t codepage_table_IBM037[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -5181,289 +5181,18 @@ static const uint32_t codepage_table_EBCDIC_CP037[] = {
 	[0xFF] = 0x009F, // CONTROL
 
 };
-static encoding_t encoding_EBCDIC_CP037 = {
-    .name = "EBCDIC-CP037",
+static encoding_t encoding_IBM037 = {
+    .name = "IBM037",
     .enctype = ENCODING_T_EBCDIC,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_EBCDIC_CP037
+    .data = codepage_table_IBM037
 };
 
 
-// Code page for 'EBCDIC-CP1026' code page
-static const uint32_t codepage_table_EBCDIC_CP1026[] = {
-
-	[0x00] = 0x0000, // NULL
-	[0x01] = 0x0001, // START OF HEADING
-	[0x02] = 0x0002, // START OF TEXT
-	[0x03] = 0x0003, // END OF TEXT
-	[0x04] = 0x009C, // CONTROL
-	[0x05] = 0x0009, // HORIZONTAL TABULATION
-	[0x06] = 0x0086, // CONTROL
-	[0x07] = 0x007F, // DELETE
-	[0x08] = 0x0097, // CONTROL
-	[0x09] = 0x008D, // CONTROL
-	[0x0A] = 0x008E, // CONTROL
-	[0x0B] = 0x000B, // VERTICAL TABULATION
-	[0x0C] = 0x000C, // FORM FEED
-	[0x0D] = 0x000D, // CARRIAGE RETURN
-	[0x0E] = 0x000E, // SHIFT OUT
-	[0x0F] = 0x000F, // SHIFT IN
-	[0x10] = 0x0010, // DATA LINK ESCAPE
-	[0x11] = 0x0011, // DEVICE CONTROL ONE
-	[0x12] = 0x0012, // DEVICE CONTROL TWO
-	[0x13] = 0x0013, // DEVICE CONTROL THREE
-	[0x14] = 0x009D, // CONTROL
-	[0x15] = 0x0085, // CONTROL
-	[0x16] = 0x0008, // BACKSPACE
-	[0x17] = 0x0087, // CONTROL
-	[0x18] = 0x0018, // CANCEL
-	[0x19] = 0x0019, // END OF MEDIUM
-	[0x1A] = 0x0092, // CONTROL
-	[0x1B] = 0x008F, // CONTROL
-	[0x1C] = 0x001C, // FILE SEPARATOR
-	[0x1D] = 0x001D, // GROUP SEPARATOR
-	[0x1E] = 0x001E, // RECORD SEPARATOR
-	[0x1F] = 0x001F, // UNIT SEPARATOR
-	[0x20] = 0x0080, // CONTROL
-	[0x21] = 0x0081, // CONTROL
-	[0x22] = 0x0082, // CONTROL
-	[0x23] = 0x0083, // CONTROL
-	[0x24] = 0x0084, // CONTROL
-	[0x25] = 0x000A, // LINE FEED
-	[0x26] = 0x0017, // END OF TRANSMISSION BLOCK
-	[0x27] = 0x001B, // ESCAPE
-	[0x28] = 0x0088, // CONTROL
-	[0x29] = 0x0089, // CONTROL
-	[0x2A] = 0x008A, // CONTROL
-	[0x2B] = 0x008B, // CONTROL
-	[0x2C] = 0x008C, // CONTROL
-	[0x2D] = 0x0005, // ENQUIRY
-	[0x2E] = 0x0006, // ACKNOWLEDGE
-	[0x2F] = 0x0007, // BELL
-	[0x30] = 0x0090, // CONTROL
-	[0x31] = 0x0091, // CONTROL
-	[0x32] = 0x0016, // SYNCHRONOUS IDLE
-	[0x33] = 0x0093, // CONTROL
-	[0x34] = 0x0094, // CONTROL
-	[0x35] = 0x0095, // CONTROL
-	[0x36] = 0x0096, // CONTROL
-	[0x37] = 0x0004, // END OF TRANSMISSION
-	[0x38] = 0x0098, // CONTROL
-	[0x39] = 0x0099, // CONTROL
-	[0x3A] = 0x009A, // CONTROL
-	[0x3B] = 0x009B, // CONTROL
-	[0x3C] = 0x0014, // DEVICE CONTROL FOUR
-	[0x3D] = 0x0015, // NEGATIVE ACKNOWLEDGE
-	[0x3E] = 0x009E, // CONTROL
-	[0x3F] = 0x001A, // SUBSTITUTE
-	[0x40] = 0x0020, // SPACE
-	[0x41] = 0x00A0, // NO-BREAK SPACE
-	[0x42] = 0x00E2, // LATIN SMALL LETTER A WITH CIRCUMFLEX
-	[0x43] = 0x00E4, // LATIN SMALL LETTER A WITH DIAERESIS
-	[0x44] = 0x00E0, // LATIN SMALL LETTER A WITH GRAVE
-	[0x45] = 0x00E1, // LATIN SMALL LETTER A WITH ACUTE
-	[0x46] = 0x00E3, // LATIN SMALL LETTER A WITH TILDE
-	[0x47] = 0x00E5, // LATIN SMALL LETTER A WITH RING ABOVE
-	[0x48] = 0x007B, // LEFT CURLY BRACKET
-	[0x49] = 0x00F1, // LATIN SMALL LETTER N WITH TILDE
-	[0x4A] = 0x00C7, // LATIN CAPITAL LETTER C WITH CEDILLA
-	[0x4B] = 0x002E, // FULL STOP
-	[0x4C] = 0x003C, // LESS-THAN SIGN
-	[0x4D] = 0x0028, // LEFT PARENTHESIS
-	[0x4E] = 0x002B, // PLUS SIGN
-	[0x4F] = 0x0021, // EXCLAMATION MARK
-	[0x50] = 0x0026, // AMPERSAND
-	[0x51] = 0x00E9, // LATIN SMALL LETTER E WITH ACUTE
-	[0x52] = 0x00EA, // LATIN SMALL LETTER E WITH CIRCUMFLEX
-	[0x53] = 0x00EB, // LATIN SMALL LETTER E WITH DIAERESIS
-	[0x54] = 0x00E8, // LATIN SMALL LETTER E WITH GRAVE
-	[0x55] = 0x00ED, // LATIN SMALL LETTER I WITH ACUTE
-	[0x56] = 0x00EE, // LATIN SMALL LETTER I WITH CIRCUMFLEX
-	[0x57] = 0x00EF, // LATIN SMALL LETTER I WITH DIAERESIS
-	[0x58] = 0x00EC, // LATIN SMALL LETTER I WITH GRAVE
-	[0x59] = 0x00DF, // LATIN SMALL LETTER SHARP S (GERMAN)
-	[0x5A] = 0x011E, // LATIN CAPITAL LETTER G WITH BREVE
-	[0x5B] = 0x0130, // LATIN CAPITAL LETTER I WITH DOT ABOVE
-	[0x5C] = 0x002A, // ASTERISK
-	[0x5D] = 0x0029, // RIGHT PARENTHESIS
-	[0x5E] = 0x003B, // SEMICOLON
-	[0x5F] = 0x005E, // CIRCUMFLEX ACCENT
-	[0x60] = 0x002D, // HYPHEN-MINUS
-	[0x61] = 0x002F, // SOLIDUS
-	[0x62] = 0x00C2, // LATIN CAPITAL LETTER A WITH CIRCUMFLEX
-	[0x63] = 0x00C4, // LATIN CAPITAL LETTER A WITH DIAERESIS
-	[0x64] = 0x00C0, // LATIN CAPITAL LETTER A WITH GRAVE
-	[0x65] = 0x00C1, // LATIN CAPITAL LETTER A WITH ACUTE
-	[0x66] = 0x00C3, // LATIN CAPITAL LETTER A WITH TILDE
-	[0x67] = 0x00C5, // LATIN CAPITAL LETTER A WITH RING ABOVE
-	[0x68] = 0x005B, // LEFT SQUARE BRACKET
-	[0x69] = 0x00D1, // LATIN CAPITAL LETTER N WITH TILDE
-	[0x6A] = 0x015F, // LATIN SMALL LETTER S WITH CEDILLA
-	[0x6B] = 0x002C, // COMMA
-	[0x6C] = 0x0025, // PERCENT SIGN
-	[0x6D] = 0x005F, // LOW LINE
-	[0x6E] = 0x003E, // GREATER-THAN SIGN
-	[0x6F] = 0x003F, // QUESTION MARK
-	[0x70] = 0x00F8, // LATIN SMALL LETTER O WITH STROKE
-	[0x71] = 0x00C9, // LATIN CAPITAL LETTER E WITH ACUTE
-	[0x72] = 0x00CA, // LATIN CAPITAL LETTER E WITH CIRCUMFLEX
-	[0x73] = 0x00CB, // LATIN CAPITAL LETTER E WITH DIAERESIS
-	[0x74] = 0x00C8, // LATIN CAPITAL LETTER E WITH GRAVE
-	[0x75] = 0x00CD, // LATIN CAPITAL LETTER I WITH ACUTE
-	[0x76] = 0x00CE, // LATIN CAPITAL LETTER I WITH CIRCUMFLEX
-	[0x77] = 0x00CF, // LATIN CAPITAL LETTER I WITH DIAERESIS
-	[0x78] = 0x00CC, // LATIN CAPITAL LETTER I WITH GRAVE
-	[0x79] = 0x0131, // LATIN SMALL LETTER DOTLESS I
-	[0x7A] = 0x003A, // COLON
-	[0x7B] = 0x00D6, // LATIN CAPITAL LETTER O WITH DIAERESIS
-	[0x7C] = 0x015E, // LATIN CAPITAL LETTER S WITH CEDILLA
-	[0x7D] = 0x0027, // APOSTROPHE
-	[0x7E] = 0x003D, // EQUALS SIGN
-	[0x7F] = 0x00DC, // LATIN CAPITAL LETTER U WITH DIAERESIS
-	[0x80] = 0x00D8, // LATIN CAPITAL LETTER O WITH STROKE
-	[0x81] = 0x0061, // LATIN SMALL LETTER A
-	[0x82] = 0x0062, // LATIN SMALL LETTER B
-	[0x83] = 0x0063, // LATIN SMALL LETTER C
-	[0x84] = 0x0064, // LATIN SMALL LETTER D
-	[0x85] = 0x0065, // LATIN SMALL LETTER E
-	[0x86] = 0x0066, // LATIN SMALL LETTER F
-	[0x87] = 0x0067, // LATIN SMALL LETTER G
-	[0x88] = 0x0068, // LATIN SMALL LETTER H
-	[0x89] = 0x0069, // LATIN SMALL LETTER I
-	[0x8A] = 0x00AB, // LEFT-POINTING DOUBLE ANGLE QUOTATION MARK
-	[0x8B] = 0x00BB, // RIGHT-POINTING DOUBLE ANGLE QUOTATION MARK
-	[0x8C] = 0x007D, // RIGHT CURLY BRACKET
-	[0x8D] = 0x0060, // GRAVE ACCENT
-	[0x8E] = 0x00A6, // BROKEN BAR
-	[0x8F] = 0x00B1, // PLUS-MINUS SIGN
-	[0x90] = 0x00B0, // DEGREE SIGN
-	[0x91] = 0x006A, // LATIN SMALL LETTER J
-	[0x92] = 0x006B, // LATIN SMALL LETTER K
-	[0x93] = 0x006C, // LATIN SMALL LETTER L
-	[0x94] = 0x006D, // LATIN SMALL LETTER M
-	[0x95] = 0x006E, // LATIN SMALL LETTER N
-	[0x96] = 0x006F, // LATIN SMALL LETTER O
-	[0x97] = 0x0070, // LATIN SMALL LETTER P
-	[0x98] = 0x0071, // LATIN SMALL LETTER Q
-	[0x99] = 0x0072, // LATIN SMALL LETTER R
-	[0x9A] = 0x00AA, // FEMININE ORDINAL INDICATOR
-	[0x9B] = 0x00BA, // MASCULINE ORDINAL INDICATOR
-	[0x9C] = 0x00E6, // LATIN SMALL LIGATURE AE
-	[0x9D] = 0x00B8, // CEDILLA
-	[0x9E] = 0x00C6, // LATIN CAPITAL LIGATURE AE
-	[0x9F] = 0x00A4, // CURRENCY SIGN
-	[0xA0] = 0x00B5, // MICRO SIGN
-	[0xA1] = 0x00F6, // LATIN SMALL LETTER O WITH DIAERESIS
-	[0xA2] = 0x0073, // LATIN SMALL LETTER S
-	[0xA3] = 0x0074, // LATIN SMALL LETTER T
-	[0xA4] = 0x0075, // LATIN SMALL LETTER U
-	[0xA5] = 0x0076, // LATIN SMALL LETTER V
-	[0xA6] = 0x0077, // LATIN SMALL LETTER W
-	[0xA7] = 0x0078, // LATIN SMALL LETTER X
-	[0xA8] = 0x0079, // LATIN SMALL LETTER Y
-	[0xA9] = 0x007A, // LATIN SMALL LETTER Z
-	[0xAA] = 0x00A1, // INVERTED EXCLAMATION MARK
-	[0xAB] = 0x00BF, // INVERTED QUESTION MARK
-	[0xAC] = 0x005D, // RIGHT SQUARE BRACKET
-	[0xAD] = 0x0024, // DOLLAR SIGN
-	[0xAE] = 0x0040, // COMMERCIAL AT
-	[0xAF] = 0x00AE, // REGISTERED SIGN
-	[0xB0] = 0x00A2, // CENT SIGN
-	[0xB1] = 0x00A3, // POUND SIGN
-	[0xB2] = 0x00A5, // YEN SIGN
-	[0xB3] = 0x00B7, // MIDDLE DOT
-	[0xB4] = 0x00A9, // COPYRIGHT SIGN
-	[0xB5] = 0x00A7, // SECTION SIGN
-	[0xB6] = 0x00B6, // PILCROW SIGN
-	[0xB7] = 0x00BC, // VULGAR FRACTION ONE QUARTER
-	[0xB8] = 0x00BD, // VULGAR FRACTION ONE HALF
-	[0xB9] = 0x00BE, // VULGAR FRACTION THREE QUARTERS
-	[0xBA] = 0x00AC, // NOT SIGN
-	[0xBB] = 0x007C, // VERTICAL LINE
-	[0xBC] = 0x00AF, // MACRON
-	[0xBD] = 0x00A8, // DIAERESIS
-	[0xBE] = 0x00B4, // ACUTE ACCENT
-	[0xBF] = 0x00D7, // MULTIPLICATION SIGN
-	[0xC0] = 0x00E7, // LATIN SMALL LETTER C WITH CEDILLA
-	[0xC1] = 0x0041, // LATIN CAPITAL LETTER A
-	[0xC2] = 0x0042, // LATIN CAPITAL LETTER B
-	[0xC3] = 0x0043, // LATIN CAPITAL LETTER C
-	[0xC4] = 0x0044, // LATIN CAPITAL LETTER D
-	[0xC5] = 0x0045, // LATIN CAPITAL LETTER E
-	[0xC6] = 0x0046, // LATIN CAPITAL LETTER F
-	[0xC7] = 0x0047, // LATIN CAPITAL LETTER G
-	[0xC8] = 0x0048, // LATIN CAPITAL LETTER H
-	[0xC9] = 0x0049, // LATIN CAPITAL LETTER I
-	[0xCA] = 0x00AD, // SOFT HYPHEN
-	[0xCB] = 0x00F4, // LATIN SMALL LETTER O WITH CIRCUMFLEX
-	[0xCC] = 0x007E, // TILDE
-	[0xCD] = 0x00F2, // LATIN SMALL LETTER O WITH GRAVE
-	[0xCE] = 0x00F3, // LATIN SMALL LETTER O WITH ACUTE
-	[0xCF] = 0x00F5, // LATIN SMALL LETTER O WITH TILDE
-	[0xD0] = 0x011F, // LATIN SMALL LETTER G WITH BREVE
-	[0xD1] = 0x004A, // LATIN CAPITAL LETTER J
-	[0xD2] = 0x004B, // LATIN CAPITAL LETTER K
-	[0xD3] = 0x004C, // LATIN CAPITAL LETTER L
-	[0xD4] = 0x004D, // LATIN CAPITAL LETTER M
-	[0xD5] = 0x004E, // LATIN CAPITAL LETTER N
-	[0xD6] = 0x004F, // LATIN CAPITAL LETTER O
-	[0xD7] = 0x0050, // LATIN CAPITAL LETTER P
-	[0xD8] = 0x0051, // LATIN CAPITAL LETTER Q
-	[0xD9] = 0x0052, // LATIN CAPITAL LETTER R
-	[0xDA] = 0x00B9, // SUPERSCRIPT ONE
-	[0xDB] = 0x00FB, // LATIN SMALL LETTER U WITH CIRCUMFLEX
-	[0xDC] = 0x005C, // REVERSE SOLIDUS
-	[0xDD] = 0x00F9, // LATIN SMALL LETTER U WITH GRAVE
-	[0xDE] = 0x00FA, // LATIN SMALL LETTER U WITH ACUTE
-	[0xDF] = 0x00FF, // LATIN SMALL LETTER Y WITH DIAERESIS
-	[0xE0] = 0x00FC, // LATIN SMALL LETTER U WITH DIAERESIS
-	[0xE1] = 0x00F7, // DIVISION SIGN
-	[0xE2] = 0x0053, // LATIN CAPITAL LETTER S
-	[0xE3] = 0x0054, // LATIN CAPITAL LETTER T
-	[0xE4] = 0x0055, // LATIN CAPITAL LETTER U
-	[0xE5] = 0x0056, // LATIN CAPITAL LETTER V
-	[0xE6] = 0x0057, // LATIN CAPITAL LETTER W
-	[0xE7] = 0x0058, // LATIN CAPITAL LETTER X
-	[0xE8] = 0x0059, // LATIN CAPITAL LETTER Y
-	[0xE9] = 0x005A, // LATIN CAPITAL LETTER Z
-	[0xEA] = 0x00B2, // SUPERSCRIPT TWO
-	[0xEB] = 0x00D4, // LATIN CAPITAL LETTER O WITH CIRCUMFLEX
-	[0xEC] = 0x0023, // NUMBER SIGN
-	[0xED] = 0x00D2, // LATIN CAPITAL LETTER O WITH GRAVE
-	[0xEE] = 0x00D3, // LATIN CAPITAL LETTER O WITH ACUTE
-	[0xEF] = 0x00D5, // LATIN CAPITAL LETTER O WITH TILDE
-	[0xF0] = 0x0030, // DIGIT ZERO
-	[0xF1] = 0x0031, // DIGIT ONE
-	[0xF2] = 0x0032, // DIGIT TWO
-	[0xF3] = 0x0033, // DIGIT THREE
-	[0xF4] = 0x0034, // DIGIT FOUR
-	[0xF5] = 0x0035, // DIGIT FIVE
-	[0xF6] = 0x0036, // DIGIT SIX
-	[0xF7] = 0x0037, // DIGIT SEVEN
-	[0xF8] = 0x0038, // DIGIT EIGHT
-	[0xF9] = 0x0039, // DIGIT NINE
-	[0xFA] = 0x00B3, // SUPERSCRIPT THREE
-	[0xFB] = 0x00DB, // LATIN CAPITAL LETTER U WITH CIRCUMFLEX
-	[0xFC] = 0x0022, // QUOTATION MARK
-	[0xFD] = 0x00D9, // LATIN CAPITAL LETTER U WITH GRAVE
-	[0xFE] = 0x00DA, // LATIN CAPITAL LETTER U WITH ACUTE
-	[0xFF] = 0x009F, // CONTROL
-
-};
-static encoding_t encoding_EBCDIC_CP1026 = {
-    .name = "EBCDIC-CP1026",
-    .enctype = ENCODING_T_EBCDIC,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
-    .data = codepage_table_EBCDIC_CP1026
-};
-
-
-// Code page for 'EBCDIC-CP500' code page
-static const uint32_t codepage_table_EBCDIC_CP500[] = {
+// Code page for 'IBM500' code page
+static const uint32_t codepage_table_IBM500[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -5723,18 +5452,18 @@ static const uint32_t codepage_table_EBCDIC_CP500[] = {
 	[0xFF] = 0x009F, // CONTROL
 
 };
-static encoding_t encoding_EBCDIC_CP500 = {
-    .name = "EBCDIC-CP500",
+static encoding_t encoding_IBM500 = {
+    .name = "IBM500",
     .enctype = ENCODING_T_EBCDIC,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_EBCDIC_CP500
+    .data = codepage_table_IBM500
 };
 
 
-// Code page for 'EBCDIC-CP875' code page
-static const uint32_t codepage_table_EBCDIC_CP875[] = {
+// Code page for 'IBM875' code page
+static const uint32_t codepage_table_IBM875[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -5994,18 +5723,289 @@ static const uint32_t codepage_table_EBCDIC_CP875[] = {
 	[0xFF] = 0x009F, // CONTROL
 
 };
-static encoding_t encoding_EBCDIC_CP875 = {
-    .name = "EBCDIC-CP875",
+static encoding_t encoding_IBM875 = {
+    .name = "IBM875",
     .enctype = ENCODING_T_EBCDIC,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_EBCDIC_CP875
+    .data = codepage_table_IBM875
 };
 
 
-// Code page for 'CP437' code page
-static const uint32_t codepage_table_CP437[] = {
+// Code page for 'IBM1026' code page
+static const uint32_t codepage_table_IBM1026[] = {
+
+	[0x00] = 0x0000, // NULL
+	[0x01] = 0x0001, // START OF HEADING
+	[0x02] = 0x0002, // START OF TEXT
+	[0x03] = 0x0003, // END OF TEXT
+	[0x04] = 0x009C, // CONTROL
+	[0x05] = 0x0009, // HORIZONTAL TABULATION
+	[0x06] = 0x0086, // CONTROL
+	[0x07] = 0x007F, // DELETE
+	[0x08] = 0x0097, // CONTROL
+	[0x09] = 0x008D, // CONTROL
+	[0x0A] = 0x008E, // CONTROL
+	[0x0B] = 0x000B, // VERTICAL TABULATION
+	[0x0C] = 0x000C, // FORM FEED
+	[0x0D] = 0x000D, // CARRIAGE RETURN
+	[0x0E] = 0x000E, // SHIFT OUT
+	[0x0F] = 0x000F, // SHIFT IN
+	[0x10] = 0x0010, // DATA LINK ESCAPE
+	[0x11] = 0x0011, // DEVICE CONTROL ONE
+	[0x12] = 0x0012, // DEVICE CONTROL TWO
+	[0x13] = 0x0013, // DEVICE CONTROL THREE
+	[0x14] = 0x009D, // CONTROL
+	[0x15] = 0x0085, // CONTROL
+	[0x16] = 0x0008, // BACKSPACE
+	[0x17] = 0x0087, // CONTROL
+	[0x18] = 0x0018, // CANCEL
+	[0x19] = 0x0019, // END OF MEDIUM
+	[0x1A] = 0x0092, // CONTROL
+	[0x1B] = 0x008F, // CONTROL
+	[0x1C] = 0x001C, // FILE SEPARATOR
+	[0x1D] = 0x001D, // GROUP SEPARATOR
+	[0x1E] = 0x001E, // RECORD SEPARATOR
+	[0x1F] = 0x001F, // UNIT SEPARATOR
+	[0x20] = 0x0080, // CONTROL
+	[0x21] = 0x0081, // CONTROL
+	[0x22] = 0x0082, // CONTROL
+	[0x23] = 0x0083, // CONTROL
+	[0x24] = 0x0084, // CONTROL
+	[0x25] = 0x000A, // LINE FEED
+	[0x26] = 0x0017, // END OF TRANSMISSION BLOCK
+	[0x27] = 0x001B, // ESCAPE
+	[0x28] = 0x0088, // CONTROL
+	[0x29] = 0x0089, // CONTROL
+	[0x2A] = 0x008A, // CONTROL
+	[0x2B] = 0x008B, // CONTROL
+	[0x2C] = 0x008C, // CONTROL
+	[0x2D] = 0x0005, // ENQUIRY
+	[0x2E] = 0x0006, // ACKNOWLEDGE
+	[0x2F] = 0x0007, // BELL
+	[0x30] = 0x0090, // CONTROL
+	[0x31] = 0x0091, // CONTROL
+	[0x32] = 0x0016, // SYNCHRONOUS IDLE
+	[0x33] = 0x0093, // CONTROL
+	[0x34] = 0x0094, // CONTROL
+	[0x35] = 0x0095, // CONTROL
+	[0x36] = 0x0096, // CONTROL
+	[0x37] = 0x0004, // END OF TRANSMISSION
+	[0x38] = 0x0098, // CONTROL
+	[0x39] = 0x0099, // CONTROL
+	[0x3A] = 0x009A, // CONTROL
+	[0x3B] = 0x009B, // CONTROL
+	[0x3C] = 0x0014, // DEVICE CONTROL FOUR
+	[0x3D] = 0x0015, // NEGATIVE ACKNOWLEDGE
+	[0x3E] = 0x009E, // CONTROL
+	[0x3F] = 0x001A, // SUBSTITUTE
+	[0x40] = 0x0020, // SPACE
+	[0x41] = 0x00A0, // NO-BREAK SPACE
+	[0x42] = 0x00E2, // LATIN SMALL LETTER A WITH CIRCUMFLEX
+	[0x43] = 0x00E4, // LATIN SMALL LETTER A WITH DIAERESIS
+	[0x44] = 0x00E0, // LATIN SMALL LETTER A WITH GRAVE
+	[0x45] = 0x00E1, // LATIN SMALL LETTER A WITH ACUTE
+	[0x46] = 0x00E3, // LATIN SMALL LETTER A WITH TILDE
+	[0x47] = 0x00E5, // LATIN SMALL LETTER A WITH RING ABOVE
+	[0x48] = 0x007B, // LEFT CURLY BRACKET
+	[0x49] = 0x00F1, // LATIN SMALL LETTER N WITH TILDE
+	[0x4A] = 0x00C7, // LATIN CAPITAL LETTER C WITH CEDILLA
+	[0x4B] = 0x002E, // FULL STOP
+	[0x4C] = 0x003C, // LESS-THAN SIGN
+	[0x4D] = 0x0028, // LEFT PARENTHESIS
+	[0x4E] = 0x002B, // PLUS SIGN
+	[0x4F] = 0x0021, // EXCLAMATION MARK
+	[0x50] = 0x0026, // AMPERSAND
+	[0x51] = 0x00E9, // LATIN SMALL LETTER E WITH ACUTE
+	[0x52] = 0x00EA, // LATIN SMALL LETTER E WITH CIRCUMFLEX
+	[0x53] = 0x00EB, // LATIN SMALL LETTER E WITH DIAERESIS
+	[0x54] = 0x00E8, // LATIN SMALL LETTER E WITH GRAVE
+	[0x55] = 0x00ED, // LATIN SMALL LETTER I WITH ACUTE
+	[0x56] = 0x00EE, // LATIN SMALL LETTER I WITH CIRCUMFLEX
+	[0x57] = 0x00EF, // LATIN SMALL LETTER I WITH DIAERESIS
+	[0x58] = 0x00EC, // LATIN SMALL LETTER I WITH GRAVE
+	[0x59] = 0x00DF, // LATIN SMALL LETTER SHARP S (GERMAN)
+	[0x5A] = 0x011E, // LATIN CAPITAL LETTER G WITH BREVE
+	[0x5B] = 0x0130, // LATIN CAPITAL LETTER I WITH DOT ABOVE
+	[0x5C] = 0x002A, // ASTERISK
+	[0x5D] = 0x0029, // RIGHT PARENTHESIS
+	[0x5E] = 0x003B, // SEMICOLON
+	[0x5F] = 0x005E, // CIRCUMFLEX ACCENT
+	[0x60] = 0x002D, // HYPHEN-MINUS
+	[0x61] = 0x002F, // SOLIDUS
+	[0x62] = 0x00C2, // LATIN CAPITAL LETTER A WITH CIRCUMFLEX
+	[0x63] = 0x00C4, // LATIN CAPITAL LETTER A WITH DIAERESIS
+	[0x64] = 0x00C0, // LATIN CAPITAL LETTER A WITH GRAVE
+	[0x65] = 0x00C1, // LATIN CAPITAL LETTER A WITH ACUTE
+	[0x66] = 0x00C3, // LATIN CAPITAL LETTER A WITH TILDE
+	[0x67] = 0x00C5, // LATIN CAPITAL LETTER A WITH RING ABOVE
+	[0x68] = 0x005B, // LEFT SQUARE BRACKET
+	[0x69] = 0x00D1, // LATIN CAPITAL LETTER N WITH TILDE
+	[0x6A] = 0x015F, // LATIN SMALL LETTER S WITH CEDILLA
+	[0x6B] = 0x002C, // COMMA
+	[0x6C] = 0x0025, // PERCENT SIGN
+	[0x6D] = 0x005F, // LOW LINE
+	[0x6E] = 0x003E, // GREATER-THAN SIGN
+	[0x6F] = 0x003F, // QUESTION MARK
+	[0x70] = 0x00F8, // LATIN SMALL LETTER O WITH STROKE
+	[0x71] = 0x00C9, // LATIN CAPITAL LETTER E WITH ACUTE
+	[0x72] = 0x00CA, // LATIN CAPITAL LETTER E WITH CIRCUMFLEX
+	[0x73] = 0x00CB, // LATIN CAPITAL LETTER E WITH DIAERESIS
+	[0x74] = 0x00C8, // LATIN CAPITAL LETTER E WITH GRAVE
+	[0x75] = 0x00CD, // LATIN CAPITAL LETTER I WITH ACUTE
+	[0x76] = 0x00CE, // LATIN CAPITAL LETTER I WITH CIRCUMFLEX
+	[0x77] = 0x00CF, // LATIN CAPITAL LETTER I WITH DIAERESIS
+	[0x78] = 0x00CC, // LATIN CAPITAL LETTER I WITH GRAVE
+	[0x79] = 0x0131, // LATIN SMALL LETTER DOTLESS I
+	[0x7A] = 0x003A, // COLON
+	[0x7B] = 0x00D6, // LATIN CAPITAL LETTER O WITH DIAERESIS
+	[0x7C] = 0x015E, // LATIN CAPITAL LETTER S WITH CEDILLA
+	[0x7D] = 0x0027, // APOSTROPHE
+	[0x7E] = 0x003D, // EQUALS SIGN
+	[0x7F] = 0x00DC, // LATIN CAPITAL LETTER U WITH DIAERESIS
+	[0x80] = 0x00D8, // LATIN CAPITAL LETTER O WITH STROKE
+	[0x81] = 0x0061, // LATIN SMALL LETTER A
+	[0x82] = 0x0062, // LATIN SMALL LETTER B
+	[0x83] = 0x0063, // LATIN SMALL LETTER C
+	[0x84] = 0x0064, // LATIN SMALL LETTER D
+	[0x85] = 0x0065, // LATIN SMALL LETTER E
+	[0x86] = 0x0066, // LATIN SMALL LETTER F
+	[0x87] = 0x0067, // LATIN SMALL LETTER G
+	[0x88] = 0x0068, // LATIN SMALL LETTER H
+	[0x89] = 0x0069, // LATIN SMALL LETTER I
+	[0x8A] = 0x00AB, // LEFT-POINTING DOUBLE ANGLE QUOTATION MARK
+	[0x8B] = 0x00BB, // RIGHT-POINTING DOUBLE ANGLE QUOTATION MARK
+	[0x8C] = 0x007D, // RIGHT CURLY BRACKET
+	[0x8D] = 0x0060, // GRAVE ACCENT
+	[0x8E] = 0x00A6, // BROKEN BAR
+	[0x8F] = 0x00B1, // PLUS-MINUS SIGN
+	[0x90] = 0x00B0, // DEGREE SIGN
+	[0x91] = 0x006A, // LATIN SMALL LETTER J
+	[0x92] = 0x006B, // LATIN SMALL LETTER K
+	[0x93] = 0x006C, // LATIN SMALL LETTER L
+	[0x94] = 0x006D, // LATIN SMALL LETTER M
+	[0x95] = 0x006E, // LATIN SMALL LETTER N
+	[0x96] = 0x006F, // LATIN SMALL LETTER O
+	[0x97] = 0x0070, // LATIN SMALL LETTER P
+	[0x98] = 0x0071, // LATIN SMALL LETTER Q
+	[0x99] = 0x0072, // LATIN SMALL LETTER R
+	[0x9A] = 0x00AA, // FEMININE ORDINAL INDICATOR
+	[0x9B] = 0x00BA, // MASCULINE ORDINAL INDICATOR
+	[0x9C] = 0x00E6, // LATIN SMALL LIGATURE AE
+	[0x9D] = 0x00B8, // CEDILLA
+	[0x9E] = 0x00C6, // LATIN CAPITAL LIGATURE AE
+	[0x9F] = 0x00A4, // CURRENCY SIGN
+	[0xA0] = 0x00B5, // MICRO SIGN
+	[0xA1] = 0x00F6, // LATIN SMALL LETTER O WITH DIAERESIS
+	[0xA2] = 0x0073, // LATIN SMALL LETTER S
+	[0xA3] = 0x0074, // LATIN SMALL LETTER T
+	[0xA4] = 0x0075, // LATIN SMALL LETTER U
+	[0xA5] = 0x0076, // LATIN SMALL LETTER V
+	[0xA6] = 0x0077, // LATIN SMALL LETTER W
+	[0xA7] = 0x0078, // LATIN SMALL LETTER X
+	[0xA8] = 0x0079, // LATIN SMALL LETTER Y
+	[0xA9] = 0x007A, // LATIN SMALL LETTER Z
+	[0xAA] = 0x00A1, // INVERTED EXCLAMATION MARK
+	[0xAB] = 0x00BF, // INVERTED QUESTION MARK
+	[0xAC] = 0x005D, // RIGHT SQUARE BRACKET
+	[0xAD] = 0x0024, // DOLLAR SIGN
+	[0xAE] = 0x0040, // COMMERCIAL AT
+	[0xAF] = 0x00AE, // REGISTERED SIGN
+	[0xB0] = 0x00A2, // CENT SIGN
+	[0xB1] = 0x00A3, // POUND SIGN
+	[0xB2] = 0x00A5, // YEN SIGN
+	[0xB3] = 0x00B7, // MIDDLE DOT
+	[0xB4] = 0x00A9, // COPYRIGHT SIGN
+	[0xB5] = 0x00A7, // SECTION SIGN
+	[0xB6] = 0x00B6, // PILCROW SIGN
+	[0xB7] = 0x00BC, // VULGAR FRACTION ONE QUARTER
+	[0xB8] = 0x00BD, // VULGAR FRACTION ONE HALF
+	[0xB9] = 0x00BE, // VULGAR FRACTION THREE QUARTERS
+	[0xBA] = 0x00AC, // NOT SIGN
+	[0xBB] = 0x007C, // VERTICAL LINE
+	[0xBC] = 0x00AF, // MACRON
+	[0xBD] = 0x00A8, // DIAERESIS
+	[0xBE] = 0x00B4, // ACUTE ACCENT
+	[0xBF] = 0x00D7, // MULTIPLICATION SIGN
+	[0xC0] = 0x00E7, // LATIN SMALL LETTER C WITH CEDILLA
+	[0xC1] = 0x0041, // LATIN CAPITAL LETTER A
+	[0xC2] = 0x0042, // LATIN CAPITAL LETTER B
+	[0xC3] = 0x0043, // LATIN CAPITAL LETTER C
+	[0xC4] = 0x0044, // LATIN CAPITAL LETTER D
+	[0xC5] = 0x0045, // LATIN CAPITAL LETTER E
+	[0xC6] = 0x0046, // LATIN CAPITAL LETTER F
+	[0xC7] = 0x0047, // LATIN CAPITAL LETTER G
+	[0xC8] = 0x0048, // LATIN CAPITAL LETTER H
+	[0xC9] = 0x0049, // LATIN CAPITAL LETTER I
+	[0xCA] = 0x00AD, // SOFT HYPHEN
+	[0xCB] = 0x00F4, // LATIN SMALL LETTER O WITH CIRCUMFLEX
+	[0xCC] = 0x007E, // TILDE
+	[0xCD] = 0x00F2, // LATIN SMALL LETTER O WITH GRAVE
+	[0xCE] = 0x00F3, // LATIN SMALL LETTER O WITH ACUTE
+	[0xCF] = 0x00F5, // LATIN SMALL LETTER O WITH TILDE
+	[0xD0] = 0x011F, // LATIN SMALL LETTER G WITH BREVE
+	[0xD1] = 0x004A, // LATIN CAPITAL LETTER J
+	[0xD2] = 0x004B, // LATIN CAPITAL LETTER K
+	[0xD3] = 0x004C, // LATIN CAPITAL LETTER L
+	[0xD4] = 0x004D, // LATIN CAPITAL LETTER M
+	[0xD5] = 0x004E, // LATIN CAPITAL LETTER N
+	[0xD6] = 0x004F, // LATIN CAPITAL LETTER O
+	[0xD7] = 0x0050, // LATIN CAPITAL LETTER P
+	[0xD8] = 0x0051, // LATIN CAPITAL LETTER Q
+	[0xD9] = 0x0052, // LATIN CAPITAL LETTER R
+	[0xDA] = 0x00B9, // SUPERSCRIPT ONE
+	[0xDB] = 0x00FB, // LATIN SMALL LETTER U WITH CIRCUMFLEX
+	[0xDC] = 0x005C, // REVERSE SOLIDUS
+	[0xDD] = 0x00F9, // LATIN SMALL LETTER U WITH GRAVE
+	[0xDE] = 0x00FA, // LATIN SMALL LETTER U WITH ACUTE
+	[0xDF] = 0x00FF, // LATIN SMALL LETTER Y WITH DIAERESIS
+	[0xE0] = 0x00FC, // LATIN SMALL LETTER U WITH DIAERESIS
+	[0xE1] = 0x00F7, // DIVISION SIGN
+	[0xE2] = 0x0053, // LATIN CAPITAL LETTER S
+	[0xE3] = 0x0054, // LATIN CAPITAL LETTER T
+	[0xE4] = 0x0055, // LATIN CAPITAL LETTER U
+	[0xE5] = 0x0056, // LATIN CAPITAL LETTER V
+	[0xE6] = 0x0057, // LATIN CAPITAL LETTER W
+	[0xE7] = 0x0058, // LATIN CAPITAL LETTER X
+	[0xE8] = 0x0059, // LATIN CAPITAL LETTER Y
+	[0xE9] = 0x005A, // LATIN CAPITAL LETTER Z
+	[0xEA] = 0x00B2, // SUPERSCRIPT TWO
+	[0xEB] = 0x00D4, // LATIN CAPITAL LETTER O WITH CIRCUMFLEX
+	[0xEC] = 0x0023, // NUMBER SIGN
+	[0xED] = 0x00D2, // LATIN CAPITAL LETTER O WITH GRAVE
+	[0xEE] = 0x00D3, // LATIN CAPITAL LETTER O WITH ACUTE
+	[0xEF] = 0x00D5, // LATIN CAPITAL LETTER O WITH TILDE
+	[0xF0] = 0x0030, // DIGIT ZERO
+	[0xF1] = 0x0031, // DIGIT ONE
+	[0xF2] = 0x0032, // DIGIT TWO
+	[0xF3] = 0x0033, // DIGIT THREE
+	[0xF4] = 0x0034, // DIGIT FOUR
+	[0xF5] = 0x0035, // DIGIT FIVE
+	[0xF6] = 0x0036, // DIGIT SIX
+	[0xF7] = 0x0037, // DIGIT SEVEN
+	[0xF8] = 0x0038, // DIGIT EIGHT
+	[0xF9] = 0x0039, // DIGIT NINE
+	[0xFA] = 0x00B3, // SUPERSCRIPT THREE
+	[0xFB] = 0x00DB, // LATIN CAPITAL LETTER U WITH CIRCUMFLEX
+	[0xFC] = 0x0022, // QUOTATION MARK
+	[0xFD] = 0x00D9, // LATIN CAPITAL LETTER U WITH GRAVE
+	[0xFE] = 0x00DA, // LATIN CAPITAL LETTER U WITH ACUTE
+	[0xFF] = 0x009F, // CONTROL
+
+};
+static encoding_t encoding_IBM1026 = {
+    .name = "IBM1026",
+    .enctype = ENCODING_T_EBCDIC,
+    .init = init_codepage,
+    .destroy = destroy_codepage,
+    .xlate = xlate_codepage,
+    .data = codepage_table_IBM1026
+};
+
+
+// Code page for 'IBM437' code page
+static const uint32_t codepage_table_IBM437[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -6265,18 +6265,18 @@ static const uint32_t codepage_table_CP437[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP437 = {
-    .name = "CP437",
+static encoding_t encoding_IBM437 = {
+    .name = "IBM437",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP437
+    .data = codepage_table_IBM437
 };
 
 
-// Code page for 'CP737' code page
-static const uint32_t codepage_table_CP737[] = {
+// Code page for 'IBM737' code page
+static const uint32_t codepage_table_IBM737[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -6536,18 +6536,18 @@ static const uint32_t codepage_table_CP737[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP737 = {
-    .name = "CP737",
+static encoding_t encoding_IBM737 = {
+    .name = "IBM737",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP737
+    .data = codepage_table_IBM737
 };
 
 
-// Code page for 'CP775' code page
-static const uint32_t codepage_table_CP775[] = {
+// Code page for 'IBM775' code page
+static const uint32_t codepage_table_IBM775[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -6807,18 +6807,18 @@ static const uint32_t codepage_table_CP775[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP775 = {
-    .name = "CP775",
+static encoding_t encoding_IBM775 = {
+    .name = "IBM775",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP775
+    .data = codepage_table_IBM775
 };
 
 
-// Code page for 'CP850' code page
-static const uint32_t codepage_table_CP850[] = {
+// Code page for 'IBM850' code page
+static const uint32_t codepage_table_IBM850[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -7078,18 +7078,18 @@ static const uint32_t codepage_table_CP850[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP850 = {
-    .name = "CP850",
+static encoding_t encoding_IBM850 = {
+    .name = "IBM850",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP850
+    .data = codepage_table_IBM850
 };
 
 
-// Code page for 'CP852' code page
-static const uint32_t codepage_table_CP852[] = {
+// Code page for 'IBM852' code page
+static const uint32_t codepage_table_IBM852[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -7349,18 +7349,18 @@ static const uint32_t codepage_table_CP852[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP852 = {
-    .name = "CP852",
+static encoding_t encoding_IBM852 = {
+    .name = "IBM852",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP852
+    .data = codepage_table_IBM852
 };
 
 
-// Code page for 'CP855' code page
-static const uint32_t codepage_table_CP855[] = {
+// Code page for 'IBM855' code page
+static const uint32_t codepage_table_IBM855[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -7620,18 +7620,18 @@ static const uint32_t codepage_table_CP855[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP855 = {
-    .name = "CP855",
+static encoding_t encoding_IBM855 = {
+    .name = "IBM855",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP855
+    .data = codepage_table_IBM855
 };
 
 
-// Code page for 'CP857' code page
-static const uint32_t codepage_table_CP857[] = {
+// Code page for 'IBM857' code page
+static const uint32_t codepage_table_IBM857[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -7891,18 +7891,18 @@ static const uint32_t codepage_table_CP857[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP857 = {
-    .name = "CP857",
+static encoding_t encoding_IBM857 = {
+    .name = "IBM857",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP857
+    .data = codepage_table_IBM857
 };
 
 
-// Code page for 'CP860' code page
-static const uint32_t codepage_table_CP860[] = {
+// Code page for 'IBM860' code page
+static const uint32_t codepage_table_IBM860[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -8162,18 +8162,18 @@ static const uint32_t codepage_table_CP860[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP860 = {
-    .name = "CP860",
+static encoding_t encoding_IBM860 = {
+    .name = "IBM860",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP860
+    .data = codepage_table_IBM860
 };
 
 
-// Code page for 'CP861' code page
-static const uint32_t codepage_table_CP861[] = {
+// Code page for 'IBM861' code page
+static const uint32_t codepage_table_IBM861[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -8433,18 +8433,18 @@ static const uint32_t codepage_table_CP861[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP861 = {
-    .name = "CP861",
+static encoding_t encoding_IBM861 = {
+    .name = "IBM861",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP861
+    .data = codepage_table_IBM861
 };
 
 
-// Code page for 'CP862' code page
-static const uint32_t codepage_table_CP862[] = {
+// Code page for 'IBM862' code page
+static const uint32_t codepage_table_IBM862[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -8704,18 +8704,18 @@ static const uint32_t codepage_table_CP862[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP862 = {
-    .name = "CP862",
+static encoding_t encoding_IBM862 = {
+    .name = "IBM862",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP862
+    .data = codepage_table_IBM862
 };
 
 
-// Code page for 'CP863' code page
-static const uint32_t codepage_table_CP863[] = {
+// Code page for 'IBM863' code page
+static const uint32_t codepage_table_IBM863[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -8975,18 +8975,18 @@ static const uint32_t codepage_table_CP863[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP863 = {
-    .name = "CP863",
+static encoding_t encoding_IBM863 = {
+    .name = "IBM863",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP863
+    .data = codepage_table_IBM863
 };
 
 
-// Code page for 'CP864' code page
-static const uint32_t codepage_table_CP864[] = {
+// Code page for 'IBM864' code page
+static const uint32_t codepage_table_IBM864[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -9246,18 +9246,18 @@ static const uint32_t codepage_table_CP864[] = {
 	[0xFF] = 0xFFFD, // not defined
 
 };
-static encoding_t encoding_CP864 = {
-    .name = "CP864",
+static encoding_t encoding_IBM864 = {
+    .name = "IBM864",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP864
+    .data = codepage_table_IBM864
 };
 
 
-// Code page for 'CP865' code page
-static const uint32_t codepage_table_CP865[] = {
+// Code page for 'IBM865' code page
+static const uint32_t codepage_table_IBM865[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -9517,18 +9517,18 @@ static const uint32_t codepage_table_CP865[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP865 = {
-    .name = "CP865",
+static encoding_t encoding_IBM865 = {
+    .name = "IBM865",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP865
+    .data = codepage_table_IBM865
 };
 
 
-// Code page for 'CP866' code page
-static const uint32_t codepage_table_CP866[] = {
+// Code page for 'IBM866' code page
+static const uint32_t codepage_table_IBM866[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -9788,18 +9788,18 @@ static const uint32_t codepage_table_CP866[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP866 = {
-    .name = "CP866",
+static encoding_t encoding_IBM866 = {
+    .name = "IBM866",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP866
+    .data = codepage_table_IBM866
 };
 
 
-// Code page for 'CP869' code page
-static const uint32_t codepage_table_CP869[] = {
+// Code page for 'IBM869' code page
+static const uint32_t codepage_table_IBM869[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -10059,18 +10059,18 @@ static const uint32_t codepage_table_CP869[] = {
 	[0xFF] = 0x00A0, // NO-BREAK SPACE
 
 };
-static encoding_t encoding_CP869 = {
-    .name = "CP869",
+static encoding_t encoding_IBM869 = {
+    .name = "IBM869",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP869
+    .data = codepage_table_IBM869
 };
 
 
-// Code page for 'CP874' code page
-static const uint32_t codepage_table_CP874[] = {
+// Code page for 'windows-874' code page
+static const uint32_t codepage_table_windows_874[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -10330,18 +10330,18 @@ static const uint32_t codepage_table_CP874[] = {
 	[0xFF] = 0xFFFD, // not defined
 
 };
-static encoding_t encoding_CP874 = {
-    .name = "CP874",
+static encoding_t encoding_windows_874 = {
+    .name = "windows-874",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP874
+    .data = codepage_table_windows_874
 };
 
 
-// Code page for 'CP1250' code page
-static const uint32_t codepage_table_CP1250[] = {
+// Code page for 'windows-1250' code page
+static const uint32_t codepage_table_windows_1250[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -10601,18 +10601,18 @@ static const uint32_t codepage_table_CP1250[] = {
 	[0xFF] = 0x02D9, // DOT ABOVE
 
 };
-static encoding_t encoding_CP1250 = {
-    .name = "CP1250",
+static encoding_t encoding_windows_1250 = {
+    .name = "windows-1250",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP1250
+    .data = codepage_table_windows_1250
 };
 
 
-// Code page for 'CP1251' code page
-static const uint32_t codepage_table_CP1251[] = {
+// Code page for 'windows-1251' code page
+static const uint32_t codepage_table_windows_1251[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -10872,18 +10872,18 @@ static const uint32_t codepage_table_CP1251[] = {
 	[0xFF] = 0x044F, // CYRILLIC SMALL LETTER YA
 
 };
-static encoding_t encoding_CP1251 = {
-    .name = "CP1251",
+static encoding_t encoding_windows_1251 = {
+    .name = "windows-1251",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP1251
+    .data = codepage_table_windows_1251
 };
 
 
-// Code page for 'CP1252' code page
-static const uint32_t codepage_table_CP1252[] = {
+// Code page for 'windows-1252' code page
+static const uint32_t codepage_table_windows_1252[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -11143,18 +11143,18 @@ static const uint32_t codepage_table_CP1252[] = {
 	[0xFF] = 0x00FF, // LATIN SMALL LETTER Y WITH DIAERESIS
 
 };
-static encoding_t encoding_CP1252 = {
-    .name = "CP1252",
+static encoding_t encoding_windows_1252 = {
+    .name = "windows-1252",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP1252
+    .data = codepage_table_windows_1252
 };
 
 
-// Code page for 'CP1253' code page
-static const uint32_t codepage_table_CP1253[] = {
+// Code page for 'windows-1253' code page
+static const uint32_t codepage_table_windows_1253[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -11414,18 +11414,18 @@ static const uint32_t codepage_table_CP1253[] = {
 	[0xFF] = 0xFFFD, // not defined
 
 };
-static encoding_t encoding_CP1253 = {
-    .name = "CP1253",
+static encoding_t encoding_windows_1253 = {
+    .name = "windows-1253",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP1253
+    .data = codepage_table_windows_1253
 };
 
 
-// Code page for 'CP1254' code page
-static const uint32_t codepage_table_CP1254[] = {
+// Code page for 'windows-1254' code page
+static const uint32_t codepage_table_windows_1254[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -11685,18 +11685,18 @@ static const uint32_t codepage_table_CP1254[] = {
 	[0xFF] = 0x00FF, // LATIN SMALL LETTER Y WITH DIAERESIS
 
 };
-static encoding_t encoding_CP1254 = {
-    .name = "CP1254",
+static encoding_t encoding_windows_1254 = {
+    .name = "windows-1254",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP1254
+    .data = codepage_table_windows_1254
 };
 
 
-// Code page for 'CP1255' code page
-static const uint32_t codepage_table_CP1255[] = {
+// Code page for 'windows-1255' code page
+static const uint32_t codepage_table_windows_1255[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -11956,18 +11956,18 @@ static const uint32_t codepage_table_CP1255[] = {
 	[0xFF] = 0xFFFD, // not defined
 
 };
-static encoding_t encoding_CP1255 = {
-    .name = "CP1255",
+static encoding_t encoding_windows_1255 = {
+    .name = "windows-1255",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP1255
+    .data = codepage_table_windows_1255
 };
 
 
-// Code page for 'CP1256' code page
-static const uint32_t codepage_table_CP1256[] = {
+// Code page for 'windows-1256' code page
+static const uint32_t codepage_table_windows_1256[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -12227,18 +12227,18 @@ static const uint32_t codepage_table_CP1256[] = {
 	[0xFF] = 0x06D2, // ARABIC LETTER YEH BARREE
 
 };
-static encoding_t encoding_CP1256 = {
-    .name = "CP1256",
+static encoding_t encoding_windows_1256 = {
+    .name = "windows-1256",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP1256
+    .data = codepage_table_windows_1256
 };
 
 
-// Code page for 'CP1257' code page
-static const uint32_t codepage_table_CP1257[] = {
+// Code page for 'windows-1257' code page
+static const uint32_t codepage_table_windows_1257[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -12498,18 +12498,18 @@ static const uint32_t codepage_table_CP1257[] = {
 	[0xFF] = 0x02D9, // DOT ABOVE
 
 };
-static encoding_t encoding_CP1257 = {
-    .name = "CP1257",
+static encoding_t encoding_windows_1257 = {
+    .name = "windows-1257",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP1257
+    .data = codepage_table_windows_1257
 };
 
 
-// Code page for 'CP1258' code page
-static const uint32_t codepage_table_CP1258[] = {
+// Code page for 'windows-1258' code page
+static const uint32_t codepage_table_windows_1258[] = {
 
 	[0x00] = 0x0000, // NULL
 	[0x01] = 0x0001, // START OF HEADING
@@ -12769,13 +12769,13 @@ static const uint32_t codepage_table_CP1258[] = {
 	[0xFF] = 0x00FF, // LATIN SMALL LETTER Y WITH DIAERESIS
 
 };
-static encoding_t encoding_CP1258 = {
-    .name = "CP1258",
+static encoding_t encoding_windows_1258 = {
+    .name = "windows-1258",
     .enctype = ENCODING_T_UTF8,
     .init = init_codepage,
     .destroy = destroy_codepage,
     .xlate = xlate_codepage,
-    .data = codepage_table_CP1258
+    .data = codepage_table_windows_1258
 };
 
 
@@ -12801,35 +12801,35 @@ codepages_autoinit(void)
 	encoding_register(&encoding_KOI8_R);
 	encoding_register(&encoding_KOI8_U);
 	encoding_register(&encoding_US_ASCII);
-	encoding_register(&encoding_EBCDIC_CP037);
-	encoding_register(&encoding_EBCDIC_CP1026);
-	encoding_register(&encoding_EBCDIC_CP500);
-	encoding_register(&encoding_EBCDIC_CP875);
-	encoding_register(&encoding_CP437);
-	encoding_register(&encoding_CP737);
-	encoding_register(&encoding_CP775);
-	encoding_register(&encoding_CP850);
-	encoding_register(&encoding_CP852);
-	encoding_register(&encoding_CP855);
-	encoding_register(&encoding_CP857);
-	encoding_register(&encoding_CP860);
-	encoding_register(&encoding_CP861);
-	encoding_register(&encoding_CP862);
-	encoding_register(&encoding_CP863);
-	encoding_register(&encoding_CP864);
-	encoding_register(&encoding_CP865);
-	encoding_register(&encoding_CP866);
-	encoding_register(&encoding_CP869);
-	encoding_register(&encoding_CP874);
-	encoding_register(&encoding_CP1250);
-	encoding_register(&encoding_CP1251);
-	encoding_register(&encoding_CP1252);
-	encoding_register(&encoding_CP1253);
-	encoding_register(&encoding_CP1254);
-	encoding_register(&encoding_CP1255);
-	encoding_register(&encoding_CP1256);
-	encoding_register(&encoding_CP1257);
-	encoding_register(&encoding_CP1258);
+	encoding_register(&encoding_IBM037);
+	encoding_register(&encoding_IBM500);
+	encoding_register(&encoding_IBM875);
+	encoding_register(&encoding_IBM1026);
+	encoding_register(&encoding_IBM437);
+	encoding_register(&encoding_IBM737);
+	encoding_register(&encoding_IBM775);
+	encoding_register(&encoding_IBM850);
+	encoding_register(&encoding_IBM852);
+	encoding_register(&encoding_IBM855);
+	encoding_register(&encoding_IBM857);
+	encoding_register(&encoding_IBM860);
+	encoding_register(&encoding_IBM861);
+	encoding_register(&encoding_IBM862);
+	encoding_register(&encoding_IBM863);
+	encoding_register(&encoding_IBM864);
+	encoding_register(&encoding_IBM865);
+	encoding_register(&encoding_IBM866);
+	encoding_register(&encoding_IBM869);
+	encoding_register(&encoding_windows_874);
+	encoding_register(&encoding_windows_1250);
+	encoding_register(&encoding_windows_1251);
+	encoding_register(&encoding_windows_1252);
+	encoding_register(&encoding_windows_1253);
+	encoding_register(&encoding_windows_1254);
+	encoding_register(&encoding_windows_1255);
+	encoding_register(&encoding_windows_1256);
+	encoding_register(&encoding_windows_1257);
+	encoding_register(&encoding_windows_1258);
 
 }
 
