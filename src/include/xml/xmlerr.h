@@ -42,9 +42,10 @@ enum {
     XMLERR_XML_P_EncodingDecl,
     XMLERR_XML_P_SDDecl,
 
-    // Other errors (spelled in text of the spec)
+    // Other errors and recommendations (spelled in text of the spec)
     XMLERR_XML_OTHER_BASE          = 0x0100,
     XMLERR_XML_ENCODING_ERROR,
+    XMLERR_XML_FUTURE_VERSION,
 
     // Well-formedness constraints (spelled in production comments)
     XMLERR_XML_WFC_BASE            = 0x0200,

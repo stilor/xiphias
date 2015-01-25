@@ -363,6 +363,29 @@ check_EncName(const uint32_t *ucs, size_t sz)
 }
 
 /**
+    Check for VersionInfo production.
+
+    @param ucs UCS-4 array
+    @param sz Number of characters to check
+    @return true if matches, false otherwise
+*/
+static bool
+check_VersionInfo(const uint32_t *ucs, size_t sz)
+{
+    size_t i;
+
+    if (sz < 3 || !ucs4_equal(ucs, "1.", 2)) {
+        return false;
+    }
+    for (i = 2, ucs += 2; i < sz; i++, ucs++) {
+        if (!xcharin(*ucs, '0', '9')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
     Parse the "attributes" in the XML declaration (XMLDecl/TextDecl).
 
     @param h Reader handle
@@ -474,11 +497,27 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
 
         // Verify/save the attribute value. Note that 'nread' includes closing quote
         if (!strcmp(attrlist->name, "version")) {
+            // For efficiency, first check "known good" versions explicitly.
             if (nread == 4 && ucs4_equal(buf, "1.0", 3)) {
                 cbparam->xmldecl.version = XML_INFO_VERSION_1_0;
             }
             else if (nread == 4 && ucs4_equal(buf, "1.1", 3)) {
                 cbparam->xmldecl.version = XML_INFO_VERSION_1_1;
+            }
+            else if (nread >= 4 && check_VersionInfo(buf, nread - 1)) {
+                /*
+                    Even though the VersionNum production matches any version number of
+                    the form '1.x', XML 1.0 documents SHOULD NOT specify a version number
+                    other than '1.0'.
+
+                    Note: When an XML 1.0 processor encounters a document that specifies
+                    a 1.x version number other than '1.0', it will process it as a 1.0
+                    document. This means that an XML 1.0 processor will accept 1.x
+                    documents provided they do not use any non-1.0 features.
+                */
+                cbparam->xmldecl.version = XML_INFO_VERSION_1_0;
+                xml_reader_message(h, XMLERR(WARN, XML, FUTURE_VERSION),
+                        "Document specifies unknown 1.x XML version");
             }
             else {
                 // Non-fatal: recover by assuming version was missing
@@ -605,7 +644,7 @@ xml_reader_input_filter(uint32_t *input, size_t nchars, uint8_t *output)
     Produce more characters for a XML input buffer: transcode and translate EOLs.
 
     @param buf Destination string buffer 
-    @param arg TBD
+    @param arg Reader handle
     @return None
 */
 static void

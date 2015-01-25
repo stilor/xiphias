@@ -31,6 +31,7 @@ encoding_search(const char *name)
     const encoding_t *enc;
 
     STAILQ_FOREACH(enc, &encodings, link) {
+        // "XML processors SHOULD match character encoding names in a case-insensitive way"
         if (!strcasecmp(name, enc->name)) {
             return enc;
         }
@@ -70,7 +71,7 @@ static const bom_encdesc_t bom_encodings[] = {
     { "UTF-16BE",       { 0x00, 0x3C, },            2, false, },
     { "UTF-16LE",       { 0x3C, 0x00, },            2, false, },
     { "UTF-8",          { 0x3C, },                  1, false, },
-    { "EBCDIC",         { 0x4C, },                  1, false, },
+    { "IBM500",         { 0x4C, },                  1, false, },    // One of EBCDIC Latin-1 encodings
 
     // TBD: Try looking for whitespace? #x20/#x9/#xD/#xA/#x85/#x2028 as first character?
 };
