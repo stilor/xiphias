@@ -63,7 +63,12 @@ static const strbuf_ops_t null_ops = {
     .destroy = null_destroy,
 };
 
-// New block
+/**
+    Allocate a new string block with a given payload size.
+
+    @param payload_sz Size of the payload
+    @return Allocated string block
+*/
 strblk_t *
 strblk_new(size_t payload_sz)
 {
@@ -81,21 +86,37 @@ strblk_new(size_t payload_sz)
     return blk;
 }
 
-// Delete a block
+/**
+    Destroy a string block.
+
+    @param blk Block being deleted.
+    @return None
+*/
 void
 strblk_delete(strblk_t *blk)
 {
     xfree(blk);
 }
 
-// Get pointer to the memory in this block
+/**
+    Get the pointer to the beginning of the block's memory.
+
+    @param blk Block to get the pointer for
+    @return Pointer value
+*/
 void *
 strblk_getptr(strblk_t *blk)
 {
     return blk->begin;
 }
 
-// Trim a block
+/**
+    Set the size of a block (possibly losing some memory at the end of the block)
+
+    @param blk Block being trimmed
+    @param sz New size; must be less than the old size
+    @return None
+*/
 void
 strblk_trim(strblk_t *blk, size_t sz)
 {
@@ -105,7 +126,11 @@ strblk_trim(strblk_t *blk, size_t sz)
     blk->end = new_end;
 }
 
-// New buffer
+/**
+    Allocate a new empty string buffer.
+
+    @return Allocated buffer.
+*/
 strbuf_t *
 strbuf_new(void)
 {
@@ -120,41 +145,12 @@ strbuf_new(void)
     return buf;
 }
 
-// Prepend a block
+/**
+    Destroy a string buffer along with associated blocks.
 
-// Append a block
-void
-strbuf_append_block(strbuf_t *buf, strblk_t *blk)
-{
-    OOPS_ASSERT(blk->end >= blk->begin);
-
-    STAILQ_INSERT_TAIL(&buf->content, blk, link);
-}
-
-// New buffer for reading from memory
-strbuf_t *
-strbuf_new_from_memory(const void *start, size_t size, bool copy)
-{
-    strbuf_t *buf = strbuf_new();
-    strblk_t *blk = strblk_new(copy ? size : 0);
-
-    // Point the block to the memory passed in and append it
-    if (copy) {
-        memcpy(blk->data, start, size);
-        blk->begin = blk->data;
-    }
-    else {
-        blk->begin = DECONST(start);
-    }
-    blk->end = (uint8_t *)blk->begin + size;
-    strbuf_append_block(buf, blk);
-
-    // Buffer has its one and only block
-    buf->flags |= BUF_LAST;
-    return buf;
-}
-
-// Delete a buffer
+    @param buf String buffer to destroy
+    @return None
+*/
 void
 strbuf_delete(strbuf_t *buf)
 {
@@ -168,7 +164,14 @@ strbuf_delete(strbuf_t *buf)
     xfree(buf);
 }
 
-// Set buffer operations
+/**
+    Set operations for a buffer.
+
+    @param buf Buffer
+    @param ops Operations vtable
+    @param arg Argument passed to operation methods
+    @return None
+*/
 void
 strbuf_setops(strbuf_t *buf, const strbuf_ops_t *ops, void *arg)
 {
@@ -176,7 +179,14 @@ strbuf_setops(strbuf_t *buf, const strbuf_ops_t *ops, void *arg)
     buf->arg = arg;
 }
 
-// Set flags
+/**
+    Set flags on a buffer.
+
+    @param buf Buffer
+    @param flags Flags to set
+    @param mask Mask being set
+    @return None
+*/
 void
 strbuf_setf(strbuf_t *buf, uint32_t flags, uint32_t mask)
 {
@@ -184,14 +194,43 @@ strbuf_setf(strbuf_t *buf, uint32_t flags, uint32_t mask)
     buf->flags |= flags;
 }
 
-// Get flags
+/**
+    Get flags on a buffer.
+
+    @param buf Buffer
+    @param flags Flags to set
+    @return None
+*/
 void
 strbuf_getf(strbuf_t *buf, uint32_t *flags)
 {
     *flags = buf->flags;
 }
 
-// Lookahead/read
+/**
+    Append an empty block to a buffer.
+
+    @param buf Buffer
+    @param blk Block to be appended
+    @return None
+*/
+void
+strbuf_append_block(strbuf_t *buf, strblk_t *blk)
+{
+    OOPS_ASSERT(blk->end >= blk->begin);
+
+    STAILQ_INSERT_TAIL(&buf->content, blk, link);
+}
+
+/**
+    Read certain amount from the buffer.
+
+    @param buf Buffer
+    @param dest Destination memory
+    @param nbytes Read amount
+    @param lookahead If true, does not advance current read pointer
+    @return None
+*/
 void
 strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
 {
@@ -241,7 +280,14 @@ strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
     }
 }
 
-// Obtain contiguous readable block
+/**
+    Get pointers to start/end of a current contiguous block.
+
+    @param buf Buffer
+    @param pbegin Pointer to the beginning of a block will be stored here
+    @param pend Pointer to the end of a block will be stored here
+    @return None (if no more input available, *pbegin and *pend are both set to NULL)
+*/
 void
 strbuf_getptr(strbuf_t *buf, void **pbegin, void **pend)
 {
@@ -260,4 +306,35 @@ strbuf_getptr(strbuf_t *buf, void **pbegin, void **pend)
         *pbegin = buf->readptr ? buf->readptr : blk->begin;
         *pend = blk->end;
     }
+}
+
+/**
+    Create a string buffer representing a single contiguous block
+    of memory for reading.
+
+    @param start Memory start address
+    @param size Memory size
+    @param copy Copy the provided buffer
+    @return String buffer
+*/
+strbuf_t *
+strbuf_new_from_memory(const void *start, size_t size, bool copy)
+{
+    strbuf_t *buf = strbuf_new();
+    strblk_t *blk = strblk_new(copy ? size : 0);
+
+    // Point the block to the memory passed in and append it
+    if (copy) {
+        memcpy(blk->data, start, size);
+        blk->begin = blk->data;
+    }
+    else {
+        blk->begin = DECONST(start);
+    }
+    blk->end = (uint8_t *)blk->begin + size;
+    strbuf_append_block(buf, blk);
+
+    // Buffer has its one and only block
+    buf->flags |= BUF_LAST;
+    return buf;
 }

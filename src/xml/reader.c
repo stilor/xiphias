@@ -130,6 +130,14 @@ xml_reader_set_encoding(xml_reader_t *h, const char *encname)
     return true;
 }
 
+/**
+    Create an XML reading handle.
+
+    @param buf String buffer to read the input from; will be destroyed along with
+          the handle returned by this function.
+    @param location Location that will be used for reporting errors
+    @return Handle
+*/
 xml_reader_t *
 xml_reader_new(strbuf_t *buf, const char *location)
 {
@@ -150,6 +158,12 @@ xml_reader_new(strbuf_t *buf, const char *location)
     return h;
 }
 
+/**
+    Destroy an XML reading handle.
+
+    @param h Handle to be destroyed.
+    @return None
+*/
 void
 xml_reader_delete(xml_reader_t *h)
 {
@@ -165,6 +179,14 @@ xml_reader_delete(xml_reader_t *h)
     xfree(h);
 }
 
+/**
+    Set transport encoding.
+
+    @param h Reader handle
+    @param enc Encoding reported by higher-level protocol
+               (e.g. Content-Type header in HTTP).
+    @return true if encoding set successfully, false otherwise
+*/
 bool
 xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname)
 {
@@ -181,6 +203,14 @@ xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname)
     return true;
 }
 
+/**
+    Set callback functions for the reader.
+
+    @param h Reader handle
+    @param func Function to be called
+    @param arg Argument to callback function
+    @return None
+*/
 void
 xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg)
 {
@@ -203,6 +233,14 @@ xml_reader_invoke_callback(xml_reader_t *h, const xml_reader_cbparam_t *cbparam)
     }
 }
 
+/**
+    Report an error/warning/note for the current location in a handle.
+
+    @param h Reader handle
+    @param info Error code
+    @param fmt Message format
+    @return Nothing
+*/
 void
 xml_reader_message(xml_reader_t *h, xmlerr_info_t info, const char *fmt, ...)
 {
@@ -837,6 +875,14 @@ xml_reader_start(xml_reader_t *h)
     }
 }
 
+/**
+    Read in the XML content and emit the callbacks as necessary.
+
+    @param h Reader handle
+    @param is_document_entity True if the content belongs to the document entity,
+          false if external parsed entity
+    @return None
+*/
 void
 xml_reader_process_xml(xml_reader_t *h, bool is_document_entity)
 {

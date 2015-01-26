@@ -16,6 +16,12 @@
 // that registration be done before using anything else in multithreaded context?
 static STAILQ_HEAD(, encoding_s) encodings = STAILQ_HEAD_INITIALIZER(encodings);
 
+/**
+    Register an encoding.
+
+    @param enc Encoding being registered
+    @return None
+*/
 void
 encoding_register(encoding_t *enc)
 {
@@ -25,6 +31,12 @@ encoding_register(encoding_t *enc)
     }
 }
 
+/**
+    Search for an encoding by name
+
+    @param name Encoding name
+    @return Encoding pointer, or NULL if not found
+*/
 const encoding_t *
 encoding_search(const char *name)
 {
@@ -37,6 +49,28 @@ encoding_search(const char *name)
         }
     }
     return NULL;
+}
+
+/**
+    Check if two encodings are compatible.
+
+    @param enc1 First encoding
+    @param enc2 Second encoding
+    @return true if encodings are compatible, false otherwise
+*/
+bool
+encoding_compatible(const encoding_t *enc1, const encoding_t *enc2)
+{
+    if (enc1->enctype == ENCODING_T_UNKNOWN
+            || enc2->enctype != enc1->enctype) {
+        return false;
+    }
+    if (enc1->endian != ENCODING_E_ANY
+            && enc2->endian != ENCODING_E_ANY
+            && enc1->endian != enc2->endian) {
+        return false;
+    }
+    return true;
 }
 
 // Byte order detection, per XML1.1 App.E ("Autodetection of Character Encodings"; non-normative)
@@ -76,21 +110,17 @@ static const bom_encdesc_t bom_encodings[] = {
     // TBD: Try looking for whitespace? #x20/#x9/#xD/#xA/#x85/#x2028 as first character?
 };
 
-bool
-encoding_compatible(const encoding_t *enc1, const encoding_t *enc2)
-{
-    if (enc1->enctype == ENCODING_T_UNKNOWN
-            || enc2->enctype != enc1->enctype) {
-        return false;
-    }
-    if (enc1->endian != ENCODING_E_ANY
-            && enc2->endian != ENCODING_E_ANY
-            && enc1->endian != enc2->endian) {
-        return false;
-    }
-    return true;
-}
+/**
+    Check for byte order (via either byte order mark presence, or how
+    the characters from a known start string are arranged). Assumes
+    an XML document (which, aside from a possible byte order mark,
+    must start with a "<?xml" string).
 
+    @param buf Buffer; must contain at least 4 characters
+    @param had_bom Set to true if encoding detected via byte-order mark,
+        false otherwise
+    @return Encoding name; or NULL if cannot be detected
+*/
 const char *
 encoding_detect_byte_order(strbuf_t *buf, bool *had_bom)
 {

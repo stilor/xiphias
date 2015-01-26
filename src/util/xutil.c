@@ -10,6 +10,12 @@
 
 #include "util/xutil.h"
 
+/**
+    Allocate memory.
+
+    @param sz Size of chunk to be allocated
+    @return Allocated pointer
+*/
 void *
 xmalloc(size_t sz)
 {
@@ -21,6 +27,13 @@ xmalloc(size_t sz)
     return rv;
 }
 
+/**
+    Reallocate memory.
+
+    @param ptr Current allocation
+    @param sz Desired size
+    @return Reallocated memory
+*/
 void *
 xrealloc(const void *ptr, size_t sz)
 {
@@ -32,6 +45,12 @@ xrealloc(const void *ptr, size_t sz)
     return rv;
 }
 
+/**
+    Free memory.
+
+    @param ptr Pointer to be freed; safe to pass NULL here
+    @return None
+*/
 void
 xfree(const void *ptr)
 {
@@ -40,6 +59,12 @@ xfree(const void *ptr)
     }
 }
 
+/**
+    String duplication.
+
+    @param s String to be duplicated
+    @return Allocated copy of the string
+*/
 char *
 xstrdup(const char *s)
 {
@@ -51,10 +76,17 @@ xstrdup(const char *s)
     return rv;
 }
 
-#define DFLT_VASPRINTF_SIZE     128
+/**
+    Allocating sprintf.
+
+    @param fmt Format
+    @param ap Arguments
+    @return Allocated string
+*/
 char *
 xvasprintf(const char *fmt, va_list ap)
 {
+    const size_t default_vasprintf_size = 128;
     va_list ap0;
     size_t alloc, reqd;
     char *buf;
@@ -64,7 +96,7 @@ xvasprintf(const char *fmt, va_list ap)
 
     // Start with default-size buffer. Most messages are smaller than that; if
     // we see the message has been truncated - reallocate it with a proper size
-    alloc = DFLT_VASPRINTF_SIZE;
+    alloc = default_vasprintf_size;
     buf = xmalloc(alloc);
     reqd = vsnprintf(buf, alloc, fmt, ap);
     if (reqd >= alloc) {
