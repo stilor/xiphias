@@ -3,7 +3,8 @@
 TARGETS = libxiphias tests
 
 SUBDIRS-libxiphias		:= util xml
-FILES-util				:= xutil.c strbuf.c encoding.c encoding-codepages.c murmurhash.c
+FILES-util				:= xutil.c strbuf.c encoding.c encoding-codepages.c murmurhash.c \
+						   strstore.c
 FILES-xml				:= reader.c
 CFLAGS-libxiphias		:= -fPIC $(shell curl-config --cflags)
 LDFLAGS-libxiphias		:= -shared -fPIC -Wl,-soname=libxiphias.so $(shell curl-config --libs)
