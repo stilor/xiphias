@@ -28,8 +28,8 @@ typedef SLIST_HEAD(bucket_s, item_s) bucket_t;
 
 /// Internal structure of a string storage
 struct strstore_s {
-    bucket_t *buckets;          ///< Storage buckets
     uint32_t bucket_mask;       ///< Mask to get bucket # from hash value
+    bucket_t buckets[];         ///< Storage buckets
 };
 
 /**
@@ -46,9 +46,8 @@ strstore_create(unsigned int order)
 
     // 0 does not make much sense; 32 is the max number of bits in hash value
     OOPS_ASSERT(order > 0 && order < 32);
-    store = xmalloc(sizeof(strstore_t));
     i = 1 << order;
-    store->buckets = xmalloc(i * sizeof(bucket_t));
+    store = xmalloc(sizeof(strstore_t) + i * sizeof(bucket_t));
     store->bucket_mask = --i;
     do {
         SLIST_INIT(&store->buckets[i]);
@@ -76,7 +75,6 @@ strstore_destroy(strstore_t *store)
             xfree(item);
         }
     }
-    xfree(store->buckets);
     xfree(store);
 }
 
@@ -99,8 +97,7 @@ strstore_ndup(strstore_t *store, const char *s, size_t len)
 
     // Search if the string is already in store
     SLIST_FOREACH(item, bucket, link) {
-        if (item->hval == hval && item->len == len
-                && !strncmp(item->str, s, len)) {
+        if (item->hval == hval && item->len == len && !memcmp(item->str, s, len)) {
             // Hit!
             item->refcnt++;
             return item->str;
@@ -138,8 +135,7 @@ strstore_free(strstore_t *store, const char *s)
     // Search if the string is already in store
     prev = NULL;
     SLIST_FOREACH(item, bucket, link) {
-        if (item->hval == hval && item->len == len
-                && !strcmp(item->str, s)) {
+        if (item->hval == hval && item->len == len && !memcmp(item->str, s, len)) {
             // Found!
             if (!--item->refcnt) {
                 // No more references
