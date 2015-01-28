@@ -75,7 +75,7 @@ const encoding_t *encoding_search(const char *name);
 bool encoding_compatible(const encoding_t *enc1, const encoding_t *enc2);
 const char *encoding_detect_byte_order(strbuf_t *buf, bool *had_bom);
 
-// Maximum number of bytes to encode a character in UTF-8
+/// Maximum number of bytes to encode a character in UTF-8
 #define MAX_UTF8_LEN    4
 
 

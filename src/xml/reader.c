@@ -17,7 +17,7 @@
 enum {
     READER_STARTED  = 0x0001,       ///< Reader has started the operation
     READER_FATAL    = 0x0002,       ///< Reader encountered a fatal error
-    READER_SAW_CR   = 0x0004,       ///< Converting CRLF: saw #D, ignore next #xA/#x85
+    READER_SAW_CR   = 0x0004,       ///< Converting CRLF: saw 0xD, ignore next 0xA/0x85
     READER_POS_RESET= 0x0008,       ///< Reset position before reading the next char
     READER_READDECL = 0x0010,       ///< Looking ahead for the declaration
 };
@@ -183,7 +183,7 @@ xml_reader_delete(xml_reader_t *h)
     Set transport encoding.
 
     @param h Reader handle
-    @param enc Encoding reported by higher-level protocol
+    @param encname Encoding reported by higher-level protocol
                (e.g. Content-Type header in HTTP).
     @return true if encoding set successfully, false otherwise
 */

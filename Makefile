@@ -23,6 +23,10 @@ clean:
 
 check:
 
+docs:
+	mkdir -p build/doc
+	doxygen src/Doxyfile
+
 build/outputs.mk: genbuild.py
 	mkdir -p build
 	python $< -o $@

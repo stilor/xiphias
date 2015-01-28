@@ -1,6 +1,12 @@
 /* vi: set ts=4 sw=4 et : */
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
+/**
+    @file
+    Fail-safe functions: we don't expect a failure from any of them;
+    any error is an immediate assertion-like termination of the
+    application.
+*/
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>

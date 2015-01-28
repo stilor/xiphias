@@ -39,7 +39,7 @@ struct strhash_s {
     Create a string hash of the specified size.
 
     @param order log2 of the number of buckets in the storage
-    @param item_destroy Callback function to destroy hash item when freed,
+    @param payload_destroy Callback function to destroy hash item when freed,
         NULL if no destuctor needs to be called
     @return String-keyed hash
 */
@@ -64,8 +64,7 @@ strhash_create(unsigned int order, void (*payload_destroy)(void *payload))
 /**
     Destroy string hash with all items in it.
 
-    @param hash String-keyed hash
-    @param store Storage to destroy
+    @param hash String-keyed hash to destroy
     @return Nothing
 */
 void

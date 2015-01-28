@@ -17,11 +17,11 @@
 // Forward declarations
 struct strbuf_s;
 
-/// Callback types (in parentheses: field in the callback parameter union)
+/// Callback types
 enum xml_reader_cbtype_e {
     XML_READER_CB_NONE,            ///< No message (placeholder/terminator)
     XML_READER_CB_MESSAGE,         ///< Note/warning/error message
-    XML_READER_CB_XMLDECL,         ///< XML declaration (xmldecl)
+    XML_READER_CB_XMLDECL,         ///< XML declaration
 
     XML_READER_CB_MAX
 };
