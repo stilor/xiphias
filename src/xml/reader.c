@@ -22,31 +22,6 @@ enum {
     READER_READDECL = 0x0010,       ///< Looking ahead for the declaration
 };
 
-/**
-    Determine if a character is a restricted character. Restricted characters are
-    completely illegal in XML1.0 (directly inserted and inserted as character reference).
-    They are allowed in character references in XML1.1 documents.
-
-    @param cp Codepoint
-    @return true if @a cp is a restricted character
-*/
-static inline bool
-xml_is_restricted(uint32_t cp)
-{
-    static const bool restricted_chars[] = {
-#define R(x)    [x] = true
-        R(0x01), R(0x02), R(0x03), R(0x04), R(0x05), R(0x06), R(0x07), R(0x08), R(0x0B), R(0x0C),
-        R(0x0E), R(0x0F), R(0x10), R(0x11), R(0x12), R(0x13), R(0x14), R(0x15), R(0x16), R(0x17),
-        R(0x18), R(0x19), R(0x1A), R(0x1B), R(0x1C), R(0x1D), R(0x1E), R(0x1F), R(0x7F), R(0x80),
-        R(0x81), R(0x82), R(0x83), R(0x84), R(0x86), R(0x87), R(0x88), R(0x89), R(0x8A), R(0x8B),
-        R(0x8C), R(0x8D), R(0x8E), R(0x8F), R(0x90), R(0x91), R(0x92), R(0x93), R(0x94), R(0x95),
-        R(0x96), R(0x97), R(0x98), R(0x99), R(0x9A), R(0x9B), R(0x9C), R(0x9D), R(0x9E), R(0x9F),
-#undef R
-    };
-
-    return cp < sizeofarray(restricted_chars) ? restricted_chars[cp] : false;
-}
-
 /// Used as an indicator that no character was read
 #define NOCHAR      ((uint32_t)-1)
 
@@ -107,6 +82,45 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
         { NULL, false, XMLERR_NOTE },
     },
 };
+
+/**
+    Determine if a character is a restricted character. Restricted characters are
+    completely illegal in XML1.0 (directly inserted and inserted as character reference).
+    They are allowed in character references in XML1.1 documents.
+
+    @param cp Codepoint
+    @return true if @a cp is a restricted character
+*/
+static inline bool
+xml_is_restricted(uint32_t cp)
+{
+    static const bool restricted_chars[] = {
+#define R(x)    [x] = true
+        R(0x01), R(0x02), R(0x03), R(0x04), R(0x05), R(0x06), R(0x07), R(0x08), R(0x0B), R(0x0C),
+        R(0x0E), R(0x0F), R(0x10), R(0x11), R(0x12), R(0x13), R(0x14), R(0x15), R(0x16), R(0x17),
+        R(0x18), R(0x19), R(0x1A), R(0x1B), R(0x1C), R(0x1D), R(0x1E), R(0x1F), R(0x7F), R(0x80),
+        R(0x81), R(0x82), R(0x83), R(0x84), R(0x86), R(0x87), R(0x88), R(0x89), R(0x8A), R(0x8B),
+        R(0x8C), R(0x8D), R(0x8E), R(0x8F), R(0x90), R(0x91), R(0x92), R(0x93), R(0x94), R(0x95),
+        R(0x96), R(0x97), R(0x98), R(0x99), R(0x9A), R(0x9B), R(0x9C), R(0x9D), R(0x9E), R(0x9F),
+#undef R
+    };
+
+    return cp < sizeofarray(restricted_chars) ? restricted_chars[cp] : false;
+}
+
+/**
+    Check if a given Unicode code point is white space per XML spec.
+    XML spec says, #x20, #x9, #xA and #xD are whitespace, the rest is not.
+
+    @param cp Code point to check
+    @return true if @a cp is whitespace, false otherwise
+*/
+static bool
+xml_is_whitespace(uint32_t cp)
+{
+    return xchareq(cp, 0x20) || xchareq(cp, 0x9) || xchareq(cp, 0xA)
+            || xchareq(cp, 0xD);
+}
 
 /**
     Replace encoding translator in a handle.
@@ -285,27 +299,13 @@ xml_reader_message(xml_reader_t *h, xmlerr_info_t info, const char *fmt, ...)
 
 
 /**
-    Check if a given Unicode code point is white space per XML spec.
-    XML spec says, #x20, #x9, #xA and #xD are whitespace, the rest is not.
-
-    @param cp Code point to check
-    @return true if @a cp is whitespace, false otherwise
-*/
-static bool
-xml_is_whitespace(uint32_t cp)
-{
-    return xchareq(cp, 0x20) || xchareq(cp, 0x9) || xchareq(cp, 0xA)
-            || xchareq(cp, 0xD);
-}
-
-/**
     Read one character from input.
 
     @param h Reader handle
     @return Character read, or NOCHAR on error
 */
 static uint32_t
-xml_read_1(xml_reader_t *h)
+xml_hdr_read_1(xml_reader_t *h)
 {
     uint32_t tmp, *ptr = &tmp;
     bool next = false;
@@ -364,12 +364,12 @@ xml_read_1(xml_reader_t *h)
     @return First non-whitespace character
 */
 static uint32_t
-xml_skip_whitespace(xml_reader_t *h)
+xml_hdr_skip_whitespace(xml_reader_t *h)
 {
     uint32_t tmp;
 
     do {
-        tmp = xml_read_1(h);
+        tmp = xml_hdr_read_1(h);
     } while (xml_is_whitespace(tmp));
     return tmp;
 }
@@ -467,16 +467,16 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
     size_t nread, i;
     char *encname;
 
-    // Lots of NOCHAR checks below: the application has been notified in xml_read_1
+    // Lots of NOCHAR checks below: the application has been notified in xml_hdr_read_1
     buf = xmalloc(bufsz * sizeof(uint32_t));
     while (true) {
-        if ((buf[0] = xml_skip_whitespace(h)) == NOCHAR) {
+        if ((buf[0] = xml_hdr_skip_whitespace(h)) == NOCHAR) {
             goto out;
         }
         if (xchareq(buf[0], '?')) {
             // Seems like the end of the declaration... Verify the next character,
             // verify there are no more required attributes and be done.
-            if ((buf[1] = xml_read_1(h)) == NOCHAR) {
+            if ((buf[1] = xml_hdr_read_1(h)) == NOCHAR) {
                 goto out;
             }
             if (xchareq(buf[1], '>')) {
@@ -506,7 +506,7 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
 
             // This immediately reads 2nd character. Fortunately, there are no 1-char
             // pseudo-attribute names in XMLDecl/TextDecl
-            if ((buf[nread++] = xml_read_1(h)) == NOCHAR) {
+            if ((buf[nread++] = xml_hdr_read_1(h)) == NOCHAR) {
                 goto out;
             }
             while (!ucs4_equal(buf, attrlist->name, nread)) {
@@ -530,13 +530,13 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
         } while (nread != strlen(attrlist->name));
 
         // Found the attribute name, now look for Eq production: S* '=' S*
-        eq = xml_skip_whitespace(h);
+        eq = xml_hdr_skip_whitespace(h);
         if (!xchareq(eq, '=')) {
             xml_reader_message(h, attrlist->errinfo, "No equal sign in pseudo-attribute");
             h->flags |= READER_FATAL;
             goto out;
         }
-        quote = xml_skip_whitespace(h);
+        quote = xml_hdr_skip_whitespace(h);
         if (!xchareq(quote, '"') && !xchareq(quote, '\'')) {
             xml_reader_message(h, attrlist->errinfo,
                     "Pseudo-attribute value does not start with a quote");
@@ -553,7 +553,7 @@ xml_reader_xmldecl_getattr(xml_reader_t *h,
                 bufsz *= 2;
                 buf = xrealloc(buf, bufsz * sizeof(uint32_t));
             }
-            if ((buf[nread] = xml_read_1(h)) == NOCHAR) {
+            if ((buf[nread] = xml_hdr_read_1(h)) == NOCHAR) {
                 goto out;
             }
         } while (buf[nread++] != quote);
@@ -678,6 +678,7 @@ out:
     element names and attribute names (but not attribute values!), and parts
     of the document type definition.
 
+    @param h XML reader
     @param input Input buffer, in UCS-4
     @param nchars Number of characters in the input buffer
     @param output Output buffer, in UTF-8. Must point at least 4 times @a nchars
@@ -685,7 +686,7 @@ out:
     @return Number of bytes consumed in the output buffer
 */
 static size_t
-xml_reader_input_filter(uint32_t *input, size_t nchars, uint8_t *output)
+xml_reader_input_filter(xml_reader_t *h, uint32_t *input, size_t nchars, uint8_t *output)
 {
     uint8_t *ptr = output;
 
@@ -734,7 +735,7 @@ xml_reader_op_input(strbuf_t *buf, void *arg)
             strbuf_setf(buf, BUF_LAST, BUF_LAST); // This input, if any, is final
             break;
         }
-        len = xml_reader_input_filter(tmp, tptr - tmp, cptr);
+        len = xml_reader_input_filter(h, tmp, tptr - tmp, cptr);
         cptr += len;
         avail -= len;
     };
@@ -846,7 +847,7 @@ xml_reader_start(xml_reader_t *h)
     // We are looking for '<?xml' string, followed by XML whitespace
     h->flags |= READER_READDECL;
     for (i = 0; i < sizeofarray(xmldecl); i++) {
-        if ((xmldecl[i] = xml_read_1(h)) == NOCHAR) {
+        if ((xmldecl[i] = xml_hdr_read_1(h)) == NOCHAR) {
             // We'll unget and retry with what we got as if it were regular XML content
             break;
         }
@@ -867,11 +868,11 @@ xml_reader_start(xml_reader_t *h)
     }
     else {
         // No declaration, "unget" the characters we've read.
-        h->loc.line = 1;
-        h->loc.pos = 0;
-        len = xml_reader_input_filter(xmldecl, i, xmldecl_utf8);
+        len = xml_reader_input_filter(h, xmldecl, i, xmldecl_utf8);
         h->buf_proc = strbuf_new_from_memory(xmldecl_utf8, len, true);
         strbuf_setf(h->buf_proc, 0, BUF_LAST); // Ops to get the rest will be set below
+        h->loc.line = 1;
+        h->loc.pos = 0;
     }
 
     // In the absence of external character encoding information (such as MIME
@@ -881,7 +882,6 @@ xml_reader_start(xml_reader_t *h)
     if (!cbparam.xmldecl.encoding && !h->enc_transport
             && h->encoding->enctype != ENCODING_T_UTF16
             && h->encoding->enctype != ENCODING_T_UTF8) {
-        // TBD: test after adding support for codepage-based encodings (e.g. ISO8859-1)
         // Non-fatal: recover by using whatever encoding we detected
         xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "No external encoding information, no encoding in %s, content in %s encoding",
@@ -909,8 +909,28 @@ xml_reader_start(xml_reader_t *h)
 void
 xml_reader_process_document_entity(xml_reader_t *h)
 {
+    /*
+        Document entity matches the following productions per XML spec (1.1).
+          document  ::= ( prolog element Misc* ) - ( Char* RestrictedChar Char* )
+          prolog    ::= XMLDecl Misc* (doctypedecl Misc*)?
+          Misc      ::= Comment | PI | S
+        In XML spec 1.0, XMLDecl is optional. So, first get XMLDecl out of the way;
+        this also sets the encoding and allows us to use auto-fill string buffer.
+        We cannot use auto-fill buffer as it may look ahead in transcoding the input
+        stream, and final encoding may not be known before parsing the XMLDecl.
+    */
     h->declinfo = &declinfo_xmldecl;
     xml_reader_start(h);
+
+    /*
+        Expanding the productions for the document (above), we get (for 1.0 or 1.1):
+          document  ::= XMLDecl? (Comment|PI|S)* doctypedecl? (Comment|PI|S)* element
+                        (Comment|PI|S)*
+        We've handle XMLDecl, if there was any, above.
+    */
+    while (false) { // TBD signal EOF from strbuf
+    }
+
     // TBD process the rest of the content
 }
 
