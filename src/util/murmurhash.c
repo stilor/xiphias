@@ -33,6 +33,27 @@ rotl32(uint32_t x, int8_t r)
 }
 
 /**
+    Architecture-specific 32-bit read, possibly unaligned.
+
+    @param base Base pointer
+    @param idx Index
+    @return 32-bit value obtained
+*/
+static inline uint32_t
+fetch32(uint32_t *base, int idx)
+{
+#if defined(__i386__) || defined(__x86_64__)
+    return base[idx];
+#else
+#warning "Need implementation of unaligned 32-bit reads for this architecture"
+    uint32_t val;
+
+    memcpy(val, &base[idx], 4);
+    return val;
+#endif
+}
+
+/**
     32-bit version of MurmurHash3.
 
     @param key Key to be hashed
@@ -49,9 +70,6 @@ murmurhash32(const void *key, size_t len)
 
     uint32_t h1 = MURMUR_SEED;
     int i;
-
-    // Alignment check
-    OOPS_ASSERT((((uintptr_t)key) & 3) == 0);
 
     // Body
     const uint32_t *blocks = (const uint32_t *)(data + nblocks * 4);
