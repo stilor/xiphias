@@ -901,17 +901,43 @@ xml_reader_start(xml_reader_t *h)
 }
 
 /**
-    Read in the XML content and emit the callbacks as necessary.
+    Read in the XML content from the document entity and emit the callbacks as necessary.
 
     @param h Reader handle
-    @param is_document_entity True if the content belongs to the document entity,
-          false if external parsed entity
     @return None
 */
 void
-xml_reader_process_xml(xml_reader_t *h, bool is_document_entity)
+xml_reader_process_document_entity(xml_reader_t *h)
 {
-    h->declinfo = is_document_entity ? &declinfo_xmldecl : &declinfo_textdecl;
+    h->declinfo = &declinfo_xmldecl;
+    xml_reader_start(h);
+    // TBD process the rest of the content
+}
+
+/**
+    Read in the XML content from an external parsed entity and emit the callbacks as necessary.
+
+    @param h Reader handle
+    @return None
+*/
+void
+xml_reader_process_external_entity(xml_reader_t *h)
+{
+    h->declinfo = &declinfo_textdecl;
+    xml_reader_start(h);
+    // TBD process the rest of the content
+}
+
+/**
+    Process a DTD (external subset).
+
+    @param h Reader handle
+    @return None
+*/
+void
+xml_reader_process_external_subset(xml_reader_t *h)
+{
+    h->declinfo = &declinfo_textdecl;
     xml_reader_start(h);
     // TBD process the rest of the content
 }

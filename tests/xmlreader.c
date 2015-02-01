@@ -303,7 +303,7 @@ run_testcase(const void *arg)
         xml_reader_set_transport_encoding(reader, tc->transport_encoding);
     }
 
-    xml_reader_process_xml(reader, true);
+    xml_reader_process_document_entity(reader);
     xml_reader_delete(reader);
 
     while (cbarg.expect->cbtype != XML_READER_CB_NONE) {

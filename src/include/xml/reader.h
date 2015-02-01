@@ -68,6 +68,8 @@ void xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg);
 void xml_reader_message(xml_reader_t *h, xmlerr_info_t info,
         const char *fmt, ...) __printflike(3,4);
 
-void xml_reader_process_xml(xml_reader_t *h, bool is_document_entity);
+void xml_reader_process_document_entity(xml_reader_t *h);
+void xml_reader_process_external_entity(xml_reader_t *h);
+void xml_reader_process_external_subset(xml_reader_t *h);
 
 #endif
