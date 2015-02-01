@@ -7,7 +7,7 @@ CFLAGS_common			:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered \
 						   -Wsign-compare -Wlogical-op -Waggregate-return \
 						   -Wmissing-field-initializers -Wnested-externs \
-						   -g -O2 -fno-common -iquote src/include
+						   -g -O1 -fno-common -iquote src/include
 
 CFLAGS_lib				:= $(CFLAGS_common) -fPIC
 CFLAGS_test				:= $(CFLAGS_common)
@@ -27,9 +27,9 @@ docs:
 	mkdir -p build/doc
 	doxygen src/Doxyfile
 
-build/outputs.mk: genbuild.py
+build/outputs.mk: outputs.conf genbuild.py
 	mkdir -p build
-	python $< -o $@
+	python genbuild.py -o $@ $<
 
 __makefiles	:= Makefile build/outputs.mk
-include build/outputs.mk
+-include build/outputs.mk

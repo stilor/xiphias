@@ -12,6 +12,7 @@
 #include "util/encoding.h"
 #include "util/xutil.h"
 #include "xml/reader.h"
+#include "test/testlib.h"
 
 // TBD get from prog's path? On the command line?
 #define XML_INPUT_DIR "tests/input"
@@ -177,11 +178,6 @@ equal_events(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 
 #include "xmlreader-tests.c"
 
-typedef enum result_e {
-    PASS,
-    FAIL,
-} result_t;
-
 typedef struct test_cb_s {
     const xml_reader_cbparam_t *expect;
     bool failed;
@@ -218,12 +214,13 @@ test_cb(void *arg, const xml_reader_cbparam_t *cbparam)
 /**
     Run a single test case and compare produced events with expected events.
 
-    @param tc Testcase description
+    @param arg Testcase description
     @return PASS/FAIL
 */
 static result_t
-run_testcase(const testcase_t *tc)
+run_testcase(const void *arg)
 {
+    const testcase_t *tc = arg;
     xml_reader_t *reader;
     strbuf_t *sbuf;
     struct stat sb;
@@ -333,62 +330,16 @@ out:
     return rc;
 }
 
-/**
-    Run all the testcases in a suite.
-
-    @param tcs Testcases
-    @param from Starting test case number
-    @param num Number of test cases
-    @return true if all tests passed, false otherwise
-*/
-static bool
-run(const testcase_t *tcs, size_t from, size_t num)
-{
-    size_t i;
-    result_t rc;
-    unsigned int passed = 0, failed = 0, unresolved = 0;
-
-    for (i = from; i < from + num && i < sizeofarray(testcases); i++) {
-        printf("#%04zu: %s\n", i, tcs[i].desc);
-        rc = run_testcase(&tcs[i]);
-        printf("#%04zu: ", i);
-        switch (rc) {
-        case PASS:
-            printf("PASS\n");
-            passed++;
-            break;
-        case FAIL:
-            printf("FAIL\n");
-            failed++;
-            break;
-        default:
-            printf("UNRESOLVED\n");
-            unresolved++;
-            break;
-        }
-        printf("\n");
+static const testset_t testset[] = {
+    {
+        .func = run_testcase,
+        .cases = testcases,
+        .size = sizeof(testcase_t),
+        .ncases = sizeofarray(testcases),
     }
-    printf("SUMMARY:\n");
-    printf("  PASSED       : %5u\n", passed);
-    printf("  FAILED       : %5u\n", failed);
-    printf("  UNRESOLVED   : %5u\n", unresolved);
-    return !failed && !unresolved;
-}
+};
 
-/**
-    Display usage for the test suite.
-
-    @param pgm Program name
-    @return Nothing
-*/
-static void
-usage(const char *pgm)
-{
-    printf("Usage: %s [testcase]\n", pgm);
-    printf("\n");
-    printf("Valid test case numbers: 0..%zu\n", sizeofarray(testcases) - 1);
-    printf("\n");
-}
+static const testsuite_t testsuite = TEST_SUITE("Tests for XML reader API", testset);
 
 /**
     Main routine for XML reader test suite.
@@ -400,18 +351,5 @@ usage(const char *pgm)
 int
 main(int argc, char *argv[])
 {
-    char *eptr;
-    size_t tcn;
-
-    if (argc == 1) {
-        return run(testcases, 0, sizeofarray(testcases)) ? 0 : 1;
-    }
-    else if (argc == 2) {
-        tcn = strtoul(argv[1], &eptr, 10);
-        if (!*eptr) {
-            return run(testcases, tcn, 1) ? 0 : 1;
-        }
-    }
-    usage(argv[0]);
-    return 1;
+    return test_run_cmdline(&testsuite, argc, argv);
 }
