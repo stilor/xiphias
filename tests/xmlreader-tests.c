@@ -333,7 +333,7 @@ static const testcase_t testcases[] = {
             E(MESSAGE,
                     .loc = LOC("nonascii-decl.xml", 4, 2),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
-                    .msg = "XMLDecl contains non-ASCII characters",
+                    .msg = "XMLDecl contains non-ASCII or restricted characters",
             ),
             END,
         },

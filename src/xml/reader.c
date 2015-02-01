@@ -22,6 +22,31 @@ enum {
     READER_READDECL = 0x0010,       ///< Looking ahead for the declaration
 };
 
+/**
+    Determine if a character is a restricted character. Restricted characters are
+    completely illegal in XML1.0 (directly inserted and inserted as character reference).
+    They are allowed in character references in XML1.1 documents.
+
+    @param cp Codepoint
+    @return true if @a cp is a restricted character
+*/
+static inline bool
+xml_is_restricted(uint32_t cp)
+{
+    static const bool restricted_chars[] = {
+#define R(x)    [x] = true
+        R(0x01), R(0x02), R(0x03), R(0x04), R(0x05), R(0x06), R(0x07), R(0x08), R(0x0B), R(0x0C),
+        R(0x0E), R(0x0F), R(0x10), R(0x11), R(0x12), R(0x13), R(0x14), R(0x15), R(0x16), R(0x17),
+        R(0x18), R(0x19), R(0x1A), R(0x1B), R(0x1C), R(0x1D), R(0x1E), R(0x1F), R(0x7F), R(0x80),
+        R(0x81), R(0x82), R(0x83), R(0x84), R(0x86), R(0x87), R(0x88), R(0x89), R(0x8A), R(0x8B),
+        R(0x8C), R(0x8D), R(0x8E), R(0x8F), R(0x90), R(0x91), R(0x92), R(0x93), R(0x94), R(0x95),
+        R(0x96), R(0x97), R(0x98), R(0x99), R(0x9A), R(0x9B), R(0x9C), R(0x9D), R(0x9E), R(0x9F),
+#undef R
+    };
+
+    return cp < sizeofarray(restricted_chars) ? restricted_chars[cp] : false;
+}
+
 /// Used as an indicator that no character was read
 #define NOCHAR      ((uint32_t)-1)
 
@@ -313,11 +338,11 @@ xml_read_1(xml_reader_t *h)
     } while (next);
 
     h->loc.pos++;
-    if (tmp >= 0x7f) {
+    if (!tmp || tmp >= 0x7f || xml_is_restricted(tmp)) {
         // This is only error if we know declaration is present
         if ((h->flags & READER_READDECL) == 0) {
             xml_reader_message(h, h->declinfo->generr,
-                    "%s contains non-ASCII characters", h->declinfo->name);
+                    "%s contains non-ASCII or restricted characters", h->declinfo->name);
             h->flags |= READER_FATAL;
         }
         return NOCHAR;
