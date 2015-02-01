@@ -22,6 +22,9 @@ typedef enum result_e {
 /// Function to call for test
 typedef result_t (*testfunc_t)(const void *arg);
 
+/// Function to call for simple test
+typedef result_t (*testfunc0_t)(void);
+
 /// Set of tests
 typedef struct testset_s {
     testfunc_t func;        ///< Function to call for this set
@@ -30,10 +33,16 @@ typedef struct testset_s {
     size_t ncases;          ///< Number of test cases
 } testset_t;
 
+/// Simple test set: single function w/o arguments and a description
+typedef struct testset__simple_s {
+    testfunc0_t func;       ///< Simple test function
+    const char *desc;       ///< Description of the test
+} testset__simple_t;
+
 /// Declare simple test set with single function and no arguments
-#define TEST_SET_SIMPLE(f) { \
+#define TEST_SET_SIMPLE(f, d) { \
     .func = test__exec_simple_testcase, \
-    .cases = (f), \
+    .cases = &(const testset__simple_t){ .func = (f), .desc = (d), }, \
     .size = 0, \
     .ncases = 1, \
 }

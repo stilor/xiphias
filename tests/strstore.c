@@ -4,7 +4,6 @@
 #include "util/strstore.h"
 #include "test/testlib.h"
 
-/// Simple test: create and destroy string storage
 static result_t
 strstore_create_destroy(void)
 {
@@ -16,7 +15,7 @@ strstore_create_destroy(void)
 }
 
 static const testset_t tests[] = {
-    TEST_SET_SIMPLE(strstore_create_destroy),
+    TEST_SET_SIMPLE(strstore_create_destroy, "Create and destroy empty storage"),
 };
 
 static const testsuite_t testsuite = TEST_SUITE("Tests for refcounted string storage", tests);

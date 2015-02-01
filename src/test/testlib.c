@@ -25,9 +25,10 @@ typedef struct test_stats_s {
 result_t
 test__exec_simple_testcase(const void *arg)
 {
-    result_t (*func)(void) = arg;
+    const testset__simple_t *ts = arg;
 
-    return func();
+    printf("%s\n", ts->desc);
+    return ts->func();
 }
 
 /**
