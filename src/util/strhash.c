@@ -134,6 +134,7 @@ strhash_setn(strhash_t *hash, const char *key, size_t len, void *payload)
     item = xmalloc(sizeof(item_t) + len);
     item->len = len;
     item->hval = hval;
+    item->payload = payload;
     memcpy(item->key, key, len);
     SLIST_INSERT_HEAD(bucket, item, link);
 }
