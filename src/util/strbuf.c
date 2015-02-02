@@ -223,32 +223,55 @@ strbuf_append_block(strbuf_t *buf, strblk_t *blk)
 }
 
 /**
+    Check if end of file is reached.
+
+    @param buf Buffer
+    @return true if the buffer is at the end of file, false otherwise
+*/
+bool
+strbuf_eof(strbuf_t *buf)
+{
+    void *begin, *end;
+
+    strbuf_getptr(buf, &begin, &end);
+    return begin == NULL;
+}
+
+/**
     Read certain amount from the buffer.
 
     @param buf Buffer
     @param dest Destination memory
     @param nbytes Read amount
     @param lookahead If true, does not advance current read pointer
-    @return None
+    @param func Read termination function; if not NULL and returns true, read will
+        terminate at the current character. If this argument is non-NULL, the string
+        blocks added to this buffer must be properly sized and aligned for 32-bit reads.
+        Destination buffer must also be properly sized and aligned.
+    @param arg Argument to @a func
+    @return Number of characters read.
 */
-void
-strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
+size_t
+strbuf_read_until(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead,
+        strbuf_condread_func_t func, void *arg)
 {
     strblk_t *blk, *next;
     uint8_t *begin, *end, *readptr;
-    size_t avail;
+    uint32_t *tmp;
+    size_t i, avail;
+    bool earlybreak = false;
 
     readptr = buf->readptr;
     next = STAILQ_FIRST(&buf->content);
     blk = NULL;
     do {
-        if (!next) {
+        if (!next && !(buf->flags & BUF_LAST)) {
             // Not enough queued data, need to fetch
             buf->ops->input(buf, buf->arg);
             next = blk ? STAILQ_NEXT(blk, link) : STAILQ_FIRST(&buf->content);
-            if (!next) {
-                OOPS_ASSERT(0); // TBD return partial read?
-            }
+        }
+        if (!next) {
+            OOPS_ASSERT(0); // TBD return partial read?
         }
         // Have some queued data
         blk = next;
@@ -257,8 +280,23 @@ strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
         OOPS_ASSERT(begin <= end);
         avail = min(nbytes, (size_t)(end - begin));
         if (dest) {
-            memcpy(dest, begin, avail);
-            dest += avail;
+            if (func) {
+                // If function is provided, strbuf must contain UCS-4 characters,
+                // with properly aligned and sized blocks.
+                OOPS_ASSERT(((avail | (uintptr_t)begin) & 3) == 0);
+                for (i = 0, tmp = (uint32_t *)begin; i < avail / 4; i++, tmp++, dest += 4) {
+                    if (func(arg, *tmp)) {
+                        earlybreak = true;
+                        break;
+                    }
+                    *(uint32_t *)dest = *tmp;
+                }
+                avail = i * 4; // May have terminated early
+            }
+            else {
+                memcpy(dest, begin, avail);
+                dest += avail;
+            }
         }
         readptr = begin + avail;
         nbytes -= avail;
@@ -273,11 +311,12 @@ strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
                 blk = NULL;
             }
         }
-    } while (nbytes && !(buf->flags & BUF_LAST));
+    } while (!earlybreak && nbytes && !(buf->flags & BUF_LAST));
 
     if (!lookahead) {
         buf->readptr = readptr;
     }
+    return 0; // TBD size of read
 }
 
 /**

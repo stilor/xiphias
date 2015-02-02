@@ -13,6 +13,12 @@
 
 #include "xml/reader.h"
 
+/**
+    Initial size of the read buffer (the buffer is to accommodate the longest
+    contiguous token). Each time this space is insufficient, it will be doubled.
+*/
+#define INITIAL_READBUF_SIZE        1024
+
 /// Reader flags
 enum {
     READER_STARTED  = 0x0001,       ///< Reader has started the operation
@@ -58,6 +64,9 @@ struct xml_reader_s {
 
     xml_reader_cb_t func;           ///< Callback function
     void *arg;                      ///< Argument to callback function
+
+    uint32_t *readbuf;              ///< Read buffer
+    size_t readbuf_sz;              ///< Current size of the read buffer
 };
 
 /// Handle TextDecl ::= '<?xml' VersionInfo? EncodingDecl S? '?>'
@@ -194,6 +203,8 @@ xml_reader_new(strbuf_t *buf, const char *location)
     h->loc.src = xstrdup(location);
     h->loc.line = 1;
     h->loc.pos = 0;
+    h->readbuf_sz = INITIAL_READBUF_SIZE;
+    h->readbuf = xmalloc(h->readbuf_sz * sizeof(uint32_t));
     return h;
 }
 
@@ -215,6 +226,7 @@ xml_reader_delete(xml_reader_t *h)
     xfree(h->enc_detected);
     xfree(h->enc_xmldecl);
     xfree(h->loc.src);
+    xfree(h->readbuf);
     xfree(h);
 }
 
@@ -637,8 +649,10 @@ out:
 }
 
 /**
-    Perform the translation and normalization checks prescribed by the XML
-    specifications.
+    Fetch more data from the transcoder, perform the translation and normalization
+    checks prescribed by the XML specifications.
+
+    TBD probably normalizations are not going to be performed here - move the comment
 
     End-of-Line handling:
 
@@ -676,36 +690,9 @@ out:
     inside the root element is expected to be fully normalized. At the top
     level, the following are expected to be normalized: PI targets,
     element names and attribute names (but not attribute values!), and parts
-    of the document type definition.
-
-    @param h XML reader
-    @param input Input buffer, in UCS-4
-    @param nchars Number of characters in the input buffer
-    @param output Output buffer, in UTF-8. Must point at least 4 times @a nchars
-        bytes.
-    @return Number of bytes consumed in the output buffer
-*/
-static size_t
-xml_reader_input_filter(xml_reader_t *h, uint32_t *input, size_t nchars, uint8_t *output)
-{
-    uint8_t *ptr = output;
-
-    // TBD EOL translation; BTW, does it happen in CDATA blocks?
-    // TBD update location info somewhere
-    // TBD normalization check
-
-    // Just pack the characters for now
-    while (nchars--) {
-        encoding_utf8_store(&ptr, *input++);
-    }
-    return ptr - output;
-}
-
-#define TMP_BUF_CHARS   4096    ///< Number of characters in temporary transcoding buffer
-#define WASTE_SHIFT     5       ///< The fraction of the buffer that may be left unused in each block
-
-/**
-    Produce more characters for a XML input buffer: transcode and translate EOLs.
+    of the document type definition. For now, though, we'll do simpler thing:
+    just signal to the application that a normalization error was detected,
+    regardless of its location.
 
     @param buf Destination string buffer 
     @param arg Reader handle
@@ -714,35 +701,21 @@ xml_reader_input_filter(xml_reader_t *h, uint32_t *input, size_t nchars, uint8_t
 static void
 xml_reader_op_input(strbuf_t *buf, void *arg)
 {
-    const size_t dst_block_sz = TMP_BUF_CHARS * MAX_UTF8_LEN;
+#define READ_BLOCK_CHARS   4096    // TBD increase?
     xml_reader_t *h = arg;
-    uint32_t tmp[TMP_BUF_CHARS], *tptr;
-    size_t avail, len;
+    uint32_t *bptr, *cptr, *eptr;
     strblk_t *blk;
-    uint8_t *cptr;
 
-    // If we commit to writing more, we need at least one character to fit
-    OOPS_ASSERT((TMP_BUF_CHARS >> WASTE_SHIFT) >= MAX_UTF8_LEN);
-
-    avail = dst_block_sz;   // Bytes available in destination memory
-    blk = strblk_new(avail);
-    cptr = strblk_getptr(blk);
-    while (avail >= (dst_block_sz >> WASTE_SHIFT)) {
-        tptr = tmp;
-        h->encoding->xlate(h->buf_raw, h->encoding_baton,
-                &tptr, tmp + (avail / MAX_UTF8_LEN));
-        if (tptr == tmp) {
-            strbuf_setf(buf, BUF_LAST, BUF_LAST); // This input, if any, is final
-            break;
-        }
-        len = xml_reader_input_filter(h, tmp, tptr - tmp, cptr);
-        cptr += len;
-        avail -= len;
-    };
-
-    if (avail != dst_block_sz) {
+    blk = strblk_new(READ_BLOCK_CHARS * sizeof(uint32_t));
+    cptr = bptr = strblk_getptr(blk);
+    eptr = bptr + READ_BLOCK_CHARS;
+    h->encoding->xlate(h->buf_raw, h->encoding_baton, &cptr, eptr);
+    if (cptr != eptr) {
+        strbuf_setf(buf, BUF_LAST, BUF_LAST); // This input, if any, is final
+    }
+    if (cptr != bptr) {
         // Fetched something
-        strblk_trim(blk, dst_block_sz - avail);
+        strblk_trim(blk, (cptr - bptr) * sizeof(uint32_t));
         strbuf_append_block(buf, blk);
     }
     else {
@@ -755,7 +728,7 @@ xml_reader_op_input(strbuf_t *buf, void *arg)
     Clean up no longer used XML input buffer.
 
     @param buf Destination string buffer 
-    @param arg TBD
+    @param arg Reader handle, converted to void pointer
     @return None
 */
 static void
@@ -780,8 +753,7 @@ static void
 xml_reader_start(xml_reader_t *h)
 {
     uint32_t xmldecl[6];
-    uint8_t xmldecl_utf8[sizeofarray(xmldecl) * MAX_UTF8_LEN];
-    size_t i, len;
+    size_t i;
     const char *encname;
     bool had_bom;
     xml_reader_cbparam_t cbparam = {
@@ -868,8 +840,7 @@ xml_reader_start(xml_reader_t *h)
     }
     else {
         // No declaration, "unget" the characters we've read.
-        len = xml_reader_input_filter(h, xmldecl, i, xmldecl_utf8);
-        h->buf_proc = strbuf_new_from_memory(xmldecl_utf8, len, true);
+        h->buf_proc = strbuf_new_from_memory(xmldecl, i * sizeof(uint32_t), true);
         strbuf_setf(h->buf_proc, 0, BUF_LAST); // Ops to get the rest will be set below
         h->loc.line = 1;
         h->loc.pos = 0;
@@ -901,6 +872,76 @@ xml_reader_start(xml_reader_t *h)
 }
 
 /**
+    Update the location information in the reader handle.
+
+    @param h Reader handle
+    @param nchars Number of characters in the readbuf
+    @return Nothing
+*/
+static void
+xml_update_location(xml_reader_t *h, size_t nchars)
+{
+}
+
+/**
+    Read until the specified condition; reallocate the buffer to accommodate
+    the token being read as necessary.
+
+    @param h Reader handle
+    @param func Function to call to check for the condition
+    @param arg Argument to @a func
+    @return Number of bytes read (token length)
+*/
+static size_t
+xml_read_until(xml_reader_t *h, strbuf_condread_func_t func, void *arg)
+{
+    size_t offs;
+
+    offs = 0;
+    while (true) {
+        offs += strbuf_read_until(h->buf_proc, (uint8_t *)h->readbuf + offs,
+                h->readbuf_sz - offs, false, func, arg);
+        if (offs < h->readbuf_sz) {
+            break; // Fits into current read buffer
+        }
+        // Reallocate bigger buffer and continue
+        h->readbuf_sz *= 2;
+        h->readbuf = xrealloc(h->readbuf, h->readbuf_sz);
+    }
+    // TBD copy to uint8_t * buffer
+    // TBD normalization check
+    // TBD EOL handling
+    xml_update_location(h, offs / sizeof(uint32_t));
+    return offs;
+}
+
+/**
+    Closure for xml_read_until: read until first non-whitespace.
+
+    @param arg Argument (unused)
+    @param cp Codepoint
+    @return True if byte is not XML whitespace
+*/
+static bool
+xml_cb_not_whitespace(void *arg, uint32_t cp)
+{
+    return !xml_is_whitespace(cp);
+}
+
+/**
+    Skip whitespace, if any, and check for the end-of-file (EOF) condition.
+
+    @param h Reader handle
+    @param true if after skipping whitespace, EOF is reached
+*/
+static bool
+xml_eof_after_whitespace(xml_reader_t *h)
+{
+    (void)xml_read_until(h, xml_cb_not_whitespace, NULL);
+    return strbuf_eof(h->buf_proc);
+}
+
+/**
     Read in the XML content from the document entity and emit the callbacks as necessary.
 
     @param h Reader handle
@@ -921,6 +962,9 @@ xml_reader_process_document_entity(xml_reader_t *h)
     */
     h->declinfo = &declinfo_xmldecl;
     xml_reader_start(h);
+    if (h->flags & READER_FATAL) {
+        return; // TBD signal error somehow? or XMLERR(ERROR, ...) is enough?
+    }
 
     /*
         Expanding the productions for the document (above), we get (for 1.0 or 1.1):
@@ -928,7 +972,8 @@ xml_reader_process_document_entity(xml_reader_t *h)
                         (Comment|PI|S)*
         We've handle XMLDecl, if there was any, above.
     */
-    while (false) { // TBD signal EOF from strbuf
+    while (!xml_eof_after_whitespace(h)) { // TBD signal EOF from strbuf
+        break; // TBD
     }
 
     // TBD process the rest of the content
@@ -945,6 +990,9 @@ xml_reader_process_external_entity(xml_reader_t *h)
 {
     h->declinfo = &declinfo_textdecl;
     xml_reader_start(h);
+    if (h->flags & READER_FATAL) {
+        return; // TBD signal error somehow? or XMLERR(ERROR, ...) is enough?
+    }
     // TBD process the rest of the content
 }
 
@@ -959,5 +1007,8 @@ xml_reader_process_external_subset(xml_reader_t *h)
 {
     h->declinfo = &declinfo_textdecl;
     xml_reader_start(h);
+    if (h->flags & READER_FATAL) {
+        return; // TBD signal error somehow? or XMLERR(ERROR, ...) is enough?
+    }
     // TBD process the rest of the content
 }
