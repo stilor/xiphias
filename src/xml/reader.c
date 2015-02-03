@@ -17,7 +17,7 @@
     Initial size of the read buffer (the buffer is to accommodate the longest
     contiguous token). Each time this space is insufficient, it will be doubled.
 */
-#define INITIAL_READBUF_SIZE        1024
+#define INITIAL_TOKENBUF_SIZE       1024
 
 /// Reader flags
 enum {
@@ -65,9 +65,13 @@ struct xml_reader_s {
     xml_reader_cb_t func;           ///< Callback function
     void *arg;                      ///< Argument to callback function
 
-    uint32_t *readbuf;              ///< Read buffer
-    size_t readbuf_sz;              ///< Current size of the read buffer
+    uint8_t *tokenbuf;              ///< Token buffer
+    uint8_t *tokenbuf_end;          ///< End of the token buffer
+    uint8_t *tokenbuf_ptr;          ///< Write pointer in token buffer
 };
+
+/// Function for conditional read termination: returns true if the character is rejected
+typedef bool (*xml_condread_func_t)(void *arg, uint32_t cp);
 
 /// Handle TextDecl ::= '<?xml' VersionInfo? EncodingDecl S? '?>'
 static const struct xml_reader_xmldecl_declinfo_s declinfo_textdecl = {
@@ -203,8 +207,8 @@ xml_reader_new(strbuf_t *buf, const char *location)
     h->loc.src = xstrdup(location);
     h->loc.line = 1;
     h->loc.pos = 0;
-    h->readbuf_sz = INITIAL_READBUF_SIZE;
-    h->readbuf = xmalloc(h->readbuf_sz * sizeof(uint32_t));
+    h->tokenbuf = xmalloc(INITIAL_TOKENBUF_SIZE);
+    h->tokenbuf_end = h->tokenbuf + INITIAL_TOKENBUF_SIZE;
     return h;
 }
 
@@ -226,7 +230,7 @@ xml_reader_delete(xml_reader_t *h)
     xfree(h->enc_detected);
     xfree(h->enc_xmldecl);
     xfree(h->loc.src);
-    xfree(h->readbuf);
+    xfree(h->tokenbuf);
     xfree(h);
 }
 
@@ -872,18 +876,6 @@ xml_reader_start(xml_reader_t *h)
 }
 
 /**
-    Update the location information in the reader handle.
-
-    @param h Reader handle
-    @param nchars Number of characters in the readbuf
-    @return Nothing
-*/
-static void
-xml_update_location(xml_reader_t *h, size_t nchars)
-{
-}
-
-/**
     Read until the specified condition; reallocate the buffer to accommodate
     the token being read as necessary.
 
@@ -893,26 +885,44 @@ xml_update_location(xml_reader_t *h, size_t nchars)
     @return Number of bytes read (token length)
 */
 static size_t
-xml_read_until(xml_reader_t *h, strbuf_condread_func_t func, void *arg)
+xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 {
-    size_t offs;
+    const void *begin, *end;
+    const uint32_t *ptr;
+    uint32_t cp;
+    size_t total, clen, offs, bufsz;
 
-    offs = 0;
-    while (true) {
-        offs += strbuf_read_until(h->buf_proc, (uint8_t *)h->readbuf + offs,
-                h->readbuf_sz - offs, false, func, arg);
-        if (offs < h->readbuf_sz) {
-            break; // Fits into current read buffer
+    total = 0;
+    h->tokenbuf_ptr = h->tokenbuf;
+    while (strbuf_getptr(h->buf_proc, &begin, &end)) {
+        for (ptr = begin; ptr < (const uint32_t *)end; ptr++) {
+            cp = *ptr;
+            if (func(arg, cp)) {
+                strbuf_read(h->buf_proc, NULL,
+                        (ptr - (const uint32_t *)begin) * sizeof(uint32_t), false);
+                return total; // Early return: next character is rejected
+            }
+            // TBD normalization check
+            // TBD EOL handling
+            // TBD update location
+            // TBD check for whitespace and set a flag in reader for later detection of ignorable
+            // (via the argument - when reading chardata, point to a structure that has such flag)
+            clen = encoding_utf8_len(cp);
+            if (h->tokenbuf_ptr + clen > h->tokenbuf_end) {
+                // Double token storage
+                offs = h->tokenbuf_ptr - h->tokenbuf;
+                bufsz = 2 * (h->tokenbuf_end - h->tokenbuf);
+                h->tokenbuf = xrealloc(h->tokenbuf, bufsz);
+                h->tokenbuf_end = h->tokenbuf + bufsz;
+                h->tokenbuf_ptr = h->tokenbuf + offs;
+            }
+            encoding_utf8_store(&h->tokenbuf_ptr, cp);
+            total += clen;
         }
-        // Reallocate bigger buffer and continue
-        h->readbuf_sz *= 2;
-        h->readbuf = xrealloc(h->readbuf, h->readbuf_sz);
+        // Consumed this block
+        strbuf_read(h->buf_proc, NULL, (const uint8_t *)end - (const uint8_t *)begin, false);
     }
-    // TBD copy to uint8_t * buffer
-    // TBD normalization check
-    // TBD EOL handling
-    xml_update_location(h, offs / sizeof(uint32_t));
-    return offs;
+    return total; // Consumed all input
 }
 
 /**
@@ -929,19 +939,6 @@ xml_cb_not_whitespace(void *arg, uint32_t cp)
 }
 
 /**
-    Skip whitespace, if any, and check for the end-of-file (EOF) condition.
-
-    @param h Reader handle
-    @param true if after skipping whitespace, EOF is reached
-*/
-static bool
-xml_eof_after_whitespace(xml_reader_t *h)
-{
-    (void)xml_read_until(h, xml_cb_not_whitespace, NULL);
-    return strbuf_eof(h->buf_proc);
-}
-
-/**
     Read in the XML content from the document entity and emit the callbacks as necessary.
 
     @param h Reader handle
@@ -950,6 +947,9 @@ xml_eof_after_whitespace(xml_reader_t *h)
 void
 xml_reader_process_document_entity(xml_reader_t *h)
 {
+    char labuf[4]; // Lookahead buffer: 4 characters is enough to distinguish possible productions
+    //bool a_dtd = true, a_element = true; // Whether DTD and element productions are allowed
+
     /*
         Document entity matches the following productions per XML spec (1.1).
           document  ::= ( prolog element Misc* ) - ( Char* RestrictedChar Char* )
@@ -970,10 +970,38 @@ xml_reader_process_document_entity(xml_reader_t *h)
         Expanding the productions for the document (above), we get (for 1.0 or 1.1):
           document  ::= XMLDecl? (Comment|PI|S)* doctypedecl? (Comment|PI|S)* element
                         (Comment|PI|S)*
-        We've handle XMLDecl, if there was any, above.
+        We've handled XMLDecl, if there was any, above. Now, aside from whitespace
+        we expect:
+        - Comments
+        - PIs
+        - Document type declaration (only one and only if we haven't seen element yet)
+        - Element (only one)
     */
-    while (!xml_eof_after_whitespace(h)) { // TBD signal EOF from strbuf
+    while (true) {
+        (void)xml_read_until(h, xml_cb_not_whitespace, NULL); // Skip whitespace if any
+        memset(labuf, 0, sizeof(labuf));
+#if 0
+        if (xml_lookahead(h, labuf, 4) == 0) {
+            break; // No more input
+        }
+        if (!memcmp(labuf, "<!--", 4)) {
+            // TBD handle comment
+        }
+        else if (!memcmp(labuf, "<?", 2)) {
+            // TBD handle PI
+        }
+        else if (a_dtd !memcmp(labuf, "<!", 2)) {
+            // TBD handle doctypedecl
+            a_dtd = false; // No more DTDs
+        }
+        else if (a_element && !memcmp(labuf, "<", 1)) {
+            // TBD handle element
+            a_dtd = false; // DTD must precede element
+            a_element = false; // Only one top-level element
+        }
+#else
         break; // TBD
+#endif
     }
 
     // TBD process the rest of the content

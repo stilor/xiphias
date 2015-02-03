@@ -223,21 +223,6 @@ strbuf_append_block(strbuf_t *buf, strblk_t *blk)
 }
 
 /**
-    Check if end of file is reached.
-
-    @param buf Buffer
-    @return true if the buffer is at the end of file, false otherwise
-*/
-bool
-strbuf_eof(strbuf_t *buf)
-{
-    void *begin, *end;
-
-    strbuf_getptr(buf, &begin, &end);
-    return begin == NULL;
-}
-
-/**
     Read certain amount from the buffer.
 
     @param buf Buffer
@@ -301,10 +286,10 @@ strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
     @param buf Buffer
     @param pbegin Pointer to the beginning of a block will be stored here
     @param pend Pointer to the end of a block will be stored here
-    @return None (if no more input available, *pbegin and *pend are both set to NULL)
+    @return true if there is data to read, false otherwise.
 */
-void
-strbuf_getptr(strbuf_t *buf, void **pbegin, void **pend)
+bool
+strbuf_getptr(strbuf_t *buf, const void **pbegin, const void **pend)
 {
     strblk_t *blk;
 
@@ -316,10 +301,12 @@ strbuf_getptr(strbuf_t *buf, void **pbegin, void **pend)
         // Tried and couldn't get anything
         buf->flags |= BUF_LAST;
         *pbegin = *pend = NULL;
+        return false;
     }
     else {
         *pbegin = buf->readptr ? buf->readptr : blk->begin;
         *pend = blk->end;
+        return true;
     }
 }
 

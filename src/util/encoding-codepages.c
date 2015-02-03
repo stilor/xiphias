@@ -5,41 +5,6 @@
 #include "util/strbuf.h"
 #include "util/encoding.h"
 
-static void *
-init_codepage(const void *data)
-{
-    return DECONST(data);
-}
-
-static void
-destroy_codepage(void *baton)
-{
-    // no-op
-}
-
-static void
-xlate_codepage(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
-{
-    const uint32_t *cp = baton;
-    uint32_t *out = *pout;
-    uint8_t *ptr, *begin, *end;
-
-    do {
-        strbuf_getptr(buf, (void **)&begin, (void **)&end);
-        if (begin == end) {
-            // No more input available.
-            break;
-        }
-        ptr = begin;
-        while (ptr < end && out < end_out) {
-            *out++ = cp[*ptr++];
-        }
-        // Mark the number of bytes we consumed as read
-        strbuf_read(buf, NULL, ptr - begin, false);
-    } while (out < end_out);
-    *pout = out;
-}
-
 
 
 // Code page for 'ISO-8859-1' code page
@@ -306,9 +271,9 @@ static const uint32_t codepage_table_ISO_8859_1[] = {
 static encoding_t encoding_ISO_8859_1 = {
     .name = "ISO-8859-1",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_1
 };
 
@@ -577,9 +542,9 @@ static const uint32_t codepage_table_ISO_8859_2[] = {
 static encoding_t encoding_ISO_8859_2 = {
     .name = "ISO-8859-2",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_2
 };
 
@@ -848,9 +813,9 @@ static const uint32_t codepage_table_ISO_8859_3[] = {
 static encoding_t encoding_ISO_8859_3 = {
     .name = "ISO-8859-3",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_3
 };
 
@@ -1119,9 +1084,9 @@ static const uint32_t codepage_table_ISO_8859_4[] = {
 static encoding_t encoding_ISO_8859_4 = {
     .name = "ISO-8859-4",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_4
 };
 
@@ -1390,9 +1355,9 @@ static const uint32_t codepage_table_ISO_8859_5[] = {
 static encoding_t encoding_ISO_8859_5 = {
     .name = "ISO-8859-5",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_5
 };
 
@@ -1661,9 +1626,9 @@ static const uint32_t codepage_table_ISO_8859_6[] = {
 static encoding_t encoding_ISO_8859_6 = {
     .name = "ISO-8859-6",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_6
 };
 
@@ -1932,9 +1897,9 @@ static const uint32_t codepage_table_ISO_8859_7[] = {
 static encoding_t encoding_ISO_8859_7 = {
     .name = "ISO-8859-7",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_7
 };
 
@@ -2203,9 +2168,9 @@ static const uint32_t codepage_table_ISO_8859_8[] = {
 static encoding_t encoding_ISO_8859_8 = {
     .name = "ISO-8859-8",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_8
 };
 
@@ -2474,9 +2439,9 @@ static const uint32_t codepage_table_ISO_8859_9[] = {
 static encoding_t encoding_ISO_8859_9 = {
     .name = "ISO-8859-9",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_9
 };
 
@@ -2745,9 +2710,9 @@ static const uint32_t codepage_table_ISO_8859_10[] = {
 static encoding_t encoding_ISO_8859_10 = {
     .name = "ISO-8859-10",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_10
 };
 
@@ -3016,9 +2981,9 @@ static const uint32_t codepage_table_ISO_8859_11[] = {
 static encoding_t encoding_ISO_8859_11 = {
     .name = "ISO-8859-11",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_11
 };
 
@@ -3287,9 +3252,9 @@ static const uint32_t codepage_table_ISO_8859_13[] = {
 static encoding_t encoding_ISO_8859_13 = {
     .name = "ISO-8859-13",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_13
 };
 
@@ -3558,9 +3523,9 @@ static const uint32_t codepage_table_ISO_8859_14[] = {
 static encoding_t encoding_ISO_8859_14 = {
     .name = "ISO-8859-14",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_14
 };
 
@@ -3829,9 +3794,9 @@ static const uint32_t codepage_table_ISO_8859_15[] = {
 static encoding_t encoding_ISO_8859_15 = {
     .name = "ISO-8859-15",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_15
 };
 
@@ -4100,9 +4065,9 @@ static const uint32_t codepage_table_ISO_8859_16[] = {
 static encoding_t encoding_ISO_8859_16 = {
     .name = "ISO-8859-16",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_ISO_8859_16
 };
 
@@ -4371,9 +4336,9 @@ static const uint32_t codepage_table_KOI8_R[] = {
 static encoding_t encoding_KOI8_R = {
     .name = "KOI8-R",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_KOI8_R
 };
 
@@ -4642,9 +4607,9 @@ static const uint32_t codepage_table_KOI8_U[] = {
 static encoding_t encoding_KOI8_U = {
     .name = "KOI8-U",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_KOI8_U
 };
 
@@ -4913,9 +4878,9 @@ static const uint32_t codepage_table_US_ASCII[] = {
 static encoding_t encoding_US_ASCII = {
     .name = "US-ASCII",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_US_ASCII
 };
 
@@ -5184,9 +5149,9 @@ static const uint32_t codepage_table_IBM037[] = {
 static encoding_t encoding_IBM037 = {
     .name = "IBM037",
     .enctype = ENCODING_T_EBCDIC,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM037
 };
 
@@ -5455,9 +5420,9 @@ static const uint32_t codepage_table_IBM500[] = {
 static encoding_t encoding_IBM500 = {
     .name = "IBM500",
     .enctype = ENCODING_T_EBCDIC,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM500
 };
 
@@ -5726,9 +5691,9 @@ static const uint32_t codepage_table_IBM875[] = {
 static encoding_t encoding_IBM875 = {
     .name = "IBM875",
     .enctype = ENCODING_T_EBCDIC,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM875
 };
 
@@ -5997,9 +5962,9 @@ static const uint32_t codepage_table_IBM1026[] = {
 static encoding_t encoding_IBM1026 = {
     .name = "IBM1026",
     .enctype = ENCODING_T_EBCDIC,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM1026
 };
 
@@ -6268,9 +6233,9 @@ static const uint32_t codepage_table_IBM437[] = {
 static encoding_t encoding_IBM437 = {
     .name = "IBM437",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM437
 };
 
@@ -6539,9 +6504,9 @@ static const uint32_t codepage_table_IBM737[] = {
 static encoding_t encoding_IBM737 = {
     .name = "IBM737",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM737
 };
 
@@ -6810,9 +6775,9 @@ static const uint32_t codepage_table_IBM775[] = {
 static encoding_t encoding_IBM775 = {
     .name = "IBM775",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM775
 };
 
@@ -7081,9 +7046,9 @@ static const uint32_t codepage_table_IBM850[] = {
 static encoding_t encoding_IBM850 = {
     .name = "IBM850",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM850
 };
 
@@ -7352,9 +7317,9 @@ static const uint32_t codepage_table_IBM852[] = {
 static encoding_t encoding_IBM852 = {
     .name = "IBM852",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM852
 };
 
@@ -7623,9 +7588,9 @@ static const uint32_t codepage_table_IBM855[] = {
 static encoding_t encoding_IBM855 = {
     .name = "IBM855",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM855
 };
 
@@ -7894,9 +7859,9 @@ static const uint32_t codepage_table_IBM857[] = {
 static encoding_t encoding_IBM857 = {
     .name = "IBM857",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM857
 };
 
@@ -8165,9 +8130,9 @@ static const uint32_t codepage_table_IBM860[] = {
 static encoding_t encoding_IBM860 = {
     .name = "IBM860",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM860
 };
 
@@ -8436,9 +8401,9 @@ static const uint32_t codepage_table_IBM861[] = {
 static encoding_t encoding_IBM861 = {
     .name = "IBM861",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM861
 };
 
@@ -8707,9 +8672,9 @@ static const uint32_t codepage_table_IBM862[] = {
 static encoding_t encoding_IBM862 = {
     .name = "IBM862",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM862
 };
 
@@ -8978,9 +8943,9 @@ static const uint32_t codepage_table_IBM863[] = {
 static encoding_t encoding_IBM863 = {
     .name = "IBM863",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM863
 };
 
@@ -9249,9 +9214,9 @@ static const uint32_t codepage_table_IBM864[] = {
 static encoding_t encoding_IBM864 = {
     .name = "IBM864",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM864
 };
 
@@ -9520,9 +9485,9 @@ static const uint32_t codepage_table_IBM865[] = {
 static encoding_t encoding_IBM865 = {
     .name = "IBM865",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM865
 };
 
@@ -9791,9 +9756,9 @@ static const uint32_t codepage_table_IBM866[] = {
 static encoding_t encoding_IBM866 = {
     .name = "IBM866",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM866
 };
 
@@ -10062,9 +10027,9 @@ static const uint32_t codepage_table_IBM869[] = {
 static encoding_t encoding_IBM869 = {
     .name = "IBM869",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_IBM869
 };
 
@@ -10333,9 +10298,9 @@ static const uint32_t codepage_table_windows_874[] = {
 static encoding_t encoding_windows_874 = {
     .name = "windows-874",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_windows_874
 };
 
@@ -10604,9 +10569,9 @@ static const uint32_t codepage_table_windows_1250[] = {
 static encoding_t encoding_windows_1250 = {
     .name = "windows-1250",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_windows_1250
 };
 
@@ -10875,9 +10840,9 @@ static const uint32_t codepage_table_windows_1251[] = {
 static encoding_t encoding_windows_1251 = {
     .name = "windows-1251",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_windows_1251
 };
 
@@ -11146,9 +11111,9 @@ static const uint32_t codepage_table_windows_1252[] = {
 static encoding_t encoding_windows_1252 = {
     .name = "windows-1252",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_windows_1252
 };
 
@@ -11417,9 +11382,9 @@ static const uint32_t codepage_table_windows_1253[] = {
 static encoding_t encoding_windows_1253 = {
     .name = "windows-1253",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_windows_1253
 };
 
@@ -11688,9 +11653,9 @@ static const uint32_t codepage_table_windows_1254[] = {
 static encoding_t encoding_windows_1254 = {
     .name = "windows-1254",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_windows_1254
 };
 
@@ -11959,9 +11924,9 @@ static const uint32_t codepage_table_windows_1255[] = {
 static encoding_t encoding_windows_1255 = {
     .name = "windows-1255",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_windows_1255
 };
 
@@ -12230,9 +12195,9 @@ static const uint32_t codepage_table_windows_1256[] = {
 static encoding_t encoding_windows_1256 = {
     .name = "windows-1256",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_windows_1256
 };
 
@@ -12501,9 +12466,9 @@ static const uint32_t codepage_table_windows_1257[] = {
 static encoding_t encoding_windows_1257 = {
     .name = "windows-1257",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_windows_1257
 };
 
@@ -12772,9 +12737,9 @@ static const uint32_t codepage_table_windows_1258[] = {
 static encoding_t encoding_windows_1258 = {
     .name = "windows-1258",
     .enctype = ENCODING_T_UTF8,
-    .init = init_codepage,
-    .destroy = destroy_codepage,
-    .xlate = xlate_codepage,
+    .init = encoding_codepage_init,
+    .destroy = encoding_codepage_destroy,
+    .xlate = encoding_codepage_xlate,
     .data = codepage_table_windows_1258
 };
 

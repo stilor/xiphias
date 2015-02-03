@@ -50,8 +50,7 @@ void strbuf_append_block(strbuf_t *buf, strblk_t *blk);
 
 // Reading
 void strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead);
-bool strbuf_eof(strbuf_t *buf);
-void strbuf_getptr(strbuf_t *buf, void **pbegin, void **pend);
+bool strbuf_getptr(strbuf_t *buf, const void **pbegin, const void **pend);
 
 // Specific constructors
 strbuf_t *strbuf_new_from_memory(const void *start, size_t size, bool copy);

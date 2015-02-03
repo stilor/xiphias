@@ -12,14 +12,14 @@ FUNC(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
     uint32_t *out = *pout;
     uint8_t tmp[2]; // Temporary buffer if a char straddles block boundary
     uint32_t surrogate, val;
-    uint8_t *ptr, *begin, *end;
+    const void *begin, *end;
+    const uint8_t *ptr;
     size_t needmore;
 
     surrogate = 0;
     needmore = 0;
     do {
-        strbuf_getptr(buf, (void **)&begin, (void **)&end);
-        if (begin == end) {
+        if (!strbuf_getptr(buf, &begin, &end)) {
             // No more input available. Check if we're in the middle of the sequence
             if (surrogate || needmore) {
                 // TBD need to pass this upstream - how?
@@ -53,12 +53,12 @@ FUNC(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
             NEXTCHAR_UTF16;
         }
         // Reads 2 characters at a time - thus 'end - 1'
-        while (out < end_out && ptr < end - 1) {
+        while (out < end_out && ptr < (const uint8_t *)end - 1) {
             val = TOHOST(ptr);
             NEXTCHAR_UTF16;
             ptr += 2;
         }
-        if (out < end_out && ptr < end) {
+        if (out < end_out && ptr < (const uint8_t *)end) {
             // Incomplete character remains in the block - save for next block
             tmp[0] = *ptr++;
             needmore = 1;
@@ -67,7 +67,7 @@ FUNC(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
 #undef NEXTCHAR_UTF16
 
         // Mark the number of bytes we consumed as read
-        strbuf_read(buf, NULL, ptr - begin, false);
+        strbuf_read(buf, NULL, ptr - (const uint8_t *)begin, false);
     } while (out < end_out);
 
     *pout = out;

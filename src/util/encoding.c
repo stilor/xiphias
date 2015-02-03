@@ -147,17 +147,59 @@ encoding_detect_byte_order(strbuf_t *buf, bool *had_bom)
     Below, basic 1-, 2- and 4-byte encodings.
 */
 
-
+// TBD header
 static void *
 init_dummy(const void *data)
 {
     return NULL;
 }
 
+// TBD header
 static void
 destroy_dummy(void *baton)
 {
 }
+
+// --- Common functions for codepage-based encodings
+
+// TBD header
+void *
+encoding_codepage_init(const void *data)
+{
+    return DECONST(data);
+}
+
+// TBD header
+void
+encoding_codepage_destroy(void *baton)
+{
+    // no-op
+}
+
+// TBD header
+void
+encoding_codepage_xlate(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
+{
+    const uint32_t *cp = baton;
+    uint32_t *out = *pout;
+    const uint8_t *ptr;
+    const void *begin, *end;
+
+    do {
+        if (!strbuf_getptr(buf, &begin, &end)) {
+            // No more input available.
+            break;
+        }
+        ptr = begin;
+        while (ptr < (const uint8_t *)end && out < end_out) {
+            *out++ = cp[*ptr++];
+        }
+        // Mark the number of bytes we consumed as read
+        strbuf_read(buf, NULL, ptr - (const uint8_t *)begin, false);
+    } while (out < end_out);
+    *pout = out;
+}
+
 
 // --- UTF-8 encoding: dummy functions, this library operates in UTF8 ---
 
@@ -181,18 +223,19 @@ static const uint8_t utf8_len[256] = {
     4, 4, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xF0 - 4-byte chars up to 0x10FFFF
 };
 
+// TBD header
 static void
 xlate_UTF8(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
 {
     uint32_t *out = *pout;
     uint32_t val;
-    uint8_t *ptr, *begin, *end;
+    const void *begin, *end;
+    const uint8_t *ptr;
     size_t len;
 
     len = 0;
     do {
-        strbuf_getptr(buf, (void **)&begin, (void **)&end);
-        if (begin == end) {
+        if (!strbuf_getptr(buf, &begin, &end)) {
             // No more input available. Check if we're in the middle of the sequence
             if (len) {
                 // TBD need to pass this to higher level - how?
@@ -201,7 +244,7 @@ xlate_UTF8(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
             break;
         }
         ptr = begin;
-        while (out < end_out && ptr < end) {
+        while (out < end_out && ptr < (const uint8_t *)end) {
             if (!len) {
                 // New character
                 val = *ptr++;
@@ -227,13 +270,12 @@ xlate_UTF8(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
             }
         }
         // Mark the number of bytes we consumed as read
-        strbuf_read(buf, NULL, ptr - begin, false);
+        strbuf_read(buf, NULL, ptr - (const uint8_t *)begin, false);
     } while (out < end_out);
 
     *pout = out;
 }
 
-///
 static encoding_t enc_UTF8 = {
     .name = "UTF-8",
     .enctype = ENCODING_T_UTF8,
@@ -246,6 +288,7 @@ static encoding_t enc_UTF8 = {
 
 // TBD: implement optimized versions if byte order matches host?
 // TBD: move to <util/defs.h> or new <util/byteorder.h>
+// TBD header
 static inline uint16_t
 le16tohost(const uint8_t *p)
 {
@@ -266,6 +309,7 @@ static encoding_t enc_UTF16LE = {
 };
 
 
+// TBD header
 static inline uint16_t
 be16tohost(const uint8_t *p)
 {
