@@ -32,9 +32,6 @@ typedef struct strbuf_ops_s {
     void (*destroy)(strbuf_t *, void *);        ///< Destroy the buffer
 } strbuf_ops_t;
 
-/// Callback for checking read termination condition
-typedef bool (*strbuf_condread_func_t)(void *arg, uint32_t cp);
-
 // Blocks in a buffer
 strblk_t *strblk_new(size_t payload_sz);
 void strblk_delete(strblk_t *blk);
@@ -52,28 +49,11 @@ void strbuf_getf(strbuf_t *buf, uint32_t *flags);
 void strbuf_append_block(strbuf_t *buf, strblk_t *blk);
 
 // Reading
+void strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead);
 bool strbuf_eof(strbuf_t *buf);
-size_t strbuf_read_until(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead,
-        strbuf_condread_func_t func, void *arg);
 void strbuf_getptr(strbuf_t *buf, void **pbegin, void **pend);
 
 // Specific constructors
 strbuf_t *strbuf_new_from_memory(const void *start, size_t size, bool copy);
-
-/**
-    Wrapper for reading from a string buffer with no termination condition checking
-    (other than size).
-
-    @param buf Buffer
-    @param dest Destination memory
-    @param nbytes Read amount
-    @param lookahead If true, does not advance current read pointer
-    @return Number of characters read.
-*/
-static inline size_t
-strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
-{
-    return strbuf_read_until(buf, dest, nbytes, lookahead, NULL, NULL);
-}
 
 #endif
