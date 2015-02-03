@@ -12,24 +12,12 @@
 
 #include "util/encoding.h"
 
+/// List of all encodings
+typedef STAILQ_HEAD(encoding_list_s, encoding_s) encoding_list_t;
+
 // FIXME: this is not thread-safe. Protect registration/search with a mutex? Or require
 // that registration be done before using anything else in multithreaded context?
-static STAILQ_HEAD(, encoding_s) encodings = STAILQ_HEAD_INITIALIZER(encodings);
-
-/**
-    Register an encoding.
-
-    @param enc Encoding being registered
-    @return None
-*/
-void
-encoding_register(encoding_t *enc)
-{
-    if (!encoding_search(enc->name)) {
-        // TBD insert at head to give later registrations higher precedence?
-        STAILQ_INSERT_TAIL(&encodings, enc, link);
-    }
-}
+static encoding_list_t encodings = STAILQ_HEAD_INITIALIZER(encodings);
 
 /**
     Search for an encoding by name
@@ -49,6 +37,21 @@ encoding_search(const char *name)
         }
     }
     return NULL;
+}
+
+/**
+    Register an encoding.
+
+    @param enc Encoding being registered
+    @return None
+*/
+void
+encoding_register(encoding_t *enc)
+{
+    if (!encoding_search(enc->name)) {
+        // TBD insert at head to give later registrations higher precedence?
+        STAILQ_INSERT_TAIL(&encodings, enc, link);
+    }
 }
 
 /**
@@ -147,14 +150,24 @@ encoding_detect_byte_order(strbuf_t *buf, bool *had_bom)
     Below, basic 1-, 2- and 4-byte encodings.
 */
 
-// TBD header
+/**
+    Dummy initialization for encoding.
+
+    @param data Unused
+    @return Always NULL
+*/
 static void *
 init_dummy(const void *data)
 {
     return NULL;
 }
 
-// TBD header
+/**
+    Dummy destructor for encoding.
+
+    @param baton Unused
+    @return Nothing.
+*/
 static void
 destroy_dummy(void *baton)
 {
@@ -162,21 +175,39 @@ destroy_dummy(void *baton)
 
 // --- Common functions for codepage-based encodings
 
-// TBD header
+/**
+    Constructor for codepage encoding. Just return the codepage mapping table:
+    these encodings are stateless, so we do not need to modify it at runtime.
+
+    @param data Pointer to mapping table
+    @return Same as @a data
+*/
 void *
 encoding_codepage_init(const void *data)
 {
     return DECONST(data);
 }
 
-// TBD header
+/**
+    Destructor for codepage encoding. Nothing to do - these encodings do
+    not allocate any resources.
+*/
 void
 encoding_codepage_destroy(void *baton)
 {
     // no-op
 }
 
-// TBD header
+/**
+    Translation function for codepage encoding. Advance byte by byte and
+    use the mapping table to obtain UCS-4 codepoints.
+
+    @param buf Input string buffer
+    @param baton Pointer to mapping table
+    @param pout Pointer to beginning of the output buffer; advanced as it's filled
+    @param end_out End of the output buffer
+    @return Nothing
+*/
 void
 encoding_codepage_xlate(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
 {
@@ -223,7 +254,15 @@ static const uint8_t utf8_len[256] = {
     4, 4, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xF0 - 4-byte chars up to 0x10FFFF
 };
 
-// TBD header
+/**
+    Perform translation of UTF-8 encoding to UCS-4 code points.
+
+    @param buf Input string buffer
+    @param baton Unused
+    @param pout Pointer to beginning of the output buffer; advanced as it's filled
+    @param end_out End of the output buffer
+    @return Nothing
+*/
 static void
 xlate_UTF8(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
 {
@@ -288,7 +327,13 @@ static encoding_t enc_UTF8 = {
 
 // TBD: implement optimized versions if byte order matches host?
 // TBD: move to <util/defs.h> or new <util/byteorder.h>
-// TBD header
+
+/**
+    Translate next two bytes to 16-bit value; little-endian way.
+
+    @param p Input byte stream
+    @return 16-bit value
+*/
 static inline uint16_t
 le16tohost(const uint8_t *p)
 {
@@ -309,7 +354,12 @@ static encoding_t enc_UTF16LE = {
 };
 
 
-// TBD header
+/**
+    Translate next two bytes to 16-bit value; big-endian way.
+
+    @param p Input byte stream
+    @return 16-bit value
+*/
 static inline uint16_t
 be16tohost(const uint8_t *p)
 {
@@ -336,7 +386,11 @@ static encoding_t enc_UTF16 = {
     .endian = ENCODING_E_ANY,
 };
 
-// --- Register known encodings
+/**
+    Register built-in encodings.
+
+    @return Nothing
+*/
 static void __constructor
 encodings_autoinit(void)
 {

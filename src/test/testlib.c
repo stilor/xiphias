@@ -124,7 +124,7 @@ run_set(const testsuite_t *suite, size_t si, test_stats_t *stats)
     @param suite Test suite
     @param argc Number of arguments in argv
     @param argv Arguments on the command line
-    @retun Exit status
+    @return Exit status
 */
 int
 test_run_cmdline(const testsuite_t *suite, unsigned int argc, char *argv[])

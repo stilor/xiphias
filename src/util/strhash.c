@@ -44,7 +44,7 @@ struct strhash_s {
     @return String-keyed hash
 */
 strhash_t *
-strhash_create(unsigned int order, void (*payload_destroy)(void *payload))
+strhash_create(unsigned int order, strhash_payload_destroy_cb_t payload_destroy)
 {
     strhash_t *hash;
     uint32_t i;

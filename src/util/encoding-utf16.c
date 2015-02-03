@@ -1,11 +1,34 @@
 /* vi: set ts=4 sw=4 et : */
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
+/// Helper macro to store next character; handles surrogate pairs
+#define NEXTCHAR_UTF16 \
+        if (surrogate) { \
+            if ((val & 0xFC00) != 0xDC00) { \
+                /* TBD need to pass this upstream - how? */ \
+                OOPS_ASSERT(0); /* invalid byte sequence */ \
+            } \
+            /* 0x360DC00 is ((0xD800 << 10) | 0xDC00) */ \
+            *out++ = 0x010000 + ((surrogate << 10) ^ val ^ 0x360DC00); \
+            surrogate = 0; \
+        } \
+        else if ((val & 0xFC00) == 0xD800) { \
+            surrogate = val; \
+        } \
+        else { \
+            *out++ = val; \
+        }
+
 /** @file
     Helper for two flavors of UTF-16 implementation.
     Expects FUNC, TOHOST macros to be defined.
-*/
 
+    @param buf Input string buffer
+    @param baton Arbitrary argument for transcoder
+    @param pout Pointer to the beginning of the output buffer; advanced to next writable byte
+    @param end_out Pointer to the end of the output buffer
+    @return Nothing
+*/
 static void
 FUNC(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
 {
@@ -29,23 +52,6 @@ FUNC(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
         }
         ptr = begin;
 
-        // 0x360DC00 is ((0xD800 << 10) | 0xDC00)
-#define NEXTCHAR_UTF16 \
-        if (surrogate) { \
-            if ((val & 0xFC00) != 0xDC00) { \
-                /* TBD need to pass this upstream - how? */ \
-                OOPS_ASSERT(0); /* invalid byte sequence */ \
-            } \
-            *out++ = 0x010000 + ((surrogate << 10) ^ val ^ 0x360DC00); \
-            surrogate = 0; \
-        } \
-        else if ((val & 0xFC00) == 0xD800) { \
-            surrogate = val; \
-        } \
-        else { \
-            *out++ = val; \
-        }
-
         if (needmore) { // incomplete character in previous block, finish it
             tmp[1] = *ptr++;
             needmore = 0;
@@ -64,8 +70,6 @@ FUNC(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
             needmore = 1;
         }
 
-#undef NEXTCHAR_UTF16
-
         // Mark the number of bytes we consumed as read
         strbuf_read(buf, NULL, ptr - (const uint8_t *)begin, false);
     } while (out < end_out);
@@ -73,5 +77,6 @@ FUNC(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
     *pout = out;
 }
 
+#undef NEXTCHAR_UTF16
 #undef FUNC
 #undef TOHOST

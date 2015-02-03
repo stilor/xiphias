@@ -54,6 +54,7 @@ typedef struct testsuite_s {
     const char *desc;       ///< Description of this test suite
 } testsuite_t;
 
+/// Declare a test suite
 #define TEST_SUITE(d, t) { \
     .sets = (t), \
     .nsets = sizeofarray(t), \
