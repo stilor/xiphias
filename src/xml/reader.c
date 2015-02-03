@@ -876,6 +876,21 @@ xml_reader_start(xml_reader_t *h)
 }
 
 /**
+    Look ahead in the parsed stream without advancing the current read location.
+
+    @param h Reader handle
+    @param buf Buffer to read into
+    @param bufsz Buffer size
+    @return Number of characters read
+*/
+static size_t
+xml_lookahead(xml_reader_t *h, uint8_t *buf, size_t bufsz)
+{
+    // TBD
+    return 0;
+}
+
+/**
     Read until the specified condition; reallocate the buffer to accommodate
     the token being read as necessary.
 
@@ -907,6 +922,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
             // TBD update location
             // TBD check for whitespace and set a flag in reader for later detection of ignorable
             // (via the argument - when reading chardata, point to a structure that has such flag)
+            // TBD if in DTD, and not parsing a literal/comment/PI - recognize parameter entities
             clen = encoding_utf8_len(cp);
             if (h->tokenbuf_ptr + clen > h->tokenbuf_end) {
                 // Double token storage
@@ -930,12 +946,75 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 
     @param arg Argument (unused)
     @param cp Codepoint
-    @return True if byte is not XML whitespace
+    @return True if @a cp is not XML whitespace
 */
 static bool
 xml_cb_not_whitespace(void *arg, uint32_t cp)
 {
     return !xml_is_whitespace(cp);
+}
+
+/**
+    Closure for xml_read_until: read until < (left angle bracket)
+
+    @param arg Argument (unused)
+    @param cp Codepoint
+    @return True if @a cp is left angle bracket
+*/
+static bool
+xml_cb_lt(void *arg, uint32_t cp)
+{
+    return cp == '<';
+}
+
+/**
+    Read and process a single XML comment, starting with <!-- and ending with -->.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_parse_comment(xml_reader_t *h)
+{
+    // TBD
+}
+
+/**
+    Read and process a processing instruction, starting with <? and ending with ?>.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_parse_pi(xml_reader_t *h)
+{
+    // TBD
+}
+
+/**
+    Read and process a document type declaration; the declaration may reference
+    an external subset and contain an internal subset, or have both, or none.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_parse_doctypedecl(xml_reader_t *h)
+{
+    // TBD
+}
+
+/**
+    Read and process a single element. This is used by document entity parser;
+    the other parsers should use xml_parse_content() instead.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_parse_element(xml_reader_t *h)
+{
+    // TBD
 }
 
 /**
@@ -947,68 +1026,82 @@ xml_cb_not_whitespace(void *arg, uint32_t cp)
 void
 xml_reader_process_document_entity(xml_reader_t *h)
 {
-    char labuf[4]; // Lookahead buffer: 4 characters is enough to distinguish possible productions
-    //bool a_dtd = true, a_element = true; // Whether DTD and element productions are allowed
+    uint8_t labuf[4]; // Lookahead buffer
+    bool a_dtd = true, a_element = true; // Whether DTD and element productions are allowed
 
     /*
         Document entity matches the following productions per XML spec (1.1).
           document  ::= ( prolog element Misc* ) - ( Char* RestrictedChar Char* )
           prolog    ::= XMLDecl Misc* (doctypedecl Misc*)?
           Misc      ::= Comment | PI | S
-        In XML spec 1.0, XMLDecl is optional. So, first get XMLDecl out of the way;
-        this also sets the encoding and allows us to use auto-fill string buffer.
-        We cannot use auto-fill buffer as it may look ahead in transcoding the input
-        stream, and final encoding may not be known before parsing the XMLDecl.
-    */
-    h->declinfo = &declinfo_xmldecl;
-    xml_reader_start(h);
-    if (h->flags & READER_FATAL) {
-        return; // TBD signal error somehow? or XMLERR(ERROR, ...) is enough?
-    }
+        In XML spec 1.0, XMLDecl is optional.
 
-    /*
         Expanding the productions for the document (above), we get (for 1.0 or 1.1):
           document  ::= XMLDecl? (Comment|PI|S)* doctypedecl? (Comment|PI|S)* element
                         (Comment|PI|S)*
-        We've handled XMLDecl, if there was any, above. Now, aside from whitespace
+
+        First get XMLDecl out of the way; this also sets the encoding and allows us
+        to use auto-fill string buffer.  We cannot use auto-fill buffer for XMLDecl
+        as it may look ahead in transcoding the input stream, and final encoding may
+        not be known before parsing the XMLDecl.  After XMLDecl, aside from whitespace
         we expect:
         - Comments
         - PIs
         - Document type declaration (only one and only if we haven't seen element yet)
         - Element (only one)
     */
-    while (true) {
+    h->declinfo = &declinfo_xmldecl;
+    xml_reader_start(h);
+    while ((h->flags & READER_FATAL) == 0) {
         (void)xml_read_until(h, xml_cb_not_whitespace, NULL); // Skip whitespace if any
         memset(labuf, 0, sizeof(labuf));
-#if 0
         if (xml_lookahead(h, labuf, 4) == 0) {
             break; // No more input
         }
-        if (!memcmp(labuf, "<!--", 4)) {
-            // TBD handle comment
+        if (labuf[0] == '<') {
+            // Comment, PI, doctypedecl and element all start with '<'
+            if (labuf[1] == '!') {
+                // Comment or doctypedecl
+                if (labuf[2] == '-' && labuf[3] == '-') {
+                    xml_parse_comment(h);
+                }
+                else if (a_dtd) {
+                    xml_parse_doctypedecl(h);
+                    a_dtd = false; // No more DTDs
+                }
+                else {
+                    // Recover by reading up until next left angle bracket
+                    xml_reader_message(h, XMLERR(ERROR, XML, P_document),
+                            "Document type definition not allowed here");
+                    (void)xml_read_until(h, xml_cb_lt, NULL);
+                }
+            }
+            else if (labuf[1] == '?') {
+                xml_parse_pi(h);
+            }
+            else {
+                if (!a_element) {
+                    // Recover by reading the element, even if there are multiple roots
+                    xml_reader_message(h, XMLERR(ERROR, XML, P_document),
+                            "One root element allowed in a document");
+                }
+                xml_parse_element(h);
+                a_dtd = false; // DTD must precede element
+                a_element = false; // Only one top-level element
+            }
         }
-        else if (!memcmp(labuf, "<?", 2)) {
-            // TBD handle PI
+        else {
+            // Recover by reading up until next left angle bracket
+            xml_reader_message(h, XMLERR(ERROR, XML, P_document),
+                    "Invalid content at root level");
+            (void)xml_read_until(h, xml_cb_lt, NULL);
         }
-        else if (a_dtd !memcmp(labuf, "<!", 2)) {
-            // TBD handle doctypedecl
-            a_dtd = false; // No more DTDs
-        }
-        else if (a_element && !memcmp(labuf, "<", 1)) {
-            // TBD handle element
-            a_dtd = false; // DTD must precede element
-            a_element = false; // Only one top-level element
-        }
-#else
-        break; // TBD
-#endif
     }
-
-    // TBD process the rest of the content
 }
 
 /**
-    Read in the XML content from an external parsed entity and emit the callbacks as necessary.
+    Read in the XML content from an external parsed entity and emit the callbacks
+    as necessary.
 
     @param h Reader handle
     @return None
