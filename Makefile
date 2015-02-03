@@ -18,8 +18,11 @@ LDFLAGS_test			:= $(LDFLAGS_common) -Wl,-rpath=build/lib
 
 all:
 
+GENERATED				:= src/util/encoding-codepages.c
+
 clean:
 	rm -rf build
+	rm -f $(GENERATED)
 
 check:
 
@@ -30,6 +33,12 @@ docs:
 build/outputs.mk: outputs.conf genbuild.py
 	mkdir -p build
 	python genbuild.py -o $@ $<
+
+# Generated files.
+# TBD: generate in build/?
+# TBD: dependency on the input, and generate one file per codepage? Then how to get this list into output.conf?
+src/util/encoding-codepages.c: src/util/unicode/gen_codepage.py
+	python $< $@
 
 __makefiles	:= Makefile build/outputs.mk
 -include build/outputs.mk
