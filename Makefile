@@ -7,7 +7,7 @@ CFLAGS_common			:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered \
 						   -Wsign-compare -Wlogical-op -Waggregate-return \
 						   -Wmissing-field-initializers -Wnested-externs \
-						   -g -O0 -fno-common -iquote src/include
+						   -g -O0 -fno-common -iquote src
 
 CFLAGS_lib				:= $(CFLAGS_common) -fPIC
 CFLAGS_test				:= $(CFLAGS_common)
