@@ -229,38 +229,42 @@ strbuf_append_block(strbuf_t *buf, strblk_t *blk)
     @param dest Destination memory
     @param nbytes Read amount
     @param lookahead If true, does not advance current read pointer
-    @return None
+    @return Number of characters read
 */
-void
-strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
+size_t
+strbuf_read(strbuf_t *buf, void *dest, size_t nbytes, bool lookahead)
 {
     strblk_t *blk, *next;
-    uint8_t *begin, *end, *readptr;
-    size_t avail;
+    uint8_t *end, *readptr;
+    size_t avail, total;
 
     readptr = buf->readptr;
     next = STAILQ_FIRST(&buf->content);
     blk = NULL;
+    total = 0;
     do {
         if (!next) {
             // Not enough queued data, need to fetch
             buf->ops->input(buf, buf->arg);
             next = blk ? STAILQ_NEXT(blk, link) : STAILQ_FIRST(&buf->content);
             if (!next) {
-                OOPS_ASSERT(0); // TBD return partial read?
+                break;
             }
         }
         // Have some queued data
         blk = next;
-        begin = readptr ? readptr : blk->begin;
-        end = blk->end;
-        OOPS_ASSERT(begin <= end);
-        avail = min(nbytes, (size_t)(end - begin));
-        if (dest) {
-            memcpy(dest, begin, avail);
-            dest += avail;
+        if (!readptr) {
+            readptr = blk->begin;
         }
-        readptr = begin + avail;
+        end = blk->end;
+        OOPS_ASSERT(readptr <= end);
+        avail = min(nbytes, (size_t)(end - readptr));
+        if (dest) {
+            memcpy(dest, readptr, avail);
+            dest = (uint8_t *)dest + avail;
+        }
+        total += avail;
+        readptr += avail;
         nbytes -= avail;
         OOPS_ASSERT((uint8_t *)readptr <= end);
         if (readptr == end) {
@@ -278,6 +282,7 @@ strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead)
     if (!lookahead) {
         buf->readptr = readptr;
     }
+    return total;
 }
 
 /**

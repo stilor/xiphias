@@ -49,7 +49,7 @@ void strbuf_getf(strbuf_t *buf, uint32_t *flags);
 void strbuf_append_block(strbuf_t *buf, strblk_t *blk);
 
 // Reading
-void strbuf_read(strbuf_t *buf, uint8_t *dest, size_t nbytes, bool lookahead);
+size_t strbuf_read(strbuf_t *buf, void *dest, size_t nbytes, bool lookahead);
 bool strbuf_getptr(strbuf_t *buf, const void **pbegin, const void **pend);
 
 // Specific constructors
