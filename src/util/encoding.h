@@ -144,6 +144,7 @@ encoding_utf8_store(uint8_t **pp, uint32_t cp)
     else {
         OOPS_ASSERT(0);
     }
+    *pp = p;
 }
 
 /// Character indicating an error or unrecognized byte in the stream

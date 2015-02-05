@@ -162,7 +162,7 @@ test_run_cmdline(const testsuite_t *suite, unsigned int argc, char *argv[])
             }
             else {
                 ci = strtoul(eptr + 1, &eptr, 10);
-                if (*eptr || !ci || ci > suite->sets[si].ncases) {
+                if (*eptr || !ci || ci > suite->sets[si - 1].ncases) {
                     usage(argv[0], suite);
                     return 1;
                 }

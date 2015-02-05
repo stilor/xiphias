@@ -19,7 +19,7 @@ typedef struct {
 
 /// XML error severity
 enum xmlerr_severity_e {
-    XMLERR_NOTE,         ///< Informational (e.g. additional information for another message)
+    XMLERR_INFO,         ///< Informational (e.g. additional information for another message)
     XMLERR_WARN,         ///< Warning (can successfully recover)
     XMLERR_ERROR,        ///< Error (may continue processing but fail at the end)
 };
@@ -91,7 +91,7 @@ typedef uint32_t xmlerr_info_t;
 
 /// Code for a undescript note
 #define XMLERR_NOTE                               \
-        XMLERR_MK(XMLERR_NOTE, XMLERR_SPEC_NONE, 0)
+        XMLERR_MK(XMLERR_INFO, XMLERR_SPEC_NONE, 0)
 
 /// Code for internal errors
 #define XMLERR_INTERNAL                           \

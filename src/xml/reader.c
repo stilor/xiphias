@@ -10,7 +10,6 @@
 #include "util/xutil.h"
 #include "util/strbuf.h"
 #include "util/encoding.h"
-#include "util/strstore.h"
 
 #include "xml/reader.h"
 
@@ -19,6 +18,12 @@
     contiguous token). Each time this space is insufficient, it will be doubled.
 */
 #define INITIAL_TOKENBUF_SIZE       1024
+
+/**
+    Size of storage for all element names, in hierarchical order as we descend into the
+    document. Each time it is insufficient, it is doubled.
+*/
+#define INITIAL_NAMESTACK_SIZE      1024
 
 /// Maximum number of characters to look ahead
 #define MAX_LOOKAHEAD_SIZE          16
@@ -53,6 +58,16 @@ typedef struct xml_reader_xmldecl_declinfo_s {
     const xml_reader_xmldecl_attrdesc_t *attrlist; ///< Allowed/required attributes
 } xml_reader_xmldecl_declinfo_t;
 
+/// Tracking of element nesting
+typedef struct xml_reader_nesting_s {
+    /// Link for stack of nested elements
+    SLIST_ENTRY(xml_reader_nesting_s) link;
+    size_t offs;                    ///< Offset into name storage buffer
+    size_t len;                     ///< Length of the element type
+    void *baton;                    ///< Callback's baton associated with this element
+    xmlerr_loc_t loc;               ///< Location of the element in the document
+} xml_reader_nesting_t;
+
 /// XML reader structure
 struct xml_reader_s {
     const char *enc_transport;      ///< Encoding reported by transport protocol
@@ -73,8 +88,15 @@ struct xml_reader_s {
     uint8_t *tokenbuf_end;          ///< End of the token buffer
     uint8_t *tokenbuf_ptr;          ///< Write pointer in token buffer
 
-    strstore_t *element_names;      ///< Storage for element names
-    strstore_t *attr_names;         ///< Storage for attribute names
+    uint8_t *namestorage;           ///< Buffer for storing element types
+    size_t namestorage_size;        ///< Size of the name storage buffer
+    size_t namestorage_offs;        ///< Current offset into namestorage
+
+    /// Stack of currently nested elements
+    SLIST_HEAD(,xml_reader_nesting_s) elem_nested;
+
+    /// List of free nesting tracker structures
+    SLIST_HEAD(,xml_reader_nesting_s) elem_free;
 };
 
 /// Function for conditional read termination: returns true if the character is rejected
@@ -217,8 +239,11 @@ xml_reader_new(strbuf_t *buf, const char *location)
     h->tokenbuf = xmalloc(INITIAL_TOKENBUF_SIZE);
     h->tokenbuf_end = h->tokenbuf + INITIAL_TOKENBUF_SIZE;
     h->tokenbuf_ptr = h->tokenbuf;
-    h->element_names = strstore_create(4);
-    h->attr_names = strstore_create(4);
+    h->namestorage_size = INITIAL_NAMESTACK_SIZE;
+    h->namestorage_offs = 0;
+    h->namestorage = xmalloc(INITIAL_NAMESTACK_SIZE);
+    SLIST_INIT(&h->elem_nested);
+    SLIST_INIT(&h->elem_free);
     return h;
 }
 
@@ -231,18 +256,27 @@ xml_reader_new(strbuf_t *buf, const char *location)
 void
 xml_reader_delete(xml_reader_t *h)
 {
+    xml_reader_nesting_t *n;
+
     (void)xml_reader_set_encoding(h, NULL);
     strbuf_delete(h->buf_raw);
     if (h->buf_proc) {
         strbuf_delete(h->buf_proc);
     }
-    strstore_destroy(h->element_names);
-    strstore_destroy(h->attr_names);
+    while ((n = SLIST_FIRST(&h->elem_nested)) != NULL) {
+        SLIST_REMOVE_HEAD(&h->elem_nested, link);
+        xfree(n);
+    }
+    while ((n = SLIST_FIRST(&h->elem_free)) != NULL) {
+        SLIST_REMOVE_HEAD(&h->elem_free, link);
+        xfree(n);
+    }
     xfree(h->enc_transport);
     xfree(h->enc_detected);
     xfree(h->enc_xmldecl);
     xfree(h->loc.src);
     xfree(h->tokenbuf);
+    xfree(h->namestorage);
     xfree(h);
 }
 
@@ -317,6 +351,33 @@ xml_reader_message(xml_reader_t *h, xmlerr_info_t info, const char *fmt, ...)
     va_list ap;
 
     cbparam.message.loc = h->loc;
+    cbparam.message.info = info;
+    va_start(ap, fmt);
+    cbparam.message.msg = xvasprintf(fmt, ap);
+    va_end(ap);
+    xml_reader_invoke_callback(h, &cbparam);
+    xfree(cbparam.message.msg);
+}
+
+/**
+    Report an error/warning/note for an arbitrary location in a handle.
+
+    @param h Reader handle
+    @param loc Location in the document
+    @param info Error code
+    @param fmt Message format
+    @return Nothing
+*/
+void
+xml_reader_message_loc(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
+        const char *fmt, ...)
+{
+    xml_reader_cbparam_t cbparam = {
+        .cbtype = XML_READER_CB_MESSAGE,
+    };
+    va_list ap;
+
+    cbparam.message.loc = *loc;
     cbparam.message.info = info;
     va_start(ap, fmt);
     cbparam.message.msg = xvasprintf(fmt, ap);
@@ -906,6 +967,8 @@ xml_lookahead(xml_reader_t *h, uint8_t *buf, size_t bufsz)
 
     OOPS_ASSERT(bufsz <= MAX_LOOKAHEAD_SIZE);
     nread = strbuf_read(h->buf_proc, tmp, bufsz * sizeof(uint32_t), true);
+    OOPS_ASSERT((nread & 3) == 0); // h->buf_proc must have an integral number of characters
+    nread /= 4;
     for (i = 0; i < nread; i++) {
         if (*ptr >= 0x7F) {
             break; // Non-ASCII
@@ -990,7 +1053,43 @@ xml_cb_not_whitespace(void *arg, uint32_t cp)
 static bool
 xml_cb_lt(void *arg, uint32_t cp)
 {
-    return cp == '<';
+    return xchareq(cp, '<');
+}
+
+/**
+    Closure for xml_read_until: read until > (right angle bracket); consume the
+    bracket as well.
+
+    @param arg Argument (unused)
+    @param cp Codepoint
+    @return True if @a cp is left angle bracket
+*/
+static bool
+xml_cb_gt(void *arg, uint32_t cp)
+{
+    bool *saw_gt = arg;
+
+    if (*saw_gt) {
+        return true;
+    }
+    else if (xchareq(cp, '>')) {
+        *saw_gt = true;
+    }
+    return false;
+}
+
+/**
+    Recovery function: read until (and including) the next right angle bracket.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_read_until_gt(xml_reader_t *h)
+{
+    bool saw_gt = false;
+
+    (void)xml_read_until(h, xml_cb_gt, &saw_gt);
 }
 
 /**
@@ -1154,6 +1253,86 @@ xml_parse_doctypedecl(xml_reader_t *h)
 }
 
 /**
+    Push a name onto a stack of nested elements.
+
+    @param h Reader handle
+    @return Nesting tracker structure for this element
+*/
+static xml_reader_nesting_t *
+xml_elemtype_push(xml_reader_t *h)
+{
+    xml_reader_nesting_t *n;
+    const uint8_t *name = h->tokenbuf;
+    size_t len = h->tokenbuf_ptr - h->tokenbuf;
+
+    // Allocate tracking structure
+    if ((n = SLIST_FIRST(&h->elem_free)) != NULL) {
+        SLIST_REMOVE_HEAD(&h->elem_free, link);
+    }
+    else {
+        n = xmalloc(sizeof(xml_reader_nesting_t));
+    }
+
+    // Adjust buffer size if needed
+    while (h->namestorage_offs + len > h->namestorage_size) {
+        h->namestorage_size *= 2;
+        xrealloc(h->namestorage, h->namestorage_size);
+    }
+    n->offs = h->namestorage_offs;
+    n->len = len;
+    n->loc = h->loc;
+    memcpy(&h->namestorage[n->offs], name, len);
+    h->namestorage_offs += len;
+    SLIST_INSERT_HEAD(&h->elem_nested, n, link);
+    return n;
+}
+
+/**
+    Pop a name from a stack of nested elements and compare it against the name
+    provided by caller.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_elemtype_pop(xml_reader_t *h)
+{
+    xml_reader_nesting_t *n;
+    const uint8_t *name = h->tokenbuf;
+    size_t len = h->tokenbuf_ptr - h->tokenbuf;
+
+    n = SLIST_FIRST(&h->elem_nested);
+    OOPS_ASSERT(n);
+    SLIST_REMOVE_HEAD(&h->elem_nested, link);
+    if (len != n->len || memcmp(&h->namestorage[n->offs], name, len)) {
+        xml_reader_message(h, XMLERR(ERROR, XML, WFC_ELEMENT_TYPE_MATCH),
+                "Closing element type mismatch: %.*s", (int)len, name);
+        xml_reader_message_loc(h, &n->loc, XMLERR_NOTE,
+                "Opening element: %.*s", (int)n->len, &h->namestorage[n->offs]);
+    }
+    h->namestorage_offs = n->offs;
+    SLIST_INSERT_HEAD(&h->elem_free, n, link);
+}
+
+/**
+    Drop a name tracker structure without checking for name match.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_elemtype_drop(xml_reader_t *h)
+{
+    xml_reader_nesting_t *n;
+
+    n = SLIST_FIRST(&h->elem_nested);
+    OOPS_ASSERT(n);
+    SLIST_REMOVE_HEAD(&h->elem_nested, link);
+    h->namestorage_offs = n->offs;
+    SLIST_INSERT_HEAD(&h->elem_free, n, link);
+}
+
+/**
     Read and process STag/EmptyElemTag productions.
     Both productions are the same with the exception of the final part:
 
@@ -1170,12 +1349,67 @@ xml_parse_doctypedecl(xml_reader_t *h)
 static void
 xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
 {
-    // TBD for now, stub to get tests to pass again
-    xml_read_string(h, "<", XMLERR(ERROR, XML, P_STag));
-    xml_read_Name(h);
-    xml_read_until(h, xml_cb_not_whitespace, NULL);
-    xml_read_string(h, "/>", XMLERR(ERROR, XML, P_STag));
-    *is_empty = true;
+    xml_reader_cbparam_t cbp;
+    xml_reader_nesting_t *n;
+    uint8_t la;
+    size_t len;
+
+    if (!xml_read_string(h, "<", XMLERR(ERROR, XML, P_STag))) {
+        return; // Haven't seen open bracket - try to recover ignoring element start
+    }
+
+    if ((len = xml_read_Name(h)) == 0) {
+        // No valid name - try to recover by skipping until closing bracket
+        xml_reader_message(h, XMLERR(ERROR, XML, P_STag),
+                "Expected element type");
+        xml_read_until_gt(h);
+        return;
+    }
+
+    // Notify the application that a new element has started
+    n = SLIST_FIRST(&h->elem_nested);
+    cbp.cbtype = XML_READER_CB_STAG;
+    cbp.stag.type = (const char *)h->tokenbuf; // TBD remove cast, use xml_char_t typedef
+    cbp.stag.typelen = len;
+    cbp.stag.parent = n ? n->baton : NULL;
+    cbp.stag.baton = NULL;
+    xml_reader_invoke_callback(h, &cbp);
+
+    // Remember the element type for wellformedness check in closing tag; save baton from callback
+    n = xml_elemtype_push(h);
+    n->baton = cbp.stag.baton;
+
+    // TBD: read attributes, check for closing > vs />
+
+    (void)xml_read_until(h, xml_cb_not_whitespace, NULL);
+    if (xml_lookahead(h, &la, 1) != 1) {
+        xml_reader_message(h, XMLERR(ERROR, XML, P_STag),
+                "Element start declaration truncated");
+        return;
+    }
+    if (xchareq(la, '/')) {
+        if (!xml_read_string(h, "/>", XMLERR(ERROR, XML, P_STag))) {
+            // Try to recover by reading till end of opening tag
+            xml_read_until_gt(h);
+        }
+        cbp.cbtype = XML_READER_CB_ETAG;
+        cbp.etag.type = (const char *)&h->namestorage[n->offs];
+        cbp.etag.typelen = n->len;
+        cbp.etag.baton = n->baton;
+        cbp.etag.is_empty = true;
+        xml_reader_invoke_callback(h, &cbp);
+        xml_elemtype_drop(h);
+        *is_empty = true;
+    }
+    else if (xchareq(la, '>')) {
+        *is_empty = false;
+    }
+    else {
+        // Try to recover by reading till end of opening tag
+        xml_reader_message(h, XMLERR(ERROR, XML, P_STag),
+                "Expect attribute, or >, or />");
+        xml_read_until_gt(h);
+    }
 }
 
 /**
@@ -1193,7 +1427,7 @@ xml_parse_ETag(xml_reader_t *h)
 {
     xml_read_string(h, "</", XMLERR(ERROR, XML, P_ETag));
     xml_read_Name(h);
-    // TBD verify h->tokenbuf matches element type recorded from STag. Unqueue closed element.
+    xml_elemtype_pop(h);
     xml_read_until(h, xml_cb_not_whitespace, NULL);
     xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag));
 }
@@ -1327,7 +1561,6 @@ xml_reader_process_document_entity(xml_reader_t *h)
     }
 }
 
-strstore_t *attribute_names;    ///< Storage for attribute names
 /**
     Read in the XML content from an external parsed entity and emit the callbacks
     as necessary.

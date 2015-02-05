@@ -233,6 +233,7 @@ run_testcase(const void *arg)
     result_t rc = FAIL;
     test_cb_t cbarg;
 
+    printf("%s\n", tc->desc);
     // Read the input
     len = strlen(XML_INPUT_DIR) + 1 + strlen(tc->input) + 1;
     path = xmalloc(len);
