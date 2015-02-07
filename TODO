@@ -1,6 +1,6 @@
 Milestones:
 - XML reader
-- XML DOM
+- XML infoset
 - Element content
 - DTD validation
 - XPath 1.0
@@ -18,3 +18,6 @@ Open questions:
 - XML 1.1 normalization - scope of applicability (seems inconsistent as it
 would apply to non-root element's attribute values, but not to root's attribute
 values)
+- Reserved xml namespaces - latest errata in 1.0 changed the reservation from
+[Xx][Mm][Ll] to xml- in PIs and xml: in element and attribute names. There is
+no similar errata in XML 1.1 spec.

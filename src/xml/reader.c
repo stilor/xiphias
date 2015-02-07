@@ -867,19 +867,6 @@ xml_reader_start(xml_reader_t *h)
         }
     }
 
-    // Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
-    // begin with the Byte Order Mark described in ISO/IEC 10646 [ISO/IEC
-    // 10646] or Unicode [Unicode] (the ZERO WIDTH NO-BREAK SPACE character, #xFEFF).
-    //
-    // Note that we don't know the final encoding from the XML declaration at this
-    // point, but if it different - it must be compatible and thus must have the same
-    // encoding type.
-    if (!had_bom && h->encoding->enctype == ENCODING_T_UTF16) {
-        // Non-fatal: managed to detect the encoding somehow
-        xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
-                "UTF-16 encoding without byte-order mark");
-    }
-
     // The selected encoding must not be "meta-encoding". If autodetect determined
     // such encoding, it's a bug.
     OOPS_ASSERT(h->encoding->xlate);
@@ -923,13 +910,35 @@ xml_reader_start(xml_reader_t *h)
         h->loc.pos = 0;
     }
 
+    // Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
+    // begin with the Byte Order Mark described in ISO/IEC 10646 [ISO/IEC
+    // 10646] or Unicode [Unicode] (the ZERO WIDTH NO-BREAK SPACE character, #xFEFF).
+    //
+    // Errata: The terms "UTF-8" and "UTF-16" in this specification do not apply to
+    // related character encodings, including but not limited to UTF-16BE, UTF-16LE,
+    // or CESU-8.
+    //
+    // Note that we don't know the final encoding from the XML declaration at this
+    // point, but if it different - it must be compatible and thus must have the same
+    // encoding type.
+    if (!had_bom && h->enc_xmldecl
+            && !strcmp(h->enc_xmldecl, "UTF-16")) {
+        // Non-fatal: managed to detect the encoding somehow
+        xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                "UTF-16 encoding without byte-order mark");
+    }
+
     // In the absence of external character encoding information (such as MIME
     // headers), parsed entities which are stored in an encoding other than UTF-8
     // or UTF-16 MUST begin with a text declaration (see 4.3.1 The Text Declaration)
     // containing an encoding declaration.
+    //
+    // Errata: The terms "UTF-8" and "UTF-16" in this specification do not apply to
+    // related character encodings, including but not limited to UTF-16BE, UTF-16LE,
+    // or CESU-8.
     if (!cbparam.xmldecl.encoding && !h->enc_transport
-            && h->encoding->enctype != ENCODING_T_UTF16
-            && h->encoding->enctype != ENCODING_T_UTF8) {
+            && strcmp(h->encoding->name, "UTF-16")
+            && strcmp(h->encoding->name, "UTF-8")) {
         // Non-fatal: recover by using whatever encoding we detected
         xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "No external encoding information, no encoding in %s, content in %s encoding",
