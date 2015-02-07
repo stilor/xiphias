@@ -1301,9 +1301,9 @@ xml_elemtype_push(xml_reader_t *h)
     provided by caller.
 
     @param h Reader handle
-    @return Nothing
+    @return Baton from the nesting tracker
 */
-static void
+static void *
 xml_elemtype_pop(xml_reader_t *h)
 {
     xml_reader_nesting_t *n;
@@ -1321,6 +1321,7 @@ xml_elemtype_pop(xml_reader_t *h)
     }
     h->namestorage_offs = n->offs;
     SLIST_INSERT_HEAD(&h->elem_free, n, link);
+    return n->baton;
 }
 
 /**
@@ -1364,7 +1365,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
     size_t len;
 
     if (!xml_read_string(h, "<", XMLERR(ERROR, XML, P_STag))) {
-        return; // Haven't seen open bracket - try to recover ignoring element start
+        OOPS_ASSERT(0); // This function should not be called unless looked ahead
     }
 
     if ((len = xml_read_Name(h)) == 0) {
@@ -1434,11 +1435,32 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
 static void
 xml_parse_ETag(xml_reader_t *h)
 {
-    xml_read_string(h, "</", XMLERR(ERROR, XML, P_ETag));
-    xml_read_Name(h);
-    xml_elemtype_pop(h);
+    xml_reader_cbparam_t cbp;
+    size_t len;
+
+    if (!xml_read_string(h, "</", XMLERR(ERROR, XML, P_ETag))) {
+        OOPS_ASSERT(0); // This function should not be called unless looked ahead
+    }
+    if ((len = xml_read_Name(h)) == 0) {
+        // No valid name - try to recover by skipping until closing bracket
+        xml_reader_message(h, XMLERR(ERROR, XML, P_ETag),
+                "Expected element type");
+        xml_read_until_gt(h);
+        return;
+    }
+    cbp.cbtype = XML_READER_CB_ETAG;
+    cbp.stag.type = (const char *)h->tokenbuf; // TBD remove cast, use xml_char_t typedef
+    cbp.stag.typelen = len;
+    cbp.etag.baton = xml_elemtype_pop(h);
+    cbp.etag.is_empty = false;
     xml_read_until(h, xml_cb_not_whitespace, NULL);
-    xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag));
+    if (!xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag))) {
+        // No valid name - try to recover by skipping until closing bracket
+        xml_reader_message(h, XMLERR(ERROR, XML, P_ETag),
+                "Expected >");
+        xml_read_until_gt(h);
+    }
+    xml_reader_invoke_callback(h, &cbp);
 }
 
 /**
