@@ -74,6 +74,7 @@ test_hash(void)
         return FAIL;
     }
 
+    strhash_destroy(hash);
     return PASS;
 }
 
