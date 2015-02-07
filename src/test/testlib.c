@@ -6,14 +6,27 @@
     Test framework
 */
 #include <string.h>
+#include "util/queue.h"
 #include "util/xutil.h"
 #include "test/testlib.h"
 
+/// Test failure record
+typedef struct trec_s {
+    STAILQ_ENTRY(trec_s) link;      ///< Linked tail-queue pointer
+    size_t si;                      ///< Set index of test
+    size_t ci;                      ///< Test case index
+} trec_t;
+
+/// Head of the tail queue of test failure records
+typedef STAILQ_HEAD(trec_list_s, trec_s) trec_list_t;
+
 /// Test suite statistics
 typedef struct test_stats_s {
-    uint32_t passed;        ///< Tests that passed
-    uint32_t failed;        ///< Tests that failed
-    uint32_t unresolved;    ///< Tests that did not produce PASS/FAIL
+    uint32_t passed;            ///< Tests that passed
+    uint32_t failed;            ///< Tests that failed
+    uint32_t unresolved;        ///< Tests that did not produce PASS/FAIL
+    trec_list_t list_failed;    ///< List of failed tests
+    trec_list_t list_unresolved;///< List of unresolved tests
 } test_stats_t;
 
 /**
@@ -58,6 +71,49 @@ usage(const char *pgm, const testsuite_t *suite)
 }
 
 /**
+    Print command line to re-run failed/unresolved tests. Frees
+    the lists of failed test cases.
+
+    @param pgm Program name
+    @param desc Failure type (failed/unresolved)
+    @param list List of test records to process.
+    @return Nothing
+*/
+static void
+print_rerun(const char *pgm, const char *desc, trec_list_t *list)
+{
+    trec_t *trec;
+
+    printf("To re-run only %s test cases:\n", desc);
+    printf("  %s", pgm);
+    while ((trec = STAILQ_FIRST(list)) != NULL) {
+        STAILQ_REMOVE_HEAD(list, link);
+        printf(" %zu.%zu", trec->si + 1, trec->ci + 1);
+        xfree(trec);
+    }
+    printf("\n\n");
+}
+
+/**
+    Record test failure.
+
+    @param list List of test records to process.
+    @param si Set index
+    @param ci Test case index
+    @return Nothing
+*/
+static void
+rec_fail(trec_list_t *list, size_t si, size_t ci)
+{
+    trec_t *trec;
+
+    trec = xmalloc(sizeof(trec_t));
+    trec->si = si;
+    trec->ci = ci;
+    STAILQ_INSERT_TAIL(list, trec, link);
+}
+
+/**
     Run a single test case.
 
     @param suite Test suite
@@ -85,11 +141,13 @@ run_case(const testsuite_t *suite, size_t si, size_t ci, test_stats_t *stats)
     case FAIL:
         printf("FAIL\n");
         stats->failed++;
+        rec_fail(&stats->list_failed, si, ci);
         break;
     case UNRESOLVED:
     default:
         printf("UNRESOLVED\n");
         stats->unresolved++;
+        rec_fail(&stats->list_unresolved, si, ci);
         break;
     }
 }
@@ -115,7 +173,6 @@ run_set(const testsuite_t *suite, size_t si, test_stats_t *stats)
     printf("==== FINISHED TEST SET %zu\n", si + 1);
 }
 
-
 /**
     Parse command line and run test cases specified. Command line
     parameters are interpreted as SET[.CASE], and run all or just
@@ -136,6 +193,8 @@ test_run_cmdline(const testsuite_t *suite, unsigned int argc, char *argv[])
     stats.passed = 0;
     stats.failed = 0;
     stats.unresolved = 0;
+    STAILQ_INIT(&stats.list_failed);
+    STAILQ_INIT(&stats.list_unresolved);
     if (argc <= 1) {
         // No arguments: run everything
         for (i = 0; i < suite->nsets; i++) {
@@ -178,6 +237,12 @@ test_run_cmdline(const testsuite_t *suite, unsigned int argc, char *argv[])
     printf("  UNRESOLVED   : %5u\n", stats.unresolved);
     printf("====== FINISHED TESTSUITE: %s\n", suite->desc);
     printf("\n");
+    if (stats.failed) {
+        print_rerun(argv[0], "failed", &stats.list_failed);
+    }
+    if (stats.unresolved) {
+        print_rerun(argv[0], "unresolved", &stats.list_unresolved);
+    }
     return (!stats.failed && !stats.unresolved) ? 0 : 1;
 }
 

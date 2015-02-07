@@ -123,6 +123,74 @@ evequal_xmldecl(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
             && str_null_or_equal(x1->initial_encoding, x2->initial_encoding);
 }
 
+static void
+evprint_dtd_begin(const xml_reader_cbparam_t *cbparam)
+{
+    // TBD
+}
+
+static bool
+evequal_dtd_begin(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    return false; // TBD
+}
+
+static void
+evprint_dtd_end(const xml_reader_cbparam_t *cbparam)
+{
+    // TBD
+}
+
+static bool
+evequal_dtd_end(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    return false; // TBD
+}
+
+static void
+evprint_stag(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_stag_t *x = &cbparam->stag;
+
+    printf("Element '%.*s' [%zu], parent %p, baton %p",
+            (int)x->typelen, x->type, x->typelen,
+            x->parent, x->baton);
+}
+
+static bool
+evequal_stag(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    const xml_reader_cbparam_stag_t *x1 = &e1->stag;
+    const xml_reader_cbparam_stag_t *x2 = &e2->stag;
+
+    return x1->typelen == x2->typelen
+            && !memcmp(x1->type, x2->type, x1->typelen)
+            && x1->parent == x2->parent
+            && x1->baton == x2->baton;
+}
+
+static void
+evprint_etag(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_etag_t *x = &cbparam->etag;
+
+    printf("Element '%.*s' [%zu], baton %p, used %s",
+            (int)x->typelen, x->type, x->typelen,
+            x->baton, x->is_empty ? "EmptyElemTag" : "STag");
+}
+
+static bool
+evequal_etag(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    const xml_reader_cbparam_etag_t *x1 = &e1->etag;
+    const xml_reader_cbparam_etag_t *x2 = &e2->etag;
+
+    return x1->typelen == x2->typelen
+            && !memcmp(x1->type, x2->type, x1->typelen)
+            && x1->baton == x2->baton
+            && x1->is_empty == x2->is_empty;
+}
+
 static const event_t events[] = {
     [XML_READER_CB_NONE] = {
         .desc = "NO EVENT",
@@ -138,6 +206,26 @@ static const event_t events[] = {
         .desc = "XML declaration",
         .print = evprint_xmldecl,
         .equal = evequal_xmldecl,
+    },
+    [XML_READER_CB_DTD_BEGIN] = {
+        .desc = "DTD begin",
+        .print = evprint_dtd_begin,
+        .equal = evequal_dtd_begin,
+    },
+    [XML_READER_CB_DTD_END] = {
+        .desc = "DTD end",
+        .print = evprint_dtd_end,
+        .equal = evequal_dtd_end,
+    },
+    [XML_READER_CB_STAG] = {
+        .desc = "Start tag",
+        .print = evprint_stag,
+        .equal = evequal_stag,
+    },
+    [XML_READER_CB_ETAG] = {
+        .desc = "End tag",
+        .print = evprint_etag,
+        .equal = evequal_etag,
     },
 };
 
@@ -168,6 +256,8 @@ equal_events(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 // Some macro magic for declaring event (which is a disciminated union)
 #define FL_MESSAGE      message
 #define FL_XMLDECL      xmldecl
+#define FL_STAG         stag
+#define FL_ETAG         etag
 #define FL(t)           FL_##t
 
 #define E(t, ...)       { .cbtype = XML_READER_CB_##t, .FL(t) = { __VA_ARGS__ }, }

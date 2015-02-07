@@ -1,6 +1,24 @@
 /* vi: set ts=4 sw=4 et : */
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
+/**
+    Tests for XMLDecl conditions all use dummy <a/> element as document
+    content.
+*/
+#define E_XMLDECL_A \
+        E(STAG, \
+                .type = "a", \
+                .typelen = 1, \
+                .parent = NULL, \
+                .baton = NULL, \
+        ), \
+        E(ETAG, \
+                .type = "a", \
+                .typelen = 1, \
+                .baton = NULL, \
+                .is_empty = true, \
+        )
+
 static const testcase_t testcases[] = {
     {
         .desc = "No declaration in UTF-8, with BOM",
@@ -16,6 +34,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_NO_VALUE,
                     .initial_encoding = "UTF-8",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -33,6 +52,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_NO_VALUE,
                     .initial_encoding = "UTF-8",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -55,6 +75,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_NO_VALUE,
                     .initial_encoding = "UTF-16BE",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -77,6 +98,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_NO_VALUE,
                     .initial_encoding = "UTF-16BE",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -99,6 +121,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_NO_VALUE,
                     .initial_encoding = "UTF-16LE",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -121,6 +144,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_NO_VALUE,
                     .initial_encoding = "UTF-16LE",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -138,6 +162,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_1_0,
                     .initial_encoding = "UTF-8",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -155,6 +180,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_1_0,
                     .initial_encoding = "UTF-8",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -172,6 +198,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_1_0,
                     .initial_encoding = "UTF-16BE",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -189,6 +216,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_1_0,
                     .initial_encoding = "UTF-16LE",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -211,6 +239,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_1_0,
                     .initial_encoding = "UTF-16BE",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -233,6 +262,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_1_0,
                     .initial_encoding = "UTF-16LE",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -255,6 +285,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_1_0,
                     .initial_encoding = "UTF-16BE",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -282,6 +313,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_1_0,
                     .initial_encoding = "UTF-8",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -329,6 +361,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_1_0,
                     .initial_encoding = "UTF-8",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -411,6 +444,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_NO_VALUE,
                     .initial_encoding = "UTF-8",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -433,6 +467,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_NO_VALUE,
                     .initial_encoding = "UTF-8",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -550,6 +585,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_1_0,
                     .initial_encoding = "UTF-8",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -572,6 +608,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_NO_VALUE,
                     .initial_encoding = "UTF-8",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -594,6 +631,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_1_1,
                     .initial_encoding = "UTF-8",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -616,6 +654,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_1_0,
                     .initial_encoding = "UTF-8",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -638,6 +677,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_NO_VALUE,
                     .initial_encoding = "IBM500",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
@@ -655,6 +695,7 @@ static const testcase_t testcases[] = {
                     .version = XML_INFO_VERSION_NO_VALUE,
                     .initial_encoding = "IBM500",
             ),
+            E_XMLDECL_A,
             END,
         },
     },
