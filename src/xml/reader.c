@@ -1412,6 +1412,9 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
         *is_empty = true;
     }
     else if (xchareq(la, '>')) {
+        if (!xml_read_string(h, ">", XMLERR(ERROR, XML, P_STag))) {
+            OOPS_ASSERT(0); // Cannot fail - we looked ahead
+        }
         *is_empty = false;
     }
     else {
@@ -1453,6 +1456,8 @@ xml_parse_ETag(xml_reader_t *h)
     cbp.stag.typelen = len;
     cbp.etag.baton = xml_elemtype_pop(h);
     cbp.etag.is_empty = false;
+    xml_reader_invoke_callback(h, &cbp);
+
     xml_read_until(h, xml_cb_not_whitespace, NULL);
     if (!xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag))) {
         // No valid name - try to recover by skipping until closing bracket
@@ -1460,7 +1465,6 @@ xml_parse_ETag(xml_reader_t *h)
                 "Expected >");
         xml_read_until_gt(h);
     }
-    xml_reader_invoke_callback(h, &cbp);
 }
 
 /**
