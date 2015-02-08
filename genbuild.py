@@ -22,7 +22,7 @@ class Output(object):
 	    self.outpath = "build/lib/lib%s_%s.so" % (general['prefix'], self.name)
 	    self.extraldflags = "-Wl,-soname=lib%s_%s.so" % (general['prefix'], self.name)
 	elif self.outtype == 'test':
-	    self.outpath = "build/test/%s" % self.name
+	    self.outpath = "build/tests/%s" % self.name
 	    self.extraldflags = ""
 	else:
 	    raise ValueError('Unknown output type [%s]' % self.outtype)
