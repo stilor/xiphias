@@ -324,6 +324,13 @@ run_testcase(const void *arg)
     test_cb_t cbarg;
 
     printf("%s\n", tc->desc);
+    printf("- Input: %s\n", tc->input);
+    printf("- Encoded into '%s', %s Byte-order mark\n",
+            tc->encoding, tc->use_bom ? "with" : "without");
+    if (tc->transport_encoding) {
+        printf("- Reporting transport encoding '%s'\n",
+                tc->transport_encoding);
+    }
     // Read the input
     len = strlen(XML_INPUT_DIR) + 1 + strlen(tc->input) + 1;
     path = xmalloc(len);
@@ -383,6 +390,7 @@ run_testcase(const void *arg)
     } while (conv_buf == NULL);
 
     // Run the test
+    printf("XML reader events:\n");
     sbuf = strbuf_new_from_memory(conv_buf, conv_len - len2, false);
     reader = xml_reader_new(sbuf, tc->input);
 

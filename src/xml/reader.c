@@ -1234,6 +1234,7 @@ static void
 xml_parse_comment(xml_reader_t *h)
 {
     // TBD
+    xml_read_until_gt(h);
 }
 
 /**
@@ -1246,6 +1247,7 @@ static void
 xml_parse_pi(xml_reader_t *h)
 {
     // TBD
+    xml_read_until_gt(h);
 }
 
 /**
@@ -1259,6 +1261,7 @@ static void
 xml_parse_doctypedecl(xml_reader_t *h)
 {
     // TBD
+    xml_read_until_gt(h);
 }
 
 /**
@@ -1315,9 +1318,9 @@ xml_elemtype_pop(xml_reader_t *h)
     SLIST_REMOVE_HEAD(&h->elem_nested, link);
     if (len != n->len || memcmp(&h->namestorage[n->offs], name, len)) {
         xml_reader_message(h, XMLERR(ERROR, XML, WFC_ELEMENT_TYPE_MATCH),
-                "Closing element type mismatch: %.*s", (int)len, name);
+                "Closing element type mismatch: '%.*s'", (int)len, name);
         xml_reader_message_loc(h, &n->loc, XMLERR_NOTE,
-                "Opening element: %.*s", (int)n->len, &h->namestorage[n->offs]);
+                "Opening element: '%.*s'", (int)n->len, &h->namestorage[n->offs]);
     }
     h->namestorage_offs = n->offs;
     SLIST_INSERT_HEAD(&h->elem_free, n, link);
@@ -1364,6 +1367,9 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
     uint8_t la;
     size_t len;
 
+    // For recovery, assume the element has no content in case of error return.
+    *is_empty = true;
+
     if (!xml_read_string(h, "<", XMLERR(ERROR, XML, P_STag))) {
         OOPS_ASSERT(0); // This function should not be called unless looked ahead
     }
@@ -1389,39 +1395,46 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
     n = xml_elemtype_push(h);
     n->baton = cbp.stag.baton;
 
-    // TBD: read attributes, check for closing > vs />
-
-    (void)xml_read_until(h, xml_cb_not_whitespace, NULL);
-    if (xml_lookahead(h, &la, 1) != 1) {
-        xml_reader_message(h, XMLERR(ERROR, XML, P_STag),
-                "Element start declaration truncated");
-        return;
-    }
-    if (xchareq(la, '/')) {
-        if (!xml_read_string(h, "/>", XMLERR(ERROR, XML, P_STag))) {
+    while (true) {
+        len = xml_read_until(h, xml_cb_not_whitespace, NULL);
+        if (xml_lookahead(h, &la, 1) != 1) {
+            xml_reader_message(h, XMLERR(ERROR, XML, P_STag),
+                    "Element start tag truncated");
+            return;
+        }
+        if (xchareq(la, '/')) {
+            if (!xml_read_string(h, "/>", XMLERR(ERROR, XML, P_STag))) {
+                // Try to recover by reading till end of opening tag
+                xml_read_until_gt(h);
+            }
+            cbp.cbtype = XML_READER_CB_ETAG;
+            cbp.etag.type = (const char *)&h->namestorage[n->offs];
+            cbp.etag.typelen = n->len;
+            cbp.etag.baton = n->baton;
+            cbp.etag.is_empty = true;
+            xml_reader_invoke_callback(h, &cbp);
+            xml_elemtype_drop(h);
+            *is_empty = true;
+            return;
+        }
+        else if (xchareq(la, '>')) {
+            if (!xml_read_string(h, ">", XMLERR(ERROR, XML, P_STag))) {
+                OOPS_ASSERT(0); // Cannot fail - we looked ahead
+            }
+            *is_empty = false;
+            return;
+        }
+        else if (len && (len = xml_read_Name(h)) != 0) {
+            // Attribute, if any, must be preceded by S (whitespace)
+            // TBD: read attributes - wrap this condition in a loop
+        }
+        else {
             // Try to recover by reading till end of opening tag
+            xml_reader_message(h, XMLERR(ERROR, XML, P_STag),
+                    "Expect whitespace, or >, or />");
             xml_read_until_gt(h);
+            return;
         }
-        cbp.cbtype = XML_READER_CB_ETAG;
-        cbp.etag.type = (const char *)&h->namestorage[n->offs];
-        cbp.etag.typelen = n->len;
-        cbp.etag.baton = n->baton;
-        cbp.etag.is_empty = true;
-        xml_reader_invoke_callback(h, &cbp);
-        xml_elemtype_drop(h);
-        *is_empty = true;
-    }
-    else if (xchareq(la, '>')) {
-        if (!xml_read_string(h, ">", XMLERR(ERROR, XML, P_STag))) {
-            OOPS_ASSERT(0); // Cannot fail - we looked ahead
-        }
-        *is_empty = false;
-    }
-    else {
-        // Try to recover by reading till end of opening tag
-        xml_reader_message(h, XMLERR(ERROR, XML, P_STag),
-                "Expect attribute, or >, or />");
-        xml_read_until_gt(h);
     }
 }
 
@@ -1458,11 +1471,9 @@ xml_parse_ETag(xml_reader_t *h)
     cbp.etag.is_empty = false;
     xml_reader_invoke_callback(h, &cbp);
 
-    xml_read_until(h, xml_cb_not_whitespace, NULL);
+    (void)xml_read_until(h, xml_cb_not_whitespace, NULL);
     if (!xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag))) {
         // No valid name - try to recover by skipping until closing bracket
-        xml_reader_message(h, XMLERR(ERROR, XML, P_ETag),
-                "Expected >");
         xml_read_until_gt(h);
     }
 }
@@ -1498,10 +1509,18 @@ static void
 xml_parse_element(xml_reader_t *h)
 {
     bool is_empty_element;
+    uint8_t labuf[2];
 
     xml_parse_STag_EmptyElemTag(h, &is_empty_element);
     if (!is_empty_element) {
         xml_parse_content(h);
+        if (xml_lookahead(h, labuf, 2) < 2) {
+            xml_reader_message(h, XMLERR(ERROR, XML, P_element),
+                    "Root element end tag missing");
+            return;
+        }
+        // xml_parse_content() should not have returned otherwise
+        OOPS_ASSERT(xchareq(labuf[0], '<') && xchareq(labuf[1], '/'));
         xml_parse_ETag(h);
     }
 }
@@ -1562,10 +1581,10 @@ xml_reader_process_document_entity(xml_reader_t *h)
                     seen_dtd = true;
                 }
                 else {
-                    // Recover by reading up until next left angle bracket
+                    // Recover by reading up until closing angle bracket
                     xml_reader_message(h, XMLERR(ERROR, XML, P_document),
                             "Document type definition not allowed here");
-                    (void)xml_read_until(h, xml_cb_lt, NULL);
+                    xml_read_until_gt(h);
                 }
             }
             else if (labuf[1] == '?') {

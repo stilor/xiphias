@@ -150,6 +150,7 @@ run_case(const testsuite_t *suite, size_t si, size_t ci, test_stats_t *stats)
         rec_fail(&stats->list_unresolved, si, ci);
         break;
     }
+    printf("\n");
 }
 
 /**
@@ -187,6 +188,7 @@ int
 test_run_cmdline(const testsuite_t *suite, unsigned int argc, char *argv[])
 {
     test_stats_t stats;
+    const char *rundesc = "partial run";
     size_t i;
 
     printf("====== RUNNING TESTSUITE: %s\n", suite->desc);
@@ -200,6 +202,7 @@ test_run_cmdline(const testsuite_t *suite, unsigned int argc, char *argv[])
         for (i = 0; i < suite->nsets; i++) {
             run_set(suite, i, &stats);
         }
+        rundesc = "full run";
     }
     else if (argc == 2 && !strcmp(argv[1], "-h")) {
         usage(argv[0], suite);
@@ -231,7 +234,7 @@ test_run_cmdline(const testsuite_t *suite, unsigned int argc, char *argv[])
     }
 
     printf("\n");
-    printf("SUMMARY for '%s':\n", suite->desc);
+    printf("SUMMARY for '%s' (%s):\n", suite->desc, rundesc);
     printf("  PASSED       : %5u\n", stats.passed);
     printf("  FAILED       : %5u\n", stats.failed);
     printf("  UNRESOLVED   : %5u\n", stats.unresolved);
