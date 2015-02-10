@@ -405,10 +405,6 @@ xml_hdr_read_1(xml_reader_t *h)
         h->flags &= ~READER_POS_RESET;
     }
 
-    /*
-        XML processor MUST behave as if it normalized all line breaks in external
-        parsed entities ...
-    */
     do {
         h->encoding->xlate(h->buf_raw, h->encoding_baton, &ptr, ptr + 1);
         if (ptr == &tmp) {
@@ -436,6 +432,11 @@ xml_hdr_read_1(xml_reader_t *h)
         }
         return NOCHAR;
     }
+
+    /*
+        XML processor MUST behave as if it normalized all line breaks in external
+        parsed entities ...
+    */
     if (tmp == 0x0D) {
         tmp = 0x0A;
         h->flags |= READER_SAW_CR;
