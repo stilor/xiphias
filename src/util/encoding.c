@@ -270,6 +270,7 @@ xlate_UTF8(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
     uint32_t val;
     const void *begin, *end;
     const uint8_t *ptr;
+    uint8_t tmp;
     size_t len;
 
     len = 0;
@@ -300,7 +301,14 @@ xlate_UTF8(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
             else {
                 // Continuing a previous character
                 val <<= 6;
-                val |= (*ptr++) & 0x3F; // Continuation: 6 LS bits
+                tmp = *ptr++;
+                if (tmp < 0x80 || tmp > 0xBF) {
+                    // TBD not a valid continuation character - signal an error
+                    // TBD per Unicode 5.22 (best substitution practices), FFFD should be
+                    // substituted for invalid part (seen so far) and byte that broken
+                    // the sequence should start a new sequence.
+                }
+                val |= tmp & 0x3F; // Continuation: 6 LS bits
                 len--;
             }
             if (!len) {
