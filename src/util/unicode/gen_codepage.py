@@ -152,7 +152,7 @@ static const uint32_t codepage_table_%s[] = {
     out.write("""
 };
 
-static encoding_t encoding_%s = {
+static const encoding_t encoding_%s = {
     .name = "%s",
     .enctype = ENCODING_T_%s,
     .sigs = %s,
@@ -162,7 +162,8 @@ static encoding_t encoding_%s = {
     .init = encoding_codepage_init,
     .in = encoding_codepage_in,
 };
-""" % (cname, name, compat, sigs, nsigs, cname))
+ENCODING_REGISTER(encoding_%s);
+""" % (cname, name, compat, sigs, nsigs, cname, cname))
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
@@ -181,16 +182,6 @@ if __name__ == '__main__':
 """)
         for n, f in encodings:
             gen_1(n, os.path.join(basepath, f), out)
-        out.write("""
-static void __constructor
-codepages_autoinit(void)
-{
-""")
-        for n, f in encodings:
-            out.write("\tencoding_register(&encoding_%s);" % gen_cname(n))
-        out.write("""
-}
-""")
         out.close()
     except ValueError, e:
         out.close()

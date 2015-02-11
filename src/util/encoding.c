@@ -13,7 +13,7 @@
 #include "util/encoding.h"
 
 /// List of all encodings
-typedef STAILQ_HEAD(encoding_list_s, encoding_s) encoding_list_t;
+typedef STAILQ_HEAD(encoding_list_s, encoding_link_s) encoding_list_t;
 
 // FIXME: this is not thread-safe. Protect registration/search with a mutex? Or require
 // that registration be done before using anything else in multithreaded context?
@@ -34,12 +34,12 @@ struct encoding_handle_s {
 static const encoding_t *
 encoding_search(const char *name)
 {
-    const encoding_t *enc;
+    const encoding_link_t *lnk;
 
-    STAILQ_FOREACH(enc, &encodings, link) {
+    STAILQ_FOREACH(lnk, &encodings, link) {
         // "XML processors SHOULD match character encoding names in a case-insensitive way"
-        if (!strcasecmp(name, enc->name)) {
-            return enc;
+        if (!strcasecmp(name, lnk->enc->name)) {
+            return lnk->enc;
         }
     }
     return NULL;
@@ -52,19 +52,22 @@ encoding_search(const char *name)
     @return None
 */
 void
-encoding_register(encoding_t *enc)
+encoding__register(encoding_link_t *lnk)
 {
     size_t i, j;
-    const encoding_t *encx;
+    encoding_link_t *lnkx;
+    const encoding_t *enc, *encx;
     const encoding_sig_t *sig, *sigx;
 
+    enc = lnk->enc;
     if (encoding_search(enc->name)) {
         OOPS_ASSERT(0); // Already registered
     }
 
     // Search for same detection signatures if there's a conflict
     for (i = 0, sig = enc->sigs; i < enc->nsigs; i++, sig++) {
-        STAILQ_FOREACH(encx, &encodings, link) {
+        STAILQ_FOREACH(lnkx, &encodings, link) {
+            encx = lnkx->enc;
             for (j = 0, sigx = encx->sigs; j < encx->nsigs; j++, sigx++) {
                 OOPS_ASSERT(sig->len != sigx->len
                         || memcmp(sig->sig, sigx->sig, sig->len));
@@ -79,7 +82,7 @@ encoding_register(encoding_t *enc)
     // Non-zero size must be accompanied by non-NULL buffer
     OOPS_ASSERT(!enc->nsigs || enc->sigs);
 
-    STAILQ_INSERT_HEAD(&encodings, enc, link);
+    STAILQ_INSERT_HEAD(&encodings, lnk, link);
 }
 
 /**
@@ -105,13 +108,15 @@ encoding_register(encoding_t *enc)
 const char *
 encoding_detect(const uint8_t *buf, size_t bufsz, size_t *bom_len)
 {
+    encoding_link_t *lnk;
     const encoding_t *enc;
     const encoding_sig_t *sig;
     size_t i, chklen;
 
     // Check longest signatures first
     for (chklen = bufsz; chklen; chklen--) {
-        STAILQ_FOREACH(enc, &encodings, link) {
+        STAILQ_FOREACH(lnk, &encodings, link) {
+            enc = lnk->enc;
             for (i = 0, sig = enc->sigs; i < enc->nsigs; i++, sig++) {
                 // On the first cycle, check all signatures at least as
                 // long as the autodetect buffer
@@ -508,7 +513,7 @@ clean_utf8(void *baton)
     return !utf8b->len;
 }
 
-static encoding_sig_t sig_UTF8[] = {
+static const encoding_sig_t sig_UTF8[] = {
     ENCODING_SIG(true,  0xEF, 0xBB, 0xBF), // BOM
     ENCODING_SIG(false, 0x3C), // <
     ENCODING_SIG(false, 0x09), // Tab
@@ -517,7 +522,7 @@ static encoding_sig_t sig_UTF8[] = {
     ENCODING_SIG(false, 0x20), // Space
 };
 
-static encoding_t enc_UTF8 = {
+static const encoding_t enc_UTF8 = {
     .name = "UTF-8",
     .enctype = ENCODING_T_UTF8,
     .baton_sz = sizeof(baton_utf8_t),
@@ -526,6 +531,7 @@ static encoding_t enc_UTF8 = {
     .in = in_UTF8,
     .in_clean = clean_utf8,
 };
+ENCODING_REGISTER(enc_UTF8);
 
 // TBD: implement optimized versions if byte order matches host?
 // TBD: move to <util/defs.h> or new <util/byteorder.h>
@@ -585,7 +591,7 @@ clean_utf16(void *baton)
 #define TOHOST le16tohost
 #include "encoding-utf16.c"
 
-static encoding_sig_t sig_UTF16LE[] = {
+static const encoding_sig_t sig_UTF16LE[] = {
     ENCODING_SIG(true,  0xFF, 0xFE), // BOM
     ENCODING_SIG(false, 0x3C, 0x00), // <
     ENCODING_SIG(false, 0x09, 0x00), // Tab
@@ -594,7 +600,7 @@ static encoding_sig_t sig_UTF16LE[] = {
     ENCODING_SIG(false, 0x20, 0x00), // Space
 };
 
-static encoding_t enc_UTF16LE = {
+static const encoding_t enc_UTF16LE = {
     .name = "UTF-16LE",
     .enctype = ENCODING_T_UTF16,
     .endian = ENCODING_E_LE,
@@ -604,13 +610,14 @@ static encoding_t enc_UTF16LE = {
     .in = in_UTF16LE,
     .in_clean = clean_utf16,
 };
+ENCODING_REGISTER(enc_UTF16LE);
 
 
 #define FUNC in_UTF16BE
 #define TOHOST be16tohost
 #include "encoding-utf16.c"
 
-static encoding_sig_t sig_UTF16BE[] = {
+static const encoding_sig_t sig_UTF16BE[] = {
     ENCODING_SIG(true,  0xFE, 0xFF), // BOM
     ENCODING_SIG(false, 0x00, 0x3C), // <
     ENCODING_SIG(false, 0x00, 0x09), // Tab
@@ -619,7 +626,7 @@ static encoding_sig_t sig_UTF16BE[] = {
     ENCODING_SIG(false, 0x00, 0x20), // Space
 };
 
-static encoding_t enc_UTF16BE = {
+static const encoding_t enc_UTF16BE = {
     .name = "UTF-16BE",
     .enctype = ENCODING_T_UTF16,
     .endian = ENCODING_E_BE,
@@ -629,13 +636,15 @@ static encoding_t enc_UTF16BE = {
     .in = in_UTF16BE,
     .in_clean = clean_utf16,
 };
+ENCODING_REGISTER(enc_UTF16BE);
 
 /// Meta-encoding: UTF-16 with any endianness, as detected
-static encoding_t enc_UTF16 = {
+static const encoding_t enc_UTF16 = {
     .name = "UTF-16",
     .enctype = ENCODING_T_UTF16,
     .endian = ENCODING_E_ANY,
 };
+ENCODING_REGISTER(enc_UTF16);
 
 static size_t
 utf32_in(void *baton, const uint8_t *begin, const uint8_t *end,
@@ -645,7 +654,7 @@ utf32_in(void *baton, const uint8_t *begin, const uint8_t *end,
     OOPS_ASSERT(0);
     return 0;
 }
-static encoding_sig_t sig_UTF32LE[] = {
+static const encoding_sig_t sig_UTF32LE[] = {
     ENCODING_SIG(true,  0xFF, 0xFE, 0x00, 0x00), // BOM
     ENCODING_SIG(false, 0x3C, 0x00, 0x00, 0x00), // <
     ENCODING_SIG(false, 0x09, 0x00, 0x00, 0x00), // Tab
@@ -653,7 +662,7 @@ static encoding_sig_t sig_UTF32LE[] = {
     ENCODING_SIG(false, 0x0D, 0x00, 0x00, 0x00), // CR
     ENCODING_SIG(false, 0x20, 0x00, 0x00, 0x00), // Space
 };
-static encoding_t enc_UTF32LE = {
+static const encoding_t enc_UTF32LE = {
     .name = "UTF-32LE",
     .enctype = ENCODING_T_UTF32,
     .endian = ENCODING_E_LE,
@@ -661,8 +670,9 @@ static encoding_t enc_UTF32LE = {
     .nsigs = sizeofarray(sig_UTF32LE),
     .in = utf32_in,
 };
+ENCODING_REGISTER(enc_UTF32LE);
 
-static encoding_sig_t sig_UTF32BE[] = {
+static const encoding_sig_t sig_UTF32BE[] = {
     ENCODING_SIG(true,  0x00, 0x00, 0xFE, 0xFF), // BOM
     ENCODING_SIG(false, 0x00, 0x00, 0x00, 0x3C), // <
     ENCODING_SIG(false, 0x00, 0x00, 0x00, 0x09), // Tab
@@ -670,7 +680,7 @@ static encoding_sig_t sig_UTF32BE[] = {
     ENCODING_SIG(false, 0x00, 0x00, 0x00, 0x0D), // CR
     ENCODING_SIG(false, 0x00, 0x00, 0x00, 0x20), // Space
 };
-static encoding_t enc_UTF32BE = {
+static const encoding_t enc_UTF32BE = {
     .name = "UTF-32BE",
     .enctype = ENCODING_T_UTF32,
     .endian = ENCODING_E_BE,
@@ -678,8 +688,9 @@ static encoding_t enc_UTF32BE = {
     .nsigs = sizeofarray(sig_UTF32BE),
     .in = utf32_in,
 };
+ENCODING_REGISTER(enc_UTF32BE);
 
-static encoding_sig_t sig_UTF32_2143[] = {
+static const encoding_sig_t sig_UTF32_2143[] = {
     ENCODING_SIG(true,  0x00, 0x00, 0xFF, 0xFE), // BOM
     ENCODING_SIG(false, 0x00, 0x00, 0x3C, 0x00), // <
     ENCODING_SIG(false, 0x00, 0x00, 0x09, 0x00), // Tab
@@ -687,7 +698,7 @@ static encoding_sig_t sig_UTF32_2143[] = {
     ENCODING_SIG(false, 0x00, 0x00, 0x0D, 0x00), // CR
     ENCODING_SIG(false, 0x00, 0x00, 0x20, 0x00), // Space
 };
-static encoding_t enc_UTF32_2143 = {
+static const encoding_t enc_UTF32_2143 = {
     .name = "UTF-32-2143",
     .enctype = ENCODING_T_UTF32,
     .endian = ENCODING_E_2143,
@@ -695,8 +706,9 @@ static encoding_t enc_UTF32_2143 = {
     .nsigs = sizeofarray(sig_UTF32_2143),
     .in = utf32_in,
 };
+ENCODING_REGISTER(enc_UTF32_2143);
 
-static encoding_sig_t sig_UTF32_3412[] = {
+static const encoding_sig_t sig_UTF32_3412[] = {
     ENCODING_SIG(true,  0xFE, 0xFF, 0x00, 0x00), // BOM
     ENCODING_SIG(false, 0x00, 0x3C, 0x00, 0x00), // <
     ENCODING_SIG(false, 0x00, 0x09, 0x00, 0x00), // Tab
@@ -704,7 +716,7 @@ static encoding_sig_t sig_UTF32_3412[] = {
     ENCODING_SIG(false, 0x00, 0x0D, 0x00, 0x00), // CR
     ENCODING_SIG(false, 0x00, 0x20, 0x00, 0x00), // Space
 };
-static encoding_t enc_UTF32_3412 = {
+static const encoding_t enc_UTF32_3412 = {
     .name = "UTF-32-3412",
     .enctype = ENCODING_T_UTF32,
     .endian = ENCODING_E_3412,
@@ -712,28 +724,11 @@ static encoding_t enc_UTF32_3412 = {
     .nsigs = sizeofarray(sig_UTF32_3412),
     .in = utf32_in,
 };
+ENCODING_REGISTER(enc_UTF32_3412);
 
-static encoding_t enc_UTF32 = {
+static const encoding_t enc_UTF32 = {
     .name = "UTF-32",
     .enctype = ENCODING_T_UTF32,
     .endian = ENCODING_E_ANY,
 };
-
-/**
-    Register built-in encodings.
-
-    @return Nothing
-*/
-static void __constructor
-encoding_init_builtin(void)
-{
-    encoding_register(&enc_UTF8);
-    encoding_register(&enc_UTF16LE);
-    encoding_register(&enc_UTF16BE);
-    encoding_register(&enc_UTF16);
-    encoding_register(&enc_UTF32BE);
-    encoding_register(&enc_UTF32LE);
-    encoding_register(&enc_UTF32_2143);
-    encoding_register(&enc_UTF32_3412);
-    encoding_register(&enc_UTF32);
-}
+ENCODING_REGISTER(enc_UTF32);

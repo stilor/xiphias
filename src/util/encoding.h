@@ -47,8 +47,6 @@ typedef struct encoding_sig_s {
 
 /// Encoding structure
 typedef struct encoding_s {
-    // TBD move link to a separate structure local to encoding.c - then all encodings can be declared as const
-    STAILQ_ENTRY(encoding_s) link;  ///< Linked list pointers
     const char *name;               ///< Encoding name
     enum encoding_compat_e enctype; ///< Encoding type
     enum encoding_endian_e endian;  ///< Endianness
@@ -99,11 +97,27 @@ typedef struct encoding_s {
     // TBD: need a set of functions for output, too (or just out() method)
 } encoding_t;
 
+/// Linking encodings into a list
+typedef struct encoding_link_s {
+    STAILQ_ENTRY(encoding_link_s) link;     ///< Link pointer
+    const encoding_t *enc;                  ///< Pointer to actual encoding
+} encoding_link_t;
+
+/// Automatically register an encoding at the library load
+#define ENCODING_REGISTER(e) \
+static void __constructor \
+e##_autoregister(void) \
+{ \
+    static encoding_link_t lnk; \
+    lnk.enc = &e; \
+    encoding__register(&lnk); \
+}
+
 /// Handle for an open encoding
 typedef struct encoding_handle_s encoding_handle_t;
 
 // General encoding database functions
-void encoding_register(encoding_t *enc);
+void encoding__register(encoding_link_t *lnk);
 const char *encoding_detect(const uint8_t *buf, size_t bufsz, size_t *pbom_len);
 
 // Handling transcoding
