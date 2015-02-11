@@ -56,6 +56,18 @@ encodings = (
         ( "windows-1258",   "MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1258.TXT" ),
         )
 
+# Arguments for ENCODING_SIG macro if certain encodings can be autodetected - with comments
+signatures = {
+        "IBM500" : [
+            ( "false, 0x4C", "<" ),
+            ( "false, 0x15", "NL" ),
+            # Skip: CR (0x0D) matches UTF-8 - we do not want to override UTF-8 detection with EBCDIC
+            ( "false, 0x25", "LF" ),
+            ( "false, 0x05", "Tab" ),
+            ( "false, 0x40", "Space" ),
+            ]
+        }
+
 # Check a few characters to detemine compatibility class. Currently supported
 # codepage-type encodings all fall in two classes, UTF-8 compatible (that
 # shares characters 0x00..0x7F with ASCII) and EBCDIC
@@ -117,6 +129,20 @@ def gen_1(name, fname, out):
             compat = cc
             break
     cname = gen_cname(name)
+    if name in signatures:
+        sigs = "sig_%s" % cname
+        nsigs = "sizeofarray(%s)" % sigs
+        out.write("""
+static const encoding_sig_t sig_%s[] = {
+""" % cname);
+        for s, c in signatures[name]:
+            out.write("\tENCODING_SIG(%s), // %s\n" % (s, c))
+        out.write("""
+};
+""");
+    else:
+        sigs = "NULL"
+        nsigs = "0"
     out.write("""
 // Code page for '%s' code page
 static const uint32_t codepage_table_%s[] = {
@@ -129,12 +155,14 @@ static const uint32_t codepage_table_%s[] = {
 static encoding_t encoding_%s = {
     .name = "%s",
     .enctype = ENCODING_T_%s,
+    .sigs = %s,
+    .nsigs = %s,
+    .data = codepage_table_%s,
+    .baton_sz = sizeof(encoding_codepage_baton_t),
     .init = encoding_codepage_init,
-    .destroy = encoding_codepage_destroy,
-    .xlate = encoding_codepage_xlate,
-    .data = codepage_table_%s
+    .in = encoding_codepage_in,
 };
-""" % (cname, name, compat, cname))
+""" % (cname, name, compat, sigs, nsigs, cname))
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:

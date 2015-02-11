@@ -28,8 +28,10 @@ typedef struct strbuf_s strbuf_t;
 
 /// Operations on a string buffer
 typedef struct strbuf_ops_s {
-    void (*input)(strbuf_t *, void *);          ///< Request add'l input
-    void (*destroy)(strbuf_t *, void *);        ///< Destroy the buffer
+    /// Provide additional input for the buffer
+    void (*input)(strbuf_t *, void *);
+    /// Destroy the argument (either the buffer is destroyed or ops change)
+    void (*destroy)(strbuf_t *, void *);
 } strbuf_ops_t;
 
 // Blocks in a buffer

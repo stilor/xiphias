@@ -73,8 +73,7 @@ struct xml_reader_s {
     const char *enc_transport;      ///< Encoding reported by transport protocol
     const char *enc_detected;       ///< Encoding detected by BOM or start characters
     const char *enc_xmldecl;        ///< Encoding declared in <?xml ... ?>
-    const encoding_t *encoding;     ///< Actual encoding being used
-    void *encoding_baton;           ///< Encoding data
+    encoding_handle_t *enc;         ///< Encoding used to transcode input
     strbuf_t *buf_raw;              ///< Raw input buffer (in document's encoding)
     strbuf_t *buf_proc;             ///< Processed input buffer (transcoded + translated)
     uint32_t flags;                 ///< Reader flags
@@ -174,39 +173,31 @@ xml_is_whitespace(uint32_t cp)
 static bool
 xml_reader_set_encoding(xml_reader_t *h, const char *encname)
 {
-    const encoding_t *enc = NULL;
+    encoding_handle_t *hndnew;
 
     if (encname != NULL) {
-        if ((enc = encoding_search(encname)) == NULL) {
+        if ((hndnew = encoding_open(encname)) == NULL) {
             xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                     "Unsupported encoding '%s'", encname);
             return false;
         }
-    }
-
-    if (h->encoding == enc) {
-        return true; // Same encoding, nothing to do
-    }
-    if (h->encoding && enc && !encoding_compatible(h->encoding, enc)) {
-        // Replacing with an incompatible encoding is not possible; the data
-        // that has been read previously cannot be trusted then.
-        xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
-                "Incompatible encodings: '%s' and '%s'", h->encoding->name, enc->name);
-        return false;
-    }
-    // If the new encoding is "meta-encoding" (just specifying the compatibility
-    // information, but not providing actual translation routine), keep the old one.
-    if (enc && !enc->xlate) {
+        if (!h->enc) {
+            h->enc = hndnew;
+            return true;
+        }
+        if (!encoding_switch(&h->enc, hndnew)) {
+            // Replacing with an incompatible encoding is not possible;
+            // the data that has been read previously cannot be trusted.
+            xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                    "Incompatible encodings: '%s' and '%s'",
+                    encoding_name(h->enc), encname);
+            return false;
+        }
         return true;
     }
-    if (h->encoding) {
-        h->encoding->destroy(h->encoding_baton);
-        h->encoding = NULL;
-        h->encoding_baton = NULL;
-    }
-    if (enc) {
-        h->encoding = enc;
-        h->encoding_baton = h->encoding->init(enc->data);
+    else if (h->enc) {
+        encoding_close(h->enc);
+        h->enc = NULL;
     }
     return true;
 }
@@ -228,8 +219,7 @@ xml_reader_new(strbuf_t *buf, const char *location)
     h->enc_transport = NULL;
     h->enc_detected = NULL;
     h->enc_xmldecl = NULL;
-    h->encoding = NULL;
-    h->encoding_baton = NULL;
+    h->enc = NULL;
     h->buf_raw = buf;
     h->buf_proc = NULL;
     h->flags = 0;
@@ -406,7 +396,7 @@ xml_hdr_read_1(xml_reader_t *h)
     }
 
     do {
-        h->encoding->xlate(h->buf_raw, h->encoding_baton, &ptr, ptr + 1);
+        encoding_in_from_strbuf(h->enc, h->buf_raw, &ptr, ptr + 1);
         if (ptr == &tmp) {
             // This is only error if we know declaration is present
             if ((h->flags & READER_READDECL) == 0) {
@@ -727,57 +717,26 @@ out:
 }
 
 /**
-    Fetch more data from the transcoder, perform the translation and normalization
-    checks prescribed by the XML specifications.
+    Temporary transcoding operation: use lookahead instead of read on the
+    input buffer, abort on non-ASCII characters. This mode is used during
+    parsing of the XML declaration: until then, the actual encoding is not
+    known yet.
 
-    TBD probably normalizations are not going to be performed here - move the comment
+    @param buf Input string buffer
+    @param arg Pointer to state structure with 
+    @return None
+*/
+//TBD
 
-    End-of-Line handling:
+/**
+    Fetch more data from the transcoder.
 
-    For XML 1.0: To simplify the tasks of applications, the XML processor MUST
-    behave as if it normalized all line breaks in external parsed entities
-    (including the document entity) on input, before parsing, by translating
-    both the two-character sequence #xD #xA and any #xD that is not followed
-    by #xA to a single #xA character.
-
-    For XML 1.1: To simplify the tasks of applications, the XML processor MUST
-    behave as if it normalized all line breaks in external parsed entities
-    (including the document entity) on input, before parsing, by translating
-    all of the following to a single #xA character:
-    1. the two-character sequence #xD #xA
-    2. the two-character sequence #xD #x85
-    3. the single character #x85
-    4. the single character #x2028
-    5. any #xD character that is not immediately followed by #xA or #x85.
-
-    Normalization checking (XML 1.1 only):
-
-    All XML parsed entities (including document entities) SHOULD be fully
-    normalized as per the definition of B Definitions for Character
-    Normalization supplemented by the following definitions of relevant
-    constructs for XML:
-    1. The replacement text of all parsed entities
-    2. All text matching, in context, one of the following productions:
-       - CData
-       - CharData
-       - content
-       - Name
-       - Nmtoken
-
-    From this definition of normalization, it looks like the whole document
-    inside the root element is expected to be fully normalized. At the top
-    level, the following are expected to be normalized: PI targets,
-    element names and attribute names (but not attribute values!), and parts
-    of the document type definition. For now, though, we'll do simpler thing:
-    just signal to the application that a normalization error was detected,
-    regardless of its location.
-
-    @param buf Destination string buffer 
-    @param arg Reader handle
+    @param buf Input string buffer 
+    @param arg Reader handle (cast to void pointer)
     @return None
 */
 static void
-xml_reader_op_input(strbuf_t *buf, void *arg)
+xml_reader_transcode_op_input(strbuf_t *buf, void *arg)
 {
 #define READ_BLOCK_CHARS   4096    // TBD increase?
     xml_reader_t *h = arg;
@@ -787,7 +746,7 @@ xml_reader_op_input(strbuf_t *buf, void *arg)
     blk = strblk_new(READ_BLOCK_CHARS * sizeof(uint32_t));
     cptr = bptr = strblk_getptr(blk);
     eptr = bptr + READ_BLOCK_CHARS;
-    h->encoding->xlate(h->buf_raw, h->encoding_baton, &cptr, eptr);
+    encoding_in_from_strbuf(h->enc, h->buf_raw, &cptr, eptr);
     if (cptr != eptr) {
         strbuf_setf(buf, BUF_LAST, BUF_LAST); // This input, if any, is final
     }
@@ -810,14 +769,14 @@ xml_reader_op_input(strbuf_t *buf, void *arg)
     @return None
 */
 static void
-xml_reader_op_destroy(strbuf_t *buf, void *arg)
+xml_reader_transcode_op_destroy(strbuf_t *buf, void *arg)
 {
     // No-op
 }
 
-static const strbuf_ops_t xml_reader_translation_ops = {
-    .input = xml_reader_op_input,
-    .destroy = xml_reader_op_destroy,
+static const strbuf_ops_t xml_reader_transcode_ops = {
+    .input = xml_reader_transcode_op_input,
+    .destroy = xml_reader_transcode_op_destroy,
 };
 
 /**
@@ -830,10 +789,10 @@ static const strbuf_ops_t xml_reader_translation_ops = {
 static void
 xml_reader_start(xml_reader_t *h)
 {
+    uint8_t adbuf[4];       // 4 bytes for encoding detection, per XML spec suggestion
     uint32_t xmldecl[6];
-    size_t i;
+    size_t i, bom_len, adsz;
     const char *encname;
-    bool had_bom;
     xml_reader_cbparam_t cbparam = {
         .cbtype = XML_READER_CB_XMLDECL,
         .xmldecl = {
@@ -848,11 +807,12 @@ xml_reader_start(xml_reader_t *h)
     // No more setup changes
     h->flags |= READER_STARTED;
 
-    // Check the stream for Byte Order Mark (BOM) and switch the encoding, if needed
-    if ((encname = encoding_detect_byte_order(h->buf_raw, &had_bom)) != NULL) {
+    // Try to get the encoding from stream and check for BOM
+    adsz = strbuf_read(h->buf_raw, adbuf, sizeof(adbuf), true);
+    if ((encname = encoding_detect(adbuf, adsz, &bom_len)) != NULL) {
         if (!xml_reader_set_encoding(h, encname)) {
             xml_reader_message(h, XMLERR_NOTE, "(autodetected from %s)",
-                    had_bom ? "Byte-order Mark" : "content");
+                    bom_len ? "Byte-order Mark" : "content");
             h->flags |= READER_FATAL;
             return;
         }
@@ -860,20 +820,21 @@ xml_reader_start(xml_reader_t *h)
         h->enc_detected = xstrdup(encname);
     }
 
-    // If no encoding passed from the transport layer, and autodetect didn't help,
-    // try UTF-8. UTF-8 is built-in, so it should always work.
-    if (!h->encoding) {
-        if (!xml_reader_set_encoding(h, "UTF-8")) {
-            OOPS_ASSERT(0);
-        }
+    // If byte order mark (BOM) was detected, consume it
+    if (bom_len) {
+        // TBD check if any strbuf_read calls remain with dest!=NULL && lookahead==false
+        // TBD if not, maybe have a simple strbuf_advance() instead?
+        strbuf_read(h->buf_raw, NULL, bom_len, false);
     }
 
-    // The selected encoding must not be "meta-encoding". If autodetect determined
-    // such encoding, it's a bug.
-    OOPS_ASSERT(h->encoding->xlate);
+    // If no encoding passed from the transport layer, and autodetect didn't help,
+    // try UTF-8. UTF-8 is built-in, so it should always work.
+    if (!h->enc && !xml_reader_set_encoding(h, "UTF-8")) {
+        OOPS_ASSERT(0);
+    }
 
     // Record the encoding we've used initially
-    cbparam.xmldecl.initial_encoding = h->encoding->name;
+    cbparam.xmldecl.initial_encoding = encoding_name(h->enc);
 
     // We should at least know the encoding type by now: whether it is 1/2/4-byte based,
     // and the endianness. Read and parse the XML/Text declaration, if any, and set
@@ -922,7 +883,7 @@ xml_reader_start(xml_reader_t *h)
     // Note that we don't know the final encoding from the XML declaration at this
     // point, but if it different - it must be compatible and thus must have the same
     // encoding type.
-    if (!had_bom && h->enc_xmldecl
+    if (!bom_len && h->enc_xmldecl
             && !strcmp(h->enc_xmldecl, "UTF-16")) {
         // Non-fatal: managed to detect the encoding somehow
         xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -938,12 +899,12 @@ xml_reader_start(xml_reader_t *h)
     // related character encodings, including but not limited to UTF-16BE, UTF-16LE,
     // or CESU-8.
     if (!cbparam.xmldecl.encoding && !h->enc_transport
-            && strcmp(h->encoding->name, "UTF-16")
-            && strcmp(h->encoding->name, "UTF-8")) {
+            && strcmp(encoding_name(h->enc), "UTF-16")
+            && strcmp(encoding_name(h->enc), "UTF-8")) {
         // Non-fatal: recover by using whatever encoding we detected
         xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "No external encoding information, no encoding in %s, content in %s encoding",
-                h->declinfo->name, h->encoding->name);
+                h->declinfo->name, encoding_name(h->enc));
     }
 
     // If everything was alright so far, notify the application of the XML declaration
@@ -954,7 +915,7 @@ xml_reader_start(xml_reader_t *h)
         xml_reader_invoke_callback(h, &cbparam);
 
         // Set operations for reading in the discovered encoding
-        strbuf_setops(h->buf_proc, &xml_reader_translation_ops, h);
+        strbuf_setops(h->buf_proc, &xml_reader_transcode_ops, h);
     }
 }
 
@@ -991,7 +952,48 @@ xml_lookahead(xml_reader_t *h, uint8_t *buf, size_t bufsz)
 
 /**
     Read until the specified condition; reallocate the buffer to accommodate
-    the token being read as necessary.
+    the token being read as necessary. Perform whitespace/EOL handling prescribed
+    by the XML spec; check normalization if needed.
+
+    End-of-Line handling:
+
+    For XML 1.0: To simplify the tasks of applications, the XML processor MUST
+    behave as if it normalized all line breaks in external parsed entities
+    (including the document entity) on input, before parsing, by translating
+    both the two-character sequence #xD #xA and any #xD that is not followed
+    by #xA to a single #xA character.
+
+    For XML 1.1: To simplify the tasks of applications, the XML processor MUST
+    behave as if it normalized all line breaks in external parsed entities
+    (including the document entity) on input, before parsing, by translating
+    all of the following to a single #xA character:
+    1. the two-character sequence #xD #xA
+    2. the two-character sequence #xD #x85
+    3. the single character #x85
+    4. the single character #x2028
+    5. any #xD character that is not immediately followed by #xA or #x85.
+
+    Normalization checking (XML 1.1 only):
+
+    All XML parsed entities (including document entities) SHOULD be fully
+    normalized as per the definition of B Definitions for Character
+    Normalization supplemented by the following definitions of relevant
+    constructs for XML:
+    1. The replacement text of all parsed entities
+    2. All text matching, in context, one of the following productions:
+       - CData
+       - CharData
+       - content
+       - Name
+       - Nmtoken
+
+    From this definition of normalization, it looks like the whole document
+    inside the root element is expected to be fully normalized. At the top
+    level, the following are expected to be normalized: PI targets,
+    element names and attribute names (but not attribute values!), and parts
+    of the document type definition. For now, though, we'll do simpler thing:
+    just signal to the application that a normalization error was detected,
+    regardless of its location.
 
     @param h Reader handle
     @param func Function to call to check for the condition
@@ -1609,10 +1611,16 @@ xml_reader_process_document_entity(xml_reader_t *h)
         }
     }
 
-    if ((h->flags & READER_FATAL) == 0 && !seen_element) {
-        // Unless reading was aborted, complain if we haven't encountered the root element
-        xml_reader_message(h, XMLERR(ERROR, XML, P_document),
-                "No root element");
+    // Skip checking for certain errors if reading was aborted prematurely
+    if ((h->flags & READER_FATAL) == 0) {
+        if (!seen_element) {
+            xml_reader_message(h, XMLERR(ERROR, XML, P_document),
+                    "No root element");
+        }
+        if (!encoding_clean(h->enc)) {
+            xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                    "Partial characters at end of input");
+        }
     }
 }
 

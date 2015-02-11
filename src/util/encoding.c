@@ -19,13 +19,19 @@ typedef STAILQ_HEAD(encoding_list_s, encoding_s) encoding_list_t;
 // that registration be done before using anything else in multithreaded context?
 static encoding_list_t encodings = STAILQ_HEAD_INITIALIZER(encodings);
 
+/// Opaque structure for encoding handle
+struct encoding_handle_s {
+    const encoding_t *enc;      /// Encoding being used
+    void *baton;                /// Baton (structure with encoding's runtime data)
+};
+
 /**
-    Search for an encoding by name
+    Search for a registered encoding by name.
 
     @param name Encoding name
     @return Encoding pointer, or NULL if not found
 */
-const encoding_t *
+static const encoding_t *
 encoding_search(const char *name)
 {
     const encoding_t *enc;
@@ -48,191 +54,309 @@ encoding_search(const char *name)
 void
 encoding_register(encoding_t *enc)
 {
-    if (!encoding_search(enc->name)) {
-        // TBD insert at head to give later registrations higher precedence?
-        STAILQ_INSERT_TAIL(&encodings, enc, link);
+    size_t i, j;
+    const encoding_t *encx;
+    const encoding_sig_t *sig, *sigx;
+
+    if (encoding_search(enc->name)) {
+        OOPS_ASSERT(0); // Already registered
     }
+
+    // Search for same detection signatures if there's a conflict
+    for (i = 0, sig = enc->sigs; i < enc->nsigs; i++, sig++) {
+        STAILQ_FOREACH(encx, &encodings, link) {
+            for (j = 0, sigx = encx->sigs; j < encx->nsigs; j++, sigx++) {
+                OOPS_ASSERT(sig->len != sigx->len
+                        || memcmp(sig->sig, sigx->sig, sig->len));
+            }
+        }
+    }
+
+    // Meta-encodings (those without transcoding method) cannot have
+    // signature strings; real encodings must preset the signatures
+    OOPS_ASSERT(enc->in || !enc->sigs);
+
+    // Non-zero size must be accompanied by non-NULL buffer
+    OOPS_ASSERT(!enc->nsigs || enc->sigs);
+
+    STAILQ_INSERT_HEAD(&encodings, enc, link);
 }
 
 /**
-    Check if two encodings are compatible.
+    Byte order detection, loosely based on XML1.1 App.E ("Autodetection
+    of Character Encodings"; non-normative).
 
-    @param enc1 First encoding
-    @param enc2 Second encoding
-    @return true if encodings are compatible, false otherwise
-*/
-bool
-encoding_compatible(const encoding_t *enc1, const encoding_t *enc2)
-{
-    if (enc1->enctype == ENCODING_T_UNKNOWN
-            || enc2->enctype != enc1->enctype) {
-        return false;
-    }
-    if (enc1->endian != ENCODING_E_ANY
-            && enc2->endian != ENCODING_E_ANY
-            && enc1->endian != enc2->endian) {
-        return false;
-    }
-    return true;
-}
-
-// Byte order detection, per XML1.1 App.E ("Autodetection of Character Encodings"; non-normative)
-
-// BOM-based encodings. Note the order: UTF32 must be checked first, or UTF-32LE becomes
-// indistinguishable from UTF-16LE (and UTF32-3412 indistinguishable from UTF-16BE).
-
-/// BOM encoding description
-typedef struct {
-    const char *encname;    ///< Detected encoding name
-    uint8_t sig[4];         ///< Signature in the first 1..4 bytes
-    uint32_t siglen;        ///< Length of the signature
-    bool is_bom;            ///< Consume the signature
-} bom_encdesc_t;
-
-/// List of "signatures"
-static const bom_encdesc_t bom_encodings[] = {
-    // Most reliable: have BOM symbol
-    { "UTF-32BE",       { 0x00, 0x00, 0xFE, 0xFF }, 4, true, },
-    { "UTF-32LE",       { 0xFF, 0xFE, 0x00, 0x00 }, 4, true, },
-    { "UTF-32-2143",    { 0x00, 0x00, 0xFF, 0xFE }, 4, true, },
-    { "UTF-32-3412",    { 0xFE, 0xFF, 0x00, 0x00 }, 4, true, },
-    { "UTF-16BE",       { 0xFE, 0xFF },             2, true, },
-    { "UTF-16LE",       { 0xFF, 0xFE },             2, true, },
-    { "UTF-8",          { 0xEF, 0xBB, 0xBF },       3, true, },
-
-    // Less reliable: assume '<' as the 1st character
-    { "UTF-32BE",       { 0x00, 0x00, 0x00, 0x3C }, 4, false, },
-    { "UTF-32LE",       { 0x3C, 0x00, 0x00, 0x00 }, 4, false, },
-    { "UTF-32-2143",    { 0x00, 0x00, 0x3C, 0x00 }, 4, false, },
-    { "UTF-32-3412",    { 0x00, 0x3C, 0x00, 0x00 }, 4, false, },
-    { "UTF-16BE",       { 0x00, 0x3C, },            2, false, },
-    { "UTF-16LE",       { 0x3C, 0x00, },            2, false, },
-    { "UTF-8",          { 0x3C, },                  1, false, },
-    { "IBM500",         { 0x4C, },                  1, false, },    // One of EBCDIC Latin-1 encodings
-
-    // TBD: Try looking for whitespace? #x20/#x9/#xD/#xA/#x85/#x2028 as first character?
-};
-
-/**
     Check for byte order (via either byte order mark presence, or how
     the characters from a known start string are arranged). Assumes
     an XML document (which, aside from a possible byte order mark,
     must start with a "<?xml" string).
 
-    @param buf Buffer; must contain at least 4 characters
-    @param had_bom Set to true if encoding detected via byte-order mark,
-        false otherwise
+    The difference from spec is that failing to determine BOM-based encoding,
+    we do not look for full XML declaration. Instead, look for any valid
+    character that can start an XML stream: < (which may open XMLDecl,
+    Comment, PI, doctypedecl or element); or any allowed whitespace.
+
+    @param buf Buffer to use for autodetection
+    @param bufsz Size of the data in @a buf
+    @param bom_len If encoding detected successfully, length of the BOM
+        is returned here
     @return Encoding name; or NULL if cannot be detected
 */
 const char *
-encoding_detect_byte_order(strbuf_t *buf, bool *had_bom)
+encoding_detect(const uint8_t *buf, size_t bufsz, size_t *bom_len)
 {
-    uint8_t first4[4] = { 0, 0, 0, 0 };
-    const bom_encdesc_t *b;
-    uint32_t i;
+    const encoding_t *enc;
+    const encoding_sig_t *sig;
+    size_t i, chklen;
 
-    // Lookahead: if there's no BOM, we must leave the content alone
-    strbuf_read(buf, first4, sizeof(first4), true);
-    for (i = 0, b = bom_encodings; i < sizeofarray(bom_encodings); i++, b++) {
-        if (!memcmp(first4, b->sig, b->siglen)) {
-            // Match! Consume the BOM, if any
-            *had_bom = b->is_bom;
-            if (b->is_bom) {
-                strbuf_read(buf, first4, b->siglen, false);
+    // Check longest signatures first
+    for (chklen = bufsz; chklen; chklen--) {
+        STAILQ_FOREACH(enc, &encodings, link) {
+            for (i = 0, sig = enc->sigs; i < enc->nsigs; i++, sig++) {
+                // On the first cycle, check all signatures at least as
+                // long as the autodetect buffer
+                if ((chklen == sig->len || (chklen == bufsz && sig->len > chklen))
+                        && !memcmp(buf, sig->sig, chklen)) {
+                    *bom_len = sig->bom ? sig->len : 0;
+                    return enc->name;
+                }
             }
-            return b->encname;
         }
     }
+    *bom_len = 0;
     return NULL;
 }
+
+// --- Encoding handle operations ---
+
+/**
+    Prepare for transcoding from a particular encoding.
+
+    @param name Name of the input encoding
+    @return Transcoder handle, or NULL if the encoding is not found
+*/
+encoding_handle_t *
+encoding_open(const char *name)
+{
+    const encoding_t *enc;
+    encoding_handle_t *hnd;
+
+    if ((enc = encoding_search(name)) == NULL) {
+        return NULL;
+    }
+    hnd = xmalloc(sizeof(encoding_handle_t));
+    hnd->enc = enc;
+    hnd->baton = NULL;
+    if (enc->baton_sz) {
+        hnd->baton = xmalloc(enc->baton_sz);
+        memset(hnd->baton, 0, enc->baton_sz);
+        if (enc->init) {
+            enc->init(hnd->baton, enc->data);
+        }
+    }
+    return hnd;
+}
+
+/**
+    Return a name of the encoding from a handle.
+
+    @param hnd Transcoder handle
+    @return Nmae of the encoding
+*/
+const char *
+encoding_name(encoding_handle_t *hnd)
+{
+    return hnd->enc->name;
+}
+
+/**
+    Check if the new encoding is compatible with current encoding.
+    If it is, close current and replace with new. If it is not, close new
+    and keep current.
+
+    @param phnd Pointer to current transcoder handle
+    @param hndnew New transcoder handle
+    @return true if switched successfully, false if encoding is
+        incompatible or current encoding has incomplete data in its
+        state or the new encoding is unknown.
+*/
+bool
+encoding_switch(encoding_handle_t **phnd, encoding_handle_t *hndnew)
+{
+    encoding_handle_t *hnd = *phnd;
+
+    if (hndnew->enc == hnd->enc) {
+        // Same encoding, nothing to do - even runtime data remains
+        encoding_close(hndnew);
+        return true;
+    }
+    if (hndnew->enc->enctype == ENCODING_T_UNKNOWN
+            || hnd->enc->enctype == ENCODING_T_UNKNOWN
+            || hndnew->enc->enctype != hnd->enc->enctype) {
+        encoding_close(hndnew);
+        return false; // Incompatible character order or size
+    }
+    if (hndnew->enc->endian != ENCODING_E_ANY
+            && hnd->enc->endian != ENCODING_E_ANY
+            && hndnew->enc->endian != hnd->enc->endian) {
+        encoding_close(hndnew);
+        return false; // Incompatible endianness
+    }
+    if (!hndnew->enc->in) {
+        // New encoding is a compatible meta-encoding (does not provide
+        // the actual transcoding method). Keep the old one, return success.
+        encoding_close(hndnew);
+        return true;
+    }
+    if (!encoding_clean(hnd)) {
+        // Not a good time: we're in a middle of a character
+        encoding_close(hndnew);
+        return false;
+    }
+
+    // Ok, switch.
+    encoding_close(hnd);
+    *phnd = hndnew;
+    return true;
+}
+
+/**
+    Free a transcoder handle.
+
+    @param hnd Transcoder handle
+    @return Nothing
+*/
+void
+encoding_close(encoding_handle_t *hnd)
+{
+    if (hnd->enc->destroy) {
+        hnd->enc->destroy(hnd->baton);
+    }
+    xfree(hnd->baton);
+    xfree(hnd);
+}
+
+/**
+    Transcode an input buffer (@a begin, @a end) to output buffer (@a pout,
+    @a end_out).
+
+    @param hnd Transcoder handle
+    @param begin Pointer to the start of the input buffer
+    @param end Pointer to the end of the input buffer
+    @param pout Start of the output buffer (updated to point to next unused dword)
+    @param end_out Pointer to the end of the output buffer
+    @return Number of bytes consumed from the input buffer
+*/
+size_t
+encoding_in(encoding_handle_t *hnd, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out)
+{
+    return hnd->enc->in(hnd->baton, begin, end, pout, end_out);
+}
+
+/**
+    Transcode from a string buffer, until either end of string buffer or
+    exhaustion of the output buffer space.
+
+    @param hnd Transcoder handle
+    @param buf Input string buffer
+    @param pout Start of the output buffer (updated to point to next unused dword)
+    @param end_out Pointer to the end of the output buffer
+    @return Number of bytes consumed from the input buffer
+*/
+size_t
+encoding_in_from_strbuf(encoding_handle_t *hnd, strbuf_t *buf,
+        uint32_t **pout, uint32_t *end_out)
+{
+    size_t len, total;
+    const void *begin, *end;
+
+    total = 0;
+    do {
+        if (!strbuf_getptr(buf, &begin, &end)) {
+            break; // No more input
+        }
+        len = encoding_in(hnd, begin, end, pout, end_out);
+        OOPS_ASSERT(len); // There's input data and output space
+        total += len;
+        strbuf_read(buf, NULL, len, false);
+    } while (*pout < end_out);
+
+    return total;
+}
+
+/**
+    Check if the encoding handle is in "clean" state - not in the middle
+    of a multibyte character.
+
+    @param hnd Transcoder handle
+    @return true if the handle is clean, false otherwise
+*/
+bool
+encoding_clean(encoding_handle_t *hnd)
+{
+    return hnd->enc->in_clean ? hnd->enc->in_clean(hnd->baton) : true;
+}
+
+
 
 /*
     Below, basic 1-, 2- and 4-byte encodings.
 */
 
-/**
-    Dummy initialization for encoding.
-
-    @param data Unused
-    @return Always NULL
-*/
-static void *
-init_dummy(const void *data)
-{
-    return NULL;
-}
-
-/**
-    Dummy destructor for encoding.
-
-    @param baton Unused
-    @return Nothing.
-*/
-static void
-destroy_dummy(void *baton)
-{
-}
-
 // --- Common functions for codepage-based encodings
 
 /**
-    Constructor for codepage encoding. Just return the codepage mapping table:
-    these encodings are stateless, so we do not need to modify it at runtime.
+    Constructor for codepage encoding.
 
+    @param baton Runtime data pointer
     @param data Pointer to mapping table
-    @return Same as @a data
-*/
-void *
-encoding_codepage_init(const void *data)
-{
-    return DECONST(data);
-}
-
-/**
-    Destructor for codepage encoding. Nothing to do - these encodings do
-    not allocate any resources.
+    @return Nothing
 */
 void
-encoding_codepage_destroy(void *baton)
+encoding_codepage_init(void *baton, const void *data)
 {
-    // no-op
+    encoding_codepage_baton_t *cpb = baton;
+
+    cpb->map = data;
 }
 
 /**
     Translation function for codepage encoding. Advance byte by byte and
     use the mapping table to obtain UCS-4 codepoints.
 
-    @param buf Input string buffer
-    @param baton Pointer to mapping table
-    @param pout Pointer to beginning of the output buffer; advanced as it's filled
-    @param end_out End of the output buffer
-    @return Nothing
+    @param baton Pointer to structure with mapping table
+    @param begin Pointer to the start of the input buffer
+    @param end Pointer to the end of the input buffer
+    @param pout Start of the output buffer (updated to point to next unused dword)
+    @param end_out Pointer to the end of the output buffer
+    @return Number of bytes consumed from the input buffer
 */
-void
-encoding_codepage_xlate(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
+size_t
+encoding_codepage_in(void *baton, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out)
 {
-    const uint32_t *cp = baton;
+    encoding_codepage_baton_t *cpb = baton;
     uint32_t *out = *pout;
-    const uint8_t *ptr;
-    const void *begin, *end;
+    const uint8_t *ptr = begin;
 
-    do {
-        if (!strbuf_getptr(buf, &begin, &end)) {
-            // No more input available.
-            break;
-        }
-        ptr = begin;
-        while (ptr < (const uint8_t *)end && out < end_out) {
-            *out++ = cp[*ptr++];
-        }
-        // Mark the number of bytes we consumed as read
-        strbuf_read(buf, NULL, ptr - (const uint8_t *)begin, false);
-    } while (out < end_out);
+    while (ptr < end && out < end_out) {
+        *out++ = cpb->map[*ptr++];
+    }
     *pout = out;
+    return ptr - begin;
 }
 
 
-// --- UTF-8 encoding: dummy functions, this library operates in UTF8 ---
+// --- UTF-8 encoding ---
+
+/// Runtime data for UTF-8 encoding
+typedef struct baton_utf8_s {
+    uint32_t val;           ///< Accumulated value
+    size_t len;             ///< Number of trailing characters expected
+    uint8_t mintrail;       ///< Minimum expected trailer byte
+    uint8_t maxtrail;       ///< Maximum expected trailer byte
+} baton_utf8_t;
 
 /// Length of the multibyte sequence (0: invalid starting char)
 static const uint8_t utf8_len[256] = {
@@ -248,90 +372,160 @@ static const uint8_t utf8_len[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0x90 - (continuation)
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xA0 - (continuation)
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xB0 - (continuation)
-    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0xC0 - 2-byte chars
+    0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0xC0 - 2-byte chars
     2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0xD0 - 2-byte chars
     3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, // 0xE0 - 3-byte chars
     4, 4, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xF0 - 4-byte chars up to 0x10FFFF
 };
 
 /**
+    Minimal next trailing byte (see Unicode table 3-7, Well-Formed
+    UTF-8 Byte Sequences). These values stem from the requirement that
+    the shortest UTF-8 sequence is used to represent a code point.
+*/
+static const uint8_t utf8_mintrail[256] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+    0xA0, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+    0x90, 0x80, 0x80, 0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+/**
+    Maximal next trailing byte (see Unicode table 3-7, Well-Formed
+    UTF-8 Byte Sequences). These values stem from the requirement that
+    the shortest UTF-8 sequence is used to represent a code point.
+*/
+static const uint8_t utf8_maxtrail[256] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF,
+    0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF,
+    0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0xBF, 0x9F, 0xBF, 0xBF,
+    0xBF, 0xBF, 0xBF, 0xBF, 0x8F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+/**
     Perform translation of UTF-8 encoding to UCS-4 code points.
 
-    @param buf Input string buffer
-    @param baton Unused
-    @param pout Pointer to beginning of the output buffer; advanced as it's filled
-    @param end_out End of the output buffer
-    @return Nothing
+    @param baton Pointer to structure with mapping table
+    @param begin Pointer to the start of the input buffer
+    @param end Pointer to the end of the input buffer
+    @param pout Start of the output buffer (updated to point to next unused dword)
+    @param end_out Pointer to the end of the output buffer
+    @return Number of bytes consumed from the input buffer
 */
-static void
-xlate_UTF8(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
+static size_t
+in_UTF8(void *baton, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out)
 {
+    baton_utf8_t utf8b; // Local copy to avoid accessing via pointer
     uint32_t *out = *pout;
-    uint32_t val;
-    const void *begin, *end;
-    const uint8_t *ptr;
+    const uint8_t *ptr = begin;
     uint8_t tmp;
-    size_t len;
 
-    len = 0;
-    do {
-        if (!strbuf_getptr(buf, &begin, &end)) {
-            // No more input available. Check if we're in the middle of the sequence
-            if (len) {
-                // TBD need to pass this to higher level - how?
-                OOPS_ASSERT(0);
-            }
-            break;
-        }
-        ptr = begin;
-        while (out < end_out && ptr < (const uint8_t *)end) {
-            if (!len) {
-                // New character
-                val = *ptr++;
-                if ((len = utf8_len[val]) == 0) {
-                    // TBD need to pass this to higher level - how?
-                    OOPS_ASSERT(0);   // Bad byte sequence
-                }
-                else if (len > 1) {
-                    // Multibyte, mask out length encoding
-                    val &= 0x7F >> len;
-                }
-                len--;  // One byte has been read
-            }
-            else {
-                // Continuing a previous character
-                val <<= 6;
-                tmp = *ptr++;
-                if (tmp < 0x80 || tmp > 0xBF) {
-                    // TBD not a valid continuation character - signal an error
-                    // TBD per Unicode 5.22 (best substitution practices), FFFD should be
-                    // substituted for invalid part (seen so far) and byte that broken
-                    // the sequence should start a new sequence.
-                }
-                val |= tmp & 0x3F; // Continuation: 6 LS bits
-                len--;
-            }
-            if (!len) {
-                // Character complete
-                *out++ = val;
-            }
-        }
-        // Mark the number of bytes we consumed as read
-        strbuf_read(buf, NULL, ptr - (const uint8_t *)begin, false);
-    } while (out < end_out);
+    // TBD add encoding tests.
 
+    // Unicode sections 3.9 and 5.22 describe best practices when substituting
+    // with Unicode replacement character, U+FFFD. In brief, advance read pointer
+    // to the first byte where the byte sequence becomes invalid, but at least
+    // advance by one byte. I.e. C0 AF -> FFFD FFFD, but F4 80 80 41 -> FFFD 0041.
+    memcpy(&utf8b, baton, sizeof(baton_utf8_t));
+    while (ptr < end && out < end_out) {
+        if (!utf8b.len) {
+            // New character
+            utf8b.val = *ptr++; // .. always advanced ("at least by 1 byte")
+            if ((utf8b.len = utf8_len[utf8b.val]) == 0) {
+                // Invalid starter byte
+                *out++ = UNICODE_REPLACEMENT_CHARACTER;
+                continue;
+            }
+            else if (utf8b.len > 1) {
+                // Multibyte, mask out length encoding
+                utf8b.mintrail = utf8_mintrail[utf8b.val];
+                utf8b.maxtrail = utf8_maxtrail[utf8b.val];
+                utf8b.val &= 0x7F >> utf8b.len;
+            }
+            utf8b.len--;  // One byte has been read
+        }
+        else {
+            tmp = *ptr; // Do not advance yet
+            if (tmp < utf8b.mintrail || tmp > utf8b.maxtrail) {
+                // Invalid trailer byte; restart decoding at current ptr
+                *out++ = UNICODE_REPLACEMENT_CHARACTER;
+                continue;
+            }
+            // Got next 6 bits. After the first trailer, full range (80..BF) is allowed
+            utf8b.val <<= 6;
+            utf8b.val |= (tmp & 0x3F);
+            utf8b.mintrail = 0x80;
+            utf8b.maxtrail = 0xBF;
+            utf8b.len--;
+            ptr++;
+        }
+        if (!utf8b.len) {
+            // Have a complete UCS-4 character
+            *out++ = utf8b.val;
+        }
+    }
+    memcpy(baton, &utf8b, sizeof(baton_utf8_t));
     *pout = out;
+    return ptr - begin;
 }
+
+/**
+    Check if UTF-8 transcoder is not in a middle of a byte sequence.
+
+    @param baton Runtime data structure
+    @return true if the state is clean (not in a middle of a sequence)
+*/
+static bool
+clean_utf8(void *baton)
+{
+    baton_utf8_t *utf8b = baton;
+
+    return !utf8b->len;
+}
+
+static encoding_sig_t sig_UTF8[] = {
+    ENCODING_SIG(true,  0xEF, 0xBB, 0xBF), // BOM
+    ENCODING_SIG(false, 0x3C), // <
+    ENCODING_SIG(false, 0x09), // Tab
+    ENCODING_SIG(false, 0x0A), // LF
+    ENCODING_SIG(false, 0x0D), // CR
+    ENCODING_SIG(false, 0x20), // Space
+};
 
 static encoding_t enc_UTF8 = {
     .name = "UTF-8",
     .enctype = ENCODING_T_UTF8,
-    .init = init_dummy,
-    .destroy = destroy_dummy,
-    .xlate = xlate_UTF8,
+    .baton_sz = sizeof(baton_utf8_t),
+    .sigs = sig_UTF8,
+    .nsigs = sizeofarray(sig_UTF8),
+    .in = in_UTF8,
+    .in_clean = clean_utf8,
 };
-
-// --- UTF-16LE encoding: replace 16-bit encoding with UTF-8 multibytes
 
 // TBD: implement optimized versions if byte order matches host?
 // TBD: move to <util/defs.h> or new <util/byteorder.h>
@@ -348,20 +542,6 @@ le16tohost(const uint8_t *p)
     return (p[1] << 8) | p[0];
 }
 
-#define FUNC xlate_UTF16LE
-#define TOHOST le16tohost
-#include "encoding-utf16.c"
-
-static encoding_t enc_UTF16LE = {
-    .name = "UTF-16LE",
-    .enctype = ENCODING_T_UTF16,
-    .endian = ENCODING_E_LE,
-    .init = init_dummy,
-    .destroy = destroy_dummy,
-    .xlate = xlate_UTF16LE,
-};
-
-
 /**
     Translate next two bytes to 16-bit value; big-endian way.
 
@@ -374,17 +554,80 @@ be16tohost(const uint8_t *p)
     return (p[0] << 8) | p[1];
 }
 
-#define FUNC xlate_UTF16BE
+// --- UTF-16 encodings ---
+
+/// Runtime data for UTF-8 encoding
+typedef struct baton_utf16_s {
+    uint32_t val;           ///< Accumulated value
+    uint32_t surrogate;     ///< Surrogate value previously read
+    uint8_t tmp[2];         ///< Temporary buffer if a unit straddles block boundary
+    bool straddle;          ///< Previous block didn't end on unit boundary
+    bool val_valid;         ///< On previous call, .val did not fit into a buffer
+} baton_utf16_t;
+
+/**
+    Check if current UTF-16 transcoder state is not in a middle of a word, not between
+    surrogates and does not have a cached value (that was held back due to invalid
+    surrogate in the previous call).
+
+    @param baton UTF-16 runtime data
+    @return true if transcoder is in clean state.
+*/
+static bool
+clean_utf16(void *baton)
+{
+    baton_utf16_t *utf16b = baton;
+
+    return !utf16b->straddle && !utf16b->surrogate && !utf16b->val_valid;
+}
+
+#define FUNC in_UTF16LE
+#define TOHOST le16tohost
+#include "encoding-utf16.c"
+
+static encoding_sig_t sig_UTF16LE[] = {
+    ENCODING_SIG(true,  0xFF, 0xFE), // BOM
+    ENCODING_SIG(false, 0x3C, 0x00), // <
+    ENCODING_SIG(false, 0x09, 0x00), // Tab
+    ENCODING_SIG(false, 0x0A, 0x00), // LF
+    ENCODING_SIG(false, 0x0D, 0x00), // CR
+    ENCODING_SIG(false, 0x20, 0x00), // Space
+};
+
+static encoding_t enc_UTF16LE = {
+    .name = "UTF-16LE",
+    .enctype = ENCODING_T_UTF16,
+    .endian = ENCODING_E_LE,
+    .baton_sz = sizeof(baton_utf16_t),
+    .sigs = sig_UTF16LE,
+    .nsigs = sizeofarray(sig_UTF16LE),
+    .in = in_UTF16LE,
+    .in_clean = clean_utf16,
+};
+
+
+#define FUNC in_UTF16BE
 #define TOHOST be16tohost
 #include "encoding-utf16.c"
+
+static encoding_sig_t sig_UTF16BE[] = {
+    ENCODING_SIG(true,  0xFE, 0xFF), // BOM
+    ENCODING_SIG(false, 0x00, 0x3C), // <
+    ENCODING_SIG(false, 0x00, 0x09), // Tab
+    ENCODING_SIG(false, 0x00, 0x0A), // LF
+    ENCODING_SIG(false, 0x00, 0x0D), // CR
+    ENCODING_SIG(false, 0x00, 0x20), // Space
+};
 
 static encoding_t enc_UTF16BE = {
     .name = "UTF-16BE",
     .enctype = ENCODING_T_UTF16,
     .endian = ENCODING_E_BE,
-    .init = init_dummy,
-    .destroy = destroy_dummy,
-    .xlate = xlate_UTF16BE,
+    .baton_sz = sizeof(baton_utf16_t),
+    .sigs = sig_UTF16BE,
+    .nsigs = sizeofarray(sig_UTF16BE),
+    .in = in_UTF16BE,
+    .in_clean = clean_utf16,
 };
 
 /// Meta-encoding: UTF-16 with any endianness, as detected
@@ -394,16 +637,103 @@ static encoding_t enc_UTF16 = {
     .endian = ENCODING_E_ANY,
 };
 
+static size_t
+utf32_in(void *baton, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out)
+{
+    // TBD: UTF-32 encodings not implemented yet
+    OOPS_ASSERT(0);
+    return 0;
+}
+static encoding_sig_t sig_UTF32LE[] = {
+    ENCODING_SIG(true,  0xFF, 0xFE, 0x00, 0x00), // BOM
+    ENCODING_SIG(false, 0x3C, 0x00, 0x00, 0x00), // <
+    ENCODING_SIG(false, 0x09, 0x00, 0x00, 0x00), // Tab
+    ENCODING_SIG(false, 0x0A, 0x00, 0x00, 0x00), // LF
+    ENCODING_SIG(false, 0x0D, 0x00, 0x00, 0x00), // CR
+    ENCODING_SIG(false, 0x20, 0x00, 0x00, 0x00), // Space
+};
+static encoding_t enc_UTF32LE = {
+    .name = "UTF-32LE",
+    .enctype = ENCODING_T_UTF32,
+    .endian = ENCODING_E_LE,
+    .sigs = sig_UTF32LE,
+    .nsigs = sizeofarray(sig_UTF32LE),
+    .in = utf32_in,
+};
+
+static encoding_sig_t sig_UTF32BE[] = {
+    ENCODING_SIG(true,  0x00, 0x00, 0xFE, 0xFF), // BOM
+    ENCODING_SIG(false, 0x00, 0x00, 0x00, 0x3C), // <
+    ENCODING_SIG(false, 0x00, 0x00, 0x00, 0x09), // Tab
+    ENCODING_SIG(false, 0x00, 0x00, 0x00, 0x0A), // LF
+    ENCODING_SIG(false, 0x00, 0x00, 0x00, 0x0D), // CR
+    ENCODING_SIG(false, 0x00, 0x00, 0x00, 0x20), // Space
+};
+static encoding_t enc_UTF32BE = {
+    .name = "UTF-32BE",
+    .enctype = ENCODING_T_UTF32,
+    .endian = ENCODING_E_BE,
+    .sigs = sig_UTF32BE,
+    .nsigs = sizeofarray(sig_UTF32BE),
+    .in = utf32_in,
+};
+
+static encoding_sig_t sig_UTF32_2143[] = {
+    ENCODING_SIG(true,  0x00, 0x00, 0xFF, 0xFE), // BOM
+    ENCODING_SIG(false, 0x00, 0x00, 0x3C, 0x00), // <
+    ENCODING_SIG(false, 0x00, 0x00, 0x09, 0x00), // Tab
+    ENCODING_SIG(false, 0x00, 0x00, 0x0A, 0x00), // LF
+    ENCODING_SIG(false, 0x00, 0x00, 0x0D, 0x00), // CR
+    ENCODING_SIG(false, 0x00, 0x00, 0x20, 0x00), // Space
+};
+static encoding_t enc_UTF32_2143 = {
+    .name = "UTF-32-2143",
+    .enctype = ENCODING_T_UTF32,
+    .endian = ENCODING_E_2143,
+    .sigs = sig_UTF32_2143,
+    .nsigs = sizeofarray(sig_UTF32_2143),
+    .in = utf32_in,
+};
+
+static encoding_sig_t sig_UTF32_3412[] = {
+    ENCODING_SIG(true,  0xFE, 0xFF, 0x00, 0x00), // BOM
+    ENCODING_SIG(false, 0x00, 0x3C, 0x00, 0x00), // <
+    ENCODING_SIG(false, 0x00, 0x09, 0x00, 0x00), // Tab
+    ENCODING_SIG(false, 0x00, 0x0A, 0x00, 0x00), // LF
+    ENCODING_SIG(false, 0x00, 0x0D, 0x00, 0x00), // CR
+    ENCODING_SIG(false, 0x00, 0x20, 0x00, 0x00), // Space
+};
+static encoding_t enc_UTF32_3412 = {
+    .name = "UTF-32-3412",
+    .enctype = ENCODING_T_UTF32,
+    .endian = ENCODING_E_3412,
+    .sigs = sig_UTF32_3412,
+    .nsigs = sizeofarray(sig_UTF32_3412),
+    .in = utf32_in,
+};
+
+static encoding_t enc_UTF32 = {
+    .name = "UTF-32",
+    .enctype = ENCODING_T_UTF32,
+    .endian = ENCODING_E_ANY,
+};
+
 /**
     Register built-in encodings.
 
     @return Nothing
 */
 static void __constructor
-encodings_autoinit(void)
+encoding_init_builtin(void)
 {
     encoding_register(&enc_UTF8);
     encoding_register(&enc_UTF16LE);
     encoding_register(&enc_UTF16BE);
     encoding_register(&enc_UTF16);
+    encoding_register(&enc_UTF32BE);
+    encoding_register(&enc_UTF32LE);
+    encoding_register(&enc_UTF32_2143);
+    encoding_register(&enc_UTF32_3412);
+    encoding_register(&enc_UTF32);
 }

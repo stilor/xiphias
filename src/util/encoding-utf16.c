@@ -2,79 +2,90 @@
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
 /// Helper macro to store next character; handles surrogate pairs
-#define NEXTCHAR_UTF16 \
-        if (surrogate) { \
-            if ((val & 0xFC00) != 0xDC00) { \
-                /* TBD need to pass this upstream - how? */ \
-                OOPS_ASSERT(0); /* invalid byte sequence */ \
+#define NEXTCHAR_UTF16(b, o, e) \
+        do { \
+            uint32_t surrogate_bits = b.val & 0xFC00; \
+            if (b.surrogate) { \
+                /* Expecting low surrogate */ \
+                if (surrogate_bits == 0xDC00) { \
+                    /* Found low surrogate; store combined value */ \
+                    /* 0x360DC00 is ((0xD800 << 10) | 0xDC00) */ \
+                    *o++ = 0x010000 + ((b.surrogate << 10) ^ b.val ^ 0x360DC00); \
+                    b.surrogate = 0; \
+                    break; \
+                } \
+                else { \
+                    /* Invalid value: store replacement, will need to re-parse value normally */ \
+                    *o++ = UNICODE_REPLACEMENT_CHARACTER; \
+                    b.surrogate = 0; \
+                    if (o == e) { \
+                        /* No more space; will reparse b.val in the next call */ \
+                        b.val_valid = true; \
+                        break; \
+                    } \
+                } \
             } \
-            /* 0x360DC00 is ((0xD800 << 10) | 0xDC00) */ \
-            *out++ = 0x010000 + ((surrogate << 10) ^ val ^ 0x360DC00); \
-            surrogate = 0; \
-        } \
-        else if ((val & 0xFC00) == 0xD800) { \
-            surrogate = val; \
-        } \
-        else { \
-            *out++ = val; \
-        }
+            if (surrogate_bits == 0xD800) { \
+                /* high surrogate - store and expect low surrogate as next unit */ \
+                b.surrogate = b.val; \
+            } \
+            else if (surrogate_bits == 0xDC00) { \
+                *o++ = UNICODE_REPLACEMENT_CHARACTER; \
+            } \
+            else { \
+                *o++ = b.val; \
+            } \
+        } while (0)
 
 /** @file
     Helper for two flavors of UTF-16 implementation.
     Expects FUNC, TOHOST macros to be defined.
 
-    @param buf Input string buffer
-    @param baton Arbitrary argument for transcoder
-    @param pout Pointer to the beginning of the output buffer; advanced to next writable byte
+    @param baton Pointer to structure with mapping table
+    @param begin Pointer to the start of the input buffer
+    @param end Pointer to the end of the input buffer
+    @param pout Start of the output buffer (updated to point to next unused dword)
     @param end_out Pointer to the end of the output buffer
-    @return Nothing
+    @return Number of bytes consumed from the input buffer
 */
-static void
-FUNC(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out)
+static size_t
+FUNC(void *baton, const uint8_t *begin, const uint8_t *end, uint32_t **pout, uint32_t *end_out)
 {
+    baton_utf16_t utf16b; // Local copy to avoid access via pointer
     uint32_t *out = *pout;
-    uint8_t tmp[2]; // Temporary buffer if a char straddles block boundary
-    uint32_t surrogate, val;
-    const void *begin, *end;
-    const uint8_t *ptr;
-    size_t needmore;
+    const uint8_t *ptr = begin;
 
-    surrogate = 0;
-    needmore = 0;
-    do {
-        if (!strbuf_getptr(buf, &begin, &end)) {
-            // No more input available. Check if we're in the middle of the sequence
-            if (surrogate || needmore) {
-                // TBD need to pass this upstream - how?
-                OOPS_ASSERT(0);
-            }
-            break;
-        }
-        ptr = begin;
+    memcpy(&utf16b, baton, sizeof(baton_utf16_t));
 
-        if (needmore) { // incomplete character in previous block, finish it
-            tmp[1] = *ptr++;
-            needmore = 0;
-            val = TOHOST(tmp);
-            NEXTCHAR_UTF16;
-        }
-        // Reads 2 characters at a time - thus 'end - 1'
-        while (out < end_out && ptr < (const uint8_t *)end - 1) {
-            val = TOHOST(ptr);
-            NEXTCHAR_UTF16;
-            ptr += 2;
-        }
-        if (out < end_out && ptr < (const uint8_t *)end) {
-            // Incomplete character remains in the block - save for next block
-            tmp[0] = *ptr++;
-            needmore = 1;
-        }
-
-        // Mark the number of bytes we consumed as read
-        strbuf_read(buf, NULL, ptr - (const uint8_t *)begin, false);
-    } while (out < end_out);
-
+    // Re-parse value that did not fit on last call (in case of invalid surrogate pair,
+    // e.g. <D800 0400>, we need to store 2 codepoints: U+FFFD U+0400. If the output buffer
+    // only had space for one, the other is kept in utf16b.val, and utf16b.surrogate is
+    // cleared, so this invocation of NEXTCHAR_UTF16 stores at most one codepoint.
+    if (utf16b.val_valid && out < end_out) {
+        utf16b.val_valid = false;
+        NEXTCHAR_UTF16(utf16b, out, end_out);
+    }
+    // Finish incomplete unit from previous block, if needed
+    if (utf16b.straddle && ptr < end && out < end_out) {
+        utf16b.straddle = false;
+        utf16b.tmp[1] = *ptr++;
+        utf16b.val = TOHOST(utf16b.tmp);
+        NEXTCHAR_UTF16(utf16b, out, end_out);
+    }
+    // Reads 2 characters at a time - thus 'end - 1'
+    while (ptr < end - 1 && out < end_out) {
+        utf16b.val = TOHOST(ptr);
+        ptr += 2;
+        NEXTCHAR_UTF16(utf16b, out, end_out);
+    }
+    // If stopped one byte short of end - store it for the next call
+    if (ptr == end - 1) {
+        utf16b.tmp[0] = *ptr++;
+        utf16b.straddle = true;
+    }
+    memcpy(baton, &utf16b, sizeof(baton_utf16_t));
     *pout = out;
+    return ptr - begin;
 }
 
 #undef NEXTCHAR_UTF16

@@ -30,24 +30,41 @@ enum encoding_endian_e {
     ENCODING_E_3412,                ///< Unusual byte order (3412)
 };
 
+/// "Signatures" of the encodings - Byte-order marks + XML specific start strings
+typedef struct encoding_sig_s {
+    const uint8_t *sig;             ///< Byte signature
+    size_t len;                     ///< Length of the signature
+    bool bom;                       ///< Is this signature a byte-order mark?
+} encoding_sig_t;
+
+/// Initializer for a list of encoding signatures
+#define ENCODING_SIG(b, ...) \
+{ \
+    .bom = (b), \
+    .sig = (const uint8_t []){ __VA_ARGS__ }, \
+    .len = sizeof((const uint8_t []){ __VA_ARGS__ }), \
+}
+
 /// Encoding structure
 typedef struct encoding_s {
+    // TBD move link to a separate structure local to encoding.c - then all encodings can be declared as const
     STAILQ_ENTRY(encoding_s) link;  ///< Linked list pointers
     const char *name;               ///< Encoding name
     enum encoding_compat_e enctype; ///< Encoding type
     enum encoding_endian_e endian;  ///< Endianness
     const void *data;               ///< Encoding-specific data (e.g. equivalence chart)
-
-
-    // TBD: need a set of functions for output, too
+    size_t baton_sz;                ///< Size of the baton data
+    const encoding_sig_t *sigs;     ///< Signatures for encoding autodetection
+    size_t nsigs;                   ///< Number of known signatures
 
     /**
         Initialize a translator.
 
+        @param baton Baton (argument passed to in/destroy methods)
         @param data Encoding-specific data
-        @return Baton (argument passed to xlate/destroy methods)
+        @return
     */
-    void *(*init)(const void *data);
+    void (*init)(void *baton, const void *data);
 
     /**
         Destroy a translator.
@@ -58,26 +75,57 @@ typedef struct encoding_s {
     void (*destroy)(void *baton);
 
     /**
-        Perform the translation of some more content (up to the end of current
-        block in the outbut buffer).
+        Perform the translation of some input.
 
-        @param buf Buffer to read from
         @param baton Pointer returned by initializer
+        @param begin Start of the input buffer
+        @param end End of the input buffer
         @param out Output UCS-4 buffer (adjusted to the next unused character)
         @param end_out Pointer at the next byte past the end of output buffer
-        @return None
+        @return Number of bytes consumed in input buffer
     */
-    void (*xlate)(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out);
+    size_t (*in)(void *baton, const uint8_t *begin, const uint8_t *end,
+            uint32_t **pout, uint32_t *end_out);
+
+    /**
+        Check if the current state of baton is "clean" - i.e., contains
+        no partially decoded characters.
+
+        @param baton Pointer returned by initializer
+        @return True if no mid-character in the runtime structure
+    */
+    bool (*in_clean)(void *baton);
+
+    // TBD: need a set of functions for output, too (or just out() method)
 } encoding_t;
 
-void encoding_register(encoding_t *enc);
-const encoding_t *encoding_search(const char *name);
-bool encoding_compatible(const encoding_t *enc1, const encoding_t *enc2);
-const char *encoding_detect_byte_order(strbuf_t *buf, bool *had_bom);
+/// Handle for an open encoding
+typedef struct encoding_handle_s encoding_handle_t;
 
-void *encoding_codepage_init(const void *data);
-void encoding_codepage_destroy(void *baton);
-void encoding_codepage_xlate(strbuf_t *buf, void *baton, uint32_t **pout, uint32_t *end_out);
+// General encoding database functions
+void encoding_register(encoding_t *enc);
+const char *encoding_detect(const uint8_t *buf, size_t bufsz, size_t *pbom_len);
+
+// Handling transcoding
+encoding_handle_t *encoding_open(const char *name);
+const char *encoding_name(encoding_handle_t *hnd);
+bool encoding_switch(encoding_handle_t **hndcur, encoding_handle_t *hndnew);
+void encoding_close(encoding_handle_t *hnd);
+size_t encoding_in(encoding_handle_t *hnd, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out);
+size_t encoding_in_from_strbuf(encoding_handle_t *hnd, strbuf_t *buf,
+        uint32_t **pout, uint32_t *end_out);
+bool encoding_clean(encoding_handle_t *hnd);
+
+// Implementation of codepage-based encodings
+typedef struct encoding_codepage_baton_s {
+    const uint32_t *map;        ///< Mapping from single byte to UCS-4
+} encoding_codepage_baton_t;
+
+void encoding_codepage_init(void *baton, const void *data);
+size_t encoding_codepage_in(void *baton, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out);
+bool encoding_codepage_in_clean(void *baton);
 
 /// Maximum number of bytes to encode a character in UTF-8
 #define MAX_UTF8_LEN    4
