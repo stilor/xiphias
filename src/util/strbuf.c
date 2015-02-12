@@ -156,7 +156,7 @@ strbuf_delete(strbuf_t *buf)
 {
     strblk_t *blk;
 
-    if (buf->ops) {
+    if (buf->ops && buf->ops->destroy) {
         buf->ops->destroy(buf, buf->arg);
     }
     while ((blk = STAILQ_FIRST(&buf->content)) != NULL) {
@@ -177,7 +177,7 @@ strbuf_delete(strbuf_t *buf)
 void
 strbuf_setops(strbuf_t *buf, const strbuf_ops_t *ops, void *arg)
 {
-    if (buf->ops) {
+    if (buf->ops && buf->ops->destroy) {
         buf->ops->destroy(buf, buf->arg);
     }
     buf->ops = ops;
