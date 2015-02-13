@@ -131,7 +131,7 @@ size_t encoding_in_from_strbuf(encoding_handle_t *hnd, strbuf_t *buf,
         uint32_t **pout, uint32_t *end_out);
 bool encoding_clean(encoding_handle_t *hnd);
 
-// Implementation of codepage-based encodings
+/// Implementation of codepage-based encodings
 typedef struct encoding_codepage_baton_s {
     const uint32_t *map;        ///< Mapping from single byte to UCS-4
 } encoding_codepage_baton_t;
@@ -139,7 +139,6 @@ typedef struct encoding_codepage_baton_s {
 void encoding_codepage_init(void *baton, const void *data);
 size_t encoding_codepage_in(void *baton, const uint8_t *begin, const uint8_t *end,
         uint32_t **pout, uint32_t *end_out);
-bool encoding_codepage_in_clean(void *baton);
 
 /// Maximum number of bytes to encode a character in UTF-8
 #define MAX_UTF8_LEN    4

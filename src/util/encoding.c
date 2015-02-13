@@ -21,8 +21,8 @@ static encoding_list_t encodings = STAILQ_HEAD_INITIALIZER(encodings);
 
 /// Opaque structure for encoding handle
 struct encoding_handle_s {
-    const encoding_t *enc;      /// Encoding being used
-    void *baton;                /// Baton (structure with encoding's runtime data)
+    const encoding_t *enc;      ///< Encoding being used
+    void *baton;                ///< Baton (structure with encoding's runtime data)
 };
 
 /**
@@ -48,7 +48,7 @@ encoding_search(const char *name)
 /**
     Register an encoding.
 
-    @param enc Encoding being registered
+    @param lnk Link structure with encoding being registered
     @return None
 */
 void
