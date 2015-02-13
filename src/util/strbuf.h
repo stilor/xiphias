@@ -47,6 +47,7 @@ void strbuf_delete(strbuf_t *buf);
 void strbuf_setops(strbuf_t *buf, const strbuf_ops_t *ops, void *arg);
 
 // Reading/writing
+void strbuf_clear(strbuf_t *buf);
 size_t strbuf_rptr(strbuf_t *buf, const void **pbegin, const void **pend);
 size_t strbuf_wptr(strbuf_t *buf, void **pbegin, void **pend);
 void strbuf_radvance(strbuf_t *buf, size_t sz);

@@ -97,6 +97,18 @@ strbuf_setops(strbuf_t *buf, const strbuf_ops_t *ops, void *arg)
 }
 
 /**
+    Clear the contents of a string buffer.
+
+    @param buf Buffer to clear
+    @return Nothing
+*/
+void
+strbuf_clear(strbuf_t *buf)
+{
+    buf->roffs = buf->rsize = 0;
+}
+
+/**
     Get pointers to start/end of a current contiguous readable block.
 
     @param buf Buffer

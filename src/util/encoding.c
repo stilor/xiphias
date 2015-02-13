@@ -275,6 +275,7 @@ encoding_in_from_strbuf(encoding_handle_t *hnd, strbuf_t *buf,
 {
     size_t len, total;
     const void *begin, *end;
+    uint32_t *out = *pout;
 
     total = 0;
     do {
@@ -282,7 +283,13 @@ encoding_in_from_strbuf(encoding_handle_t *hnd, strbuf_t *buf,
             break; // No more input
         }
         len = encoding_in(hnd, begin, end, pout, end_out);
-        OOPS_ASSERT(len); // There's input data and output space
+
+        /*
+            Make sure we advance in some way: encoding may consume some input
+            (either to produce output, or store it in internal state) and/or
+            produce some output (from input, or from stored internal state).
+        */
+        OOPS_ASSERT(len || out != *pout);
         total += len;
         strbuf_radvance(buf, len);
     } while (*pout < end_out);
@@ -479,6 +486,7 @@ in_UTF8(void *baton, const uint8_t *begin, const uint8_t *end,
             if (tmp < utf8b.mintrail || tmp > utf8b.maxtrail) {
                 // Invalid trailer byte; restart decoding at current ptr
                 *out++ = UNICODE_REPLACEMENT_CHARACTER;
+                utf8b.len = 0;
                 continue;
             }
             // Got next 6 bits. After the first trailer, full range (80..BF) is allowed
