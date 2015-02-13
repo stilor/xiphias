@@ -278,13 +278,13 @@ encoding_in_from_strbuf(encoding_handle_t *hnd, strbuf_t *buf,
 
     total = 0;
     do {
-        if (!strbuf_getptr(buf, &begin, &end)) {
+        if (!strbuf_rptr(buf, &begin, &end)) {
             break; // No more input
         }
         len = encoding_in(hnd, begin, end, pout, end_out);
         OOPS_ASSERT(len); // There's input data and output space
         total += len;
-        strbuf_read(buf, NULL, len, false);
+        strbuf_radvance(buf, len);
     } while (*pout < end_out);
 
     return total;

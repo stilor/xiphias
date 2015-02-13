@@ -726,57 +726,28 @@ out:
     @param arg Pointer to state structure with 
     @return None
 */
-//TBD
+// TBD implement lookahead
 
 /**
     Fetch more data from the transcoder.
 
-    @param buf Input string buffer 
     @param arg Reader handle (cast to void pointer)
     @return None
 */
-static void
-xml_reader_transcode_op_input(strbuf_t *buf, void *arg)
+static size_t
+xml_reader_transcode_op_more(void *arg, void *begin, size_t sz)
 {
-#define READ_BLOCK_CHARS   4096    // TBD increase?
     xml_reader_t *h = arg;
     uint32_t *bptr, *cptr, *eptr;
-    strblk_t *blk;
 
-    blk = strblk_new(READ_BLOCK_CHARS * sizeof(uint32_t));
-    cptr = bptr = strblk_getptr(blk);
-    eptr = bptr + READ_BLOCK_CHARS;
+    bptr = cptr = begin;
+    eptr = bptr + sz / sizeof(uint32_t);
     encoding_in_from_strbuf(h->enc, h->buf_raw, &cptr, eptr);
-    if (cptr != eptr) {
-        strbuf_setf(buf, BUF_LAST, BUF_LAST); // This input, if any, is final
-    }
-    if (cptr != bptr) {
-        // Fetched something
-        strblk_trim(blk, (cptr - bptr) * sizeof(uint32_t));
-        strbuf_append_block(buf, blk);
-    }
-    else {
-        // EOF before we fetched anything
-        strblk_delete(blk);
-    }
-}
-
-/**
-    Clean up no longer used XML input buffer.
-
-    @param buf Destination string buffer 
-    @param arg Reader handle, converted to void pointer
-    @return None
-*/
-static void
-xml_reader_transcode_op_destroy(strbuf_t *buf, void *arg)
-{
-    // No-op
+    return (cptr - bptr) * sizeof(uint32_t);
 }
 
 static const strbuf_ops_t xml_reader_transcode_ops = {
-    .input = xml_reader_transcode_op_input,
-    .destroy = xml_reader_transcode_op_destroy,
+    .more = xml_reader_transcode_op_more,
 };
 
 /**
@@ -792,6 +763,7 @@ xml_reader_start(xml_reader_t *h)
     uint8_t adbuf[4];       // 4 bytes for encoding detection, per XML spec suggestion
     uint32_t xmldecl[6];
     size_t i, bom_len, adsz;
+    void *wbegin, *wend;
     const char *encname;
     xml_reader_cbparam_t cbparam = {
         .cbtype = XML_READER_CB_XMLDECL,
@@ -808,7 +780,8 @@ xml_reader_start(xml_reader_t *h)
     h->flags |= READER_STARTED;
 
     // Try to get the encoding from stream and check for BOM
-    adsz = strbuf_read(h->buf_raw, adbuf, sizeof(adbuf), true);
+    memset(adbuf, 0, sizeof(adbuf));
+    adsz = strbuf_lookahead(h->buf_raw, adbuf, sizeof(adbuf));
     if ((encname = encoding_detect(adbuf, adsz, &bom_len)) != NULL) {
         if (!xml_reader_set_encoding(h, encname)) {
             xml_reader_message(h, XMLERR_NOTE, "(autodetected from %s)",
@@ -824,7 +797,7 @@ xml_reader_start(xml_reader_t *h)
     if (bom_len) {
         // TBD check if any strbuf_read calls remain with dest!=NULL && lookahead==false
         // TBD if not, maybe have a simple strbuf_advance() instead?
-        strbuf_read(h->buf_raw, NULL, bom_len, false);
+        strbuf_radvance(h->buf_raw, bom_len);
     }
 
     // If no encoding passed from the transport layer, and autodetect didn't help,
@@ -852,6 +825,8 @@ xml_reader_start(xml_reader_t *h)
     }
     h->flags &= ~READER_READDECL;
 
+    // TBD should be gone when lookahead is implemented
+    h->buf_proc = strbuf_new(NULL, 4096);
     if (i == sizeofarray(xmldecl)
             && ucs4_equal(xmldecl, "<?xml", 5)
             && xml_is_whitespace(xmldecl[5])) {
@@ -862,12 +837,12 @@ xml_reader_start(xml_reader_t *h)
         // to use them within the XML declaration or text declaration."
         cbparam.xmldecl.has_decl = true;
         xml_reader_xmldecl_getattr(h, &cbparam);
-        h->buf_proc = strbuf_new(); // Consumed the declaration; start with empty buffer
     }
     else {
         // No declaration, "unget" the characters we've read.
-        h->buf_proc = strbuf_new_from_memory(xmldecl, i * sizeof(uint32_t), true);
-        strbuf_setf(h->buf_proc, 0, BUF_LAST); // Ops to get the rest will be set below
+        strbuf_wptr(h->buf_proc, &wbegin, &wend); // TBD should be gone with lookahead - have w/o checks until then
+        memcpy(wbegin, xmldecl, i * sizeof(uint32_t));
+        strbuf_wadvance(h->buf_proc, i * sizeof(uint32_t));
         h->loc.line = 1;
         h->loc.pos = 0;
     }
@@ -937,7 +912,7 @@ xml_lookahead(xml_reader_t *h, uint8_t *buf, size_t bufsz)
     size_t i, nread;
 
     OOPS_ASSERT(bufsz <= MAX_LOOKAHEAD_SIZE);
-    nread = strbuf_read(h->buf_proc, tmp, bufsz * sizeof(uint32_t), true);
+    nread = strbuf_lookahead(h->buf_proc, tmp, bufsz * sizeof(uint32_t));
     OOPS_ASSERT((nread & 3) == 0); // h->buf_proc must have an integral number of characters
     nread /= 4;
     for (i = 0; i < nread; i++) {
@@ -1010,12 +985,11 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 
     total = 0;
     h->tokenbuf_ptr = h->tokenbuf;
-    while (strbuf_getptr(h->buf_proc, &begin, &end)) {
+    while (strbuf_rptr(h->buf_proc, &begin, &end)) {
         for (ptr = begin; ptr < (const uint32_t *)end; ptr++) {
             cp = *ptr;
             if (func(arg, cp)) {
-                strbuf_read(h->buf_proc, NULL,
-                        (ptr - (const uint32_t *)begin) * sizeof(uint32_t), false);
+                strbuf_radvance(h->buf_proc, (ptr - (const uint32_t *)begin) * sizeof(uint32_t));
                 return total; // Early return: next character is rejected
             }
             // TBD normalization check
@@ -1037,7 +1011,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
             total += clen;
         }
         // Consumed this block
-        strbuf_read(h->buf_proc, NULL, (const uint8_t *)end - (const uint8_t *)begin, false);
+        strbuf_radvance(h->buf_proc, (const uint8_t *)end - (const uint8_t *)begin);
     }
     return total; // Consumed all input
 }

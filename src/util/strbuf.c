@@ -9,139 +9,54 @@
 #include <string.h>
 
 #include "util/defs.h"
-#include "util/queue.h"
 #include "util/xutil.h"
 
 #include "util/strbuf.h"
 
-/// One block of text in a string buffer
-struct strblk_s {
-    STAILQ_ENTRY(strblk_s) link;        ///< List link pointers
-    void *begin;                        ///< First byte of the buffer
-    void *end;                          ///< Byte past the last one
-    uint32_t data[];                    ///< Memory allocated along with the block
+/// Buffer flags
+enum {
+    BUF_NO_INPUT        = 0x0001,   ///< No (further) input
+    BUF_STATIC          = 0x0002,   ///< Memory for ring buffer was provided by caller
 };
 
 /// Linked list of text blocks - string buffer
 struct strbuf_s {
-    STAILQ_HEAD(, strblk_s) content;            ///< Current content
-    // TBD: is readptr needed? Or just advance the beginning of the first block?
-    void *readptr;                              ///< Read pointer (1st block)
-    uint32_t flags;                             ///< Buffer flags
-    void *arg;                                  ///< Argument passed to ops
-    const strbuf_ops_t *ops;                    ///< Operations vtable
+    uint8_t *mem;           ///< Actual storage
+    size_t memsz;           ///< Size of the storage buffer
+    size_t roffs;           ///< Offset to readable data
+    size_t rsize;           ///< Size of readable data
+    const strbuf_ops_t *ops;///< Operations on a buffer
+    void *arg;              ///< Argument to operations
+    uint32_t flags;         ///< Flags on the buffer
 };
-
-/**
-    Dummy input for a string buffer.
-
-    @param buf Buffer
-    @param arg Argument
-    @return None
-*/
-static void
-null_input(strbuf_t *buf, void *arg)
-{
-    OOPS_ASSERT(0); // This function should never have been called
-}
-
-/**
-    Dummy destructor; no-op.
-
-    @param buf Buffer
-    @param arg Argument
-    @return None
-*/
-static void
-null_destroy(strbuf_t *buf, void *arg)
-{
-    // No-op
-}
-
-static const strbuf_ops_t null_ops = {
-    .input = null_input,
-    .destroy = null_destroy,
-};
-
-/**
-    Allocate a new string block with a given payload size.
-
-    @param payload_sz Size of the payload
-    @return Allocated string block
-*/
-strblk_t *
-strblk_new(size_t payload_sz)
-{
-    strblk_t *blk;
-
-    OOPS_ASSERT(payload_sz % sizeof(uint32_t) == 0);
-    blk = xmalloc(sizeof(strblk_t) + payload_sz);
-    if (payload_sz) {
-        blk->begin = blk->data;
-        blk->end = (uint8_t *)blk->begin + payload_sz;
-    }
-    else {
-        blk->end = blk->begin = NULL;
-    }
-    return blk;
-}
-
-/**
-    Destroy a string block.
-
-    @param blk Block being deleted.
-    @return None
-*/
-void
-strblk_delete(strblk_t *blk)
-{
-    xfree(blk);
-}
-
-/**
-    Get the pointer to the beginning of the block's memory.
-
-    @param blk Block to get the pointer for
-    @return Pointer value
-*/
-void *
-strblk_getptr(strblk_t *blk)
-{
-    return blk->begin;
-}
-
-/**
-    Set the size of a block (possibly losing some memory at the end of the block)
-
-    @param blk Block being trimmed
-    @param sz New size; must be less than the old size
-    @return None
-*/
-void
-strblk_trim(strblk_t *blk, size_t sz)
-{
-    void *new_end = (uint8_t *)blk->begin + sz;
-
-    OOPS_ASSERT(new_end <= blk->end);
-    blk->end = new_end;
-}
 
 /**
     Allocate a new empty string buffer.
 
+    @param mem Memory to read, or NULL if a new storage is to be allocated.
+        No copy of this memory is made, so the caller must not modify it
+        while it's being read.
+    @param sz Size of the buffer storage
     @return Allocated buffer.
 */
 strbuf_t *
-strbuf_new(void)
+strbuf_new(const void *mem, size_t sz)
 {
     strbuf_t *buf;
 
     buf = xmalloc(sizeof(strbuf_t));
-    STAILQ_INIT(&buf->content);
-    buf->readptr = NULL;
-    buf->flags = 0;
-    buf->ops = &null_ops;
-    buf->arg = NULL;
+    memset(buf, 0, sizeof(strbuf_t));
+    buf->memsz = sz;
+    if (mem) {
+        // Use provided memory area, no input so it is not overwritten
+        buf->mem = DECONST(mem); // We'll treat it as const by virtue of BUF_NO_INPUT
+        buf->rsize = sz;
+        buf->flags |= BUF_NO_INPUT | BUF_STATIC;
+    }
+    else {
+        // Allocate a new area, empty initially
+        buf->mem = xmalloc(sz);
+    }
     return buf;
 }
 
@@ -154,14 +69,11 @@ strbuf_new(void)
 void
 strbuf_delete(strbuf_t *buf)
 {
-    strblk_t *blk;
-
     if (buf->ops && buf->ops->destroy) {
-        buf->ops->destroy(buf, buf->arg);
+        buf->ops->destroy(buf->arg);
     }
-    while ((blk = STAILQ_FIRST(&buf->content)) != NULL) {
-        STAILQ_REMOVE_HEAD(&buf->content, link);
-        strblk_delete(blk);
+    if ((buf->flags & BUF_STATIC) == 0) {
+        xfree(buf->mem);
     }
     xfree(buf);
 }
@@ -178,175 +90,161 @@ void
 strbuf_setops(strbuf_t *buf, const strbuf_ops_t *ops, void *arg)
 {
     if (buf->ops && buf->ops->destroy) {
-        buf->ops->destroy(buf, buf->arg);
+        buf->ops->destroy(buf->arg);
     }
     buf->ops = ops;
     buf->arg = arg;
 }
 
 /**
-    Set flags on a buffer.
-
-    @param buf Buffer
-    @param flags Flags to set
-    @param mask Mask being set
-    @return None
-*/
-void
-strbuf_setf(strbuf_t *buf, uint32_t flags, uint32_t mask)
-{
-    buf->flags &= ~mask;
-    buf->flags |= flags;
-}
-
-/**
-    Get flags on a buffer.
-
-    @param buf Buffer
-    @param flags Flags to set
-    @return None
-*/
-void
-strbuf_getf(strbuf_t *buf, uint32_t *flags)
-{
-    *flags = buf->flags;
-}
-
-/**
-    Append an empty block to a buffer.
-
-    @param buf Buffer
-    @param blk Block to be appended
-    @return None
-*/
-void
-strbuf_append_block(strbuf_t *buf, strblk_t *blk)
-{
-    OOPS_ASSERT(blk->end >= blk->begin);
-
-    STAILQ_INSERT_TAIL(&buf->content, blk, link);
-}
-
-/**
-    Read certain amount from the buffer.
-
-    @param buf Buffer
-    @param dest Destination memory
-    @param nbytes Read amount
-    @param lookahead If true, does not advance current read pointer
-    @return Number of characters read
-*/
-size_t
-strbuf_read(strbuf_t *buf, void *dest, size_t nbytes, bool lookahead)
-{
-    strblk_t *blk, *next;
-    uint8_t *end, *readptr;
-    size_t avail, total;
-
-    readptr = buf->readptr;
-    next = STAILQ_FIRST(&buf->content);
-    blk = NULL;
-    total = 0;
-    do {
-        if (!next) {
-            // Not enough queued data, need to fetch
-            buf->ops->input(buf, buf->arg);
-            next = blk ? STAILQ_NEXT(blk, link) : STAILQ_FIRST(&buf->content);
-            if (!next) {
-                break;
-            }
-        }
-        // Have some queued data
-        blk = next;
-        if (!readptr) {
-            readptr = blk->begin;
-        }
-        end = blk->end;
-        OOPS_ASSERT(readptr <= end);
-        avail = min(nbytes, (size_t)(end - readptr));
-        if (dest) {
-            memcpy(dest, readptr, avail);
-            dest = (uint8_t *)dest + avail;
-        }
-        total += avail;
-        readptr += avail;
-        nbytes -= avail;
-        OOPS_ASSERT((uint8_t *)readptr <= end);
-        if (readptr == end) {
-            next = NULL;
-            readptr = NULL;
-            if (!lookahead) {
-                // This block is done; release it and advance
-                STAILQ_REMOVE_HEAD(&buf->content, link);
-                strblk_delete(blk);
-                blk = NULL;
-            }
-        }
-    } while (nbytes && !(buf->flags & BUF_LAST));
-
-    if (!lookahead) {
-        buf->readptr = readptr;
-    }
-    return total;
-}
-
-/**
-    Get pointers to start/end of a current contiguous block.
+    Get pointers to start/end of a current contiguous readable block.
 
     @param buf Buffer
     @param pbegin Pointer to the beginning of a block will be stored here
     @param pend Pointer to the end of a block will be stored here
-    @return true if there is data to read, false otherwise.
+    @return Number of bytes available for reading
 */
-bool
-strbuf_getptr(strbuf_t *buf, const void **pbegin, const void **pend)
+size_t
+strbuf_rptr(strbuf_t *buf, const void **pbegin, const void **pend)
 {
-    strblk_t *blk;
+    size_t end;
 
-    if (STAILQ_EMPTY(&buf->content) && !(buf->flags & BUF_LAST)) {
-        // Nothing yet? Try to fetch
-        buf->ops->input(buf, buf->arg);
+    if (!buf->rsize && (buf->flags & BUF_NO_INPUT) == 0
+            && buf->ops && buf->ops->more) {
+        // Empty: reset the read offset (so that we could fetch as much as
+        // possible in one go), then try to get more from input method
+        buf->roffs = 0;
+        buf->rsize = buf->ops->more(buf->arg, buf->mem, buf->memsz);
+        if (!buf->rsize) {
+            buf->flags |= BUF_NO_INPUT; // Will not try to read again
+        }
     }
-    if ((blk = STAILQ_FIRST(&buf->content)) == NULL) {
-        // Tried and couldn't get anything
-        buf->flags |= BUF_LAST;
-        *pbegin = *pend = NULL;
-        return false;
+    if ((end = buf->roffs + buf->rsize) > buf->memsz) {
+        end = buf->memsz;
+    }
+    *pbegin = buf->mem + buf->roffs;
+    *pend = buf->mem + end;
+    return end - buf->roffs;
+}
+
+/**
+    Get pointers to start/end of a current contiguous readable block.
+
+    @param buf Buffer
+    @param pbegin Pointer to the beginning of a block will be stored here
+    @param pend Pointer to the end of a block will be stored here
+    @return Number of bytes available for writing
+*/
+size_t
+strbuf_wptr(strbuf_t *buf, void **pbegin, void **pend)
+{
+    size_t offs;
+
+    if ((offs = buf->roffs + buf->rsize) >= buf->memsz) {
+        // Writable area is contiguous
+        offs -= buf->memsz;
+        *pbegin = buf->mem + offs;
+        *pend = buf->mem + buf->roffs;
+        return buf->roffs - offs;
     }
     else {
-        *pbegin = buf->readptr ? buf->readptr : blk->begin;
-        *pend = blk->end;
-        return true;
+        // Writable area wraps around buffer end
+        *pbegin = buf->mem + offs;
+        *pend = buf->mem + buf->memsz;
+        return buf->memsz - offs;
     }
 }
 
 /**
-    Create a string buffer representing a single contiguous block
-    of memory for reading.
+    Advance read pointer.
 
-    @param start Memory start address
-    @param size Memory size
-    @param copy Copy the provided buffer
-    @return String buffer
+    @param buf Buffer
+    @param sz Amount to advance by
+    @return Nothing
 */
-strbuf_t *
-strbuf_new_from_memory(const void *start, size_t size, bool copy)
+void
+strbuf_radvance(strbuf_t *buf, size_t sz)
 {
-    strbuf_t *buf = strbuf_new();
-    strblk_t *blk = strblk_new(copy ? size : 0);
+    OOPS_ASSERT(sz <= buf->rsize);
+    buf->rsize -= sz;
+    buf->roffs += sz;
+    if (buf->roffs >= buf->memsz) {
+        buf->roffs -= buf->memsz;
+    }
+}
 
-    // Point the block to the memory passed in and append it
-    if (copy) {
-        memcpy(blk->data, start, size);
-        blk->begin = blk->data;
+/**
+    Advance write pointer.
+
+    @param buf Buffer
+    @param sz Amount to advance by
+    @return Nothing
+*/
+void
+strbuf_wadvance(strbuf_t *buf, size_t sz)
+{
+    OOPS_ASSERT(sz <= buf->memsz - buf->rsize);
+    buf->rsize += sz;
+}
+
+/**
+    Read certain amount from the buffer without advancing the pointer.
+
+    @param buf Buffer
+    @param dest Destination memory
+    @param nbytes Read amount
+    @return Number of characters read
+*/
+size_t
+strbuf_lookahead(strbuf_t *buf, void *dest, size_t nbytes)
+{
+    size_t offs, sz;
+
+    // First, if needed, grow the buffer to accommodate the request.
+    // Reallocate to double the size of the request, so that we don't
+    // have to reallocate often.
+    if (buf->memsz < nbytes && (buf->flags & BUF_STATIC) == 0) {
+        buf->memsz = 2 * nbytes;
+        buf->mem = xrealloc(buf->mem, buf->memsz);
+    }
+
+    // Then, pull the data from input method until either requested
+    // amount is satisfied, or the input method reports EOF
+    if (buf->rsize < nbytes && (buf->flags & BUF_NO_INPUT) == 0
+            && buf->ops && buf->ops->more) {
+        offs = buf->roffs + buf->rsize;
+        do {
+            // No need to check writable size - we've allocated enough above
+            if (offs >= buf->memsz) {
+                offs -= buf->memsz;
+            }
+            sz = buf->ops->more(buf->arg, buf->mem + offs,
+                    min(buf->memsz - offs, buf->memsz - buf->rsize));
+            buf->rsize += sz;
+            offs += sz;
+            if (!sz) {
+                buf->flags |= BUF_NO_INPUT; // Will not try to read again
+                break;
+            }
+        } while (buf->rsize < nbytes);
+    }
+
+    // Then copy the data to the caller's buffer, if requested and advance the
+    // read pointer, again if requested.
+    if ((nbytes = min(nbytes, buf->rsize)) == 0) {
+        return 0; // No data to be copied
+    }
+
+    if (buf->roffs + nbytes <= buf->memsz) {
+        // Readable data contiguous
+        memcpy(dest, buf->mem + buf->roffs, nbytes);
     }
     else {
-        blk->begin = DECONST(start);
+        // Readable data wraps around
+        sz = buf->memsz - buf->roffs;
+        memcpy(dest, buf->mem + buf->roffs, sz);
+        memcpy((uint8_t *)dest + sz, buf->mem, nbytes - sz);
     }
-    blk->end = (uint8_t *)blk->begin + size;
-    strbuf_append_block(buf, blk);
 
-    // Buffer has its one and only block
-    buf->flags |= BUF_LAST;
-    return buf;
+    return nbytes;
 }

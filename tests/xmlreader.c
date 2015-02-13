@@ -391,7 +391,7 @@ run_testcase(const void *arg)
 
     // Run the test
     printf("XML reader events:\n");
-    sbuf = strbuf_new_from_memory(conv_buf, conv_len - len2, false);
+    sbuf = strbuf_new(conv_buf, conv_len - len2);
     reader = xml_reader_new(sbuf, tc->input);
 
     cbarg.expect = tc->events;
