@@ -36,11 +36,9 @@ enum {
     // TBD: sort XML 1.0 codes first, then XML 1.1 codes
     // Production mismatches
     XMLERR_XML_P_BASE              = 0x0000,
+    XMLERR_XML_P_Char,
     XMLERR_XML_P_XMLDecl,
     XMLERR_XML_P_TextDecl,
-    XMLERR_XML_P_VersionInfo,
-    XMLERR_XML_P_EncodingDecl,
-    XMLERR_XML_P_SDDecl,
     XMLERR_XML_P_document,
     XMLERR_XML_P_element,
     XMLERR_XML_P_STag,             // STag or EmptyElemTag

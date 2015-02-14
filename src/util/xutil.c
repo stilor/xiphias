@@ -83,6 +83,23 @@ xstrdup(const char *s)
 }
 
 /**
+    String duplication, limited size.
+
+    @param s String to be duplicated
+    @return Allocated copy of the string
+*/
+char *
+xstrndup(const char *s, size_t sz)
+{
+    char *rv;
+
+    rv = xmalloc(sz + 1);
+    strncpy(rv, s, sz);
+    rv[sz] = '\0';
+    return rv;
+}
+
+/**
     Allocating sprintf.
 
     @param fmt Format
