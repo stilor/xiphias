@@ -10,6 +10,7 @@
 #include "util/xutil.h"
 #include "util/strbuf.h"
 #include "util/encoding.h"
+#include "util/unicode.h"
 
 #include "xml/reader.h"
 
@@ -42,15 +43,6 @@ enum {
     READER_POS_RESET= 0x0008,       ///< Reset position before reading the next char
     READER_ASCII    = 0x0010,       ///< Only ASCII characters allowed while reading declaration
 };
-
-/// Used as an indicator that no character was read
-#define NOCHAR      ((uint32_t)-1)
-
-/// Used as a sentinel code
-#define STOPCHAR    ((uint32_t)-2)
-
-/// OR'ed by conditional read functions to indicate a stop after the current character
-#define LASTCHAR    (0x80000000)
 
 /**
     XML declaration comes in two flavors, XMLDecl and TextDecl, with different
@@ -577,18 +569,18 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
             // TBD check for whitespace and set a flag in reader for later detection of ignorable
             // (via the argument - when reading chardata, point to a structure that has such flag)
             // TBD if in DTD, and not parsing a literal/comment/PI - recognize parameter entities
-            if ((cp = func(arg, *ptr)) == STOPCHAR) {
+            if ((cp = func(arg, *ptr)) == UCS4_STOPCHAR) {
                 stop = true;
                 break; // This character is rejected
             }
-            if (cp == NOCHAR) {
+            if (cp & UCS4_LASTCHAR) {
+                stop = true; // This character is accepted but is known to be the last
+                cp &= ~UCS4_LASTCHAR;
+            }
+            if (cp == UCS4_NOCHAR) {
                 continue; // Ignored
             }
-            if (cp & LASTCHAR) {
-                stop = true; // This character is accepted but is known to be the last
-                cp &= ~LASTCHAR;
-            }
-            clen = encoding_utf8_len(cp);
+            clen = utf8_len(cp);
             if (bufptr + clen > h->tokenbuf_end) {
                 // Double token storage
                 offs = bufptr - h->tokenbuf;
@@ -597,7 +589,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
                 h->tokenbuf_end = h->tokenbuf + bufsz;
                 bufptr = h->tokenbuf + offs;
             }
-            encoding_utf8_store(&bufptr, cp);
+            utf8_store(&bufptr, cp);
             total += clen;
         }
         // Consumed this block
@@ -612,12 +604,12 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 
     @param arg Argument (unused)
     @param cp Codepoint
-    @return STOPCHAR if @a cp is whitespace, @a cp otherwise
+    @return UCS4_STOPCHAR if @a cp is whitespace, @a cp otherwise
 */
 static uint32_t
 xml_cb_not_whitespace(void *arg, uint32_t cp)
 {
-    return !xml_is_whitespace(cp) ? STOPCHAR : cp;
+    return !xml_is_whitespace(cp) ? UCS4_STOPCHAR : cp;
 }
 
 /// Consume whitespace
@@ -628,12 +620,12 @@ xml_cb_not_whitespace(void *arg, uint32_t cp)
 
     @param arg Argument (unused)
     @param cp Codepoint
-    @return STOPCHAR if @a cp is left angle bracket, @a cp otherwise
+    @return UCS4_STOPCHAR if @a cp is left angle bracket, @a cp otherwise
 */
 static uint32_t
 xml_cb_lt(void *arg, uint32_t cp)
 {
-    return xuchareq(cp, '<') ? STOPCHAR : cp;
+    return xuchareq(cp, '<') ? UCS4_STOPCHAR : cp;
 }
 
 /// Consume until next opening bracket
@@ -645,13 +637,13 @@ xml_cb_lt(void *arg, uint32_t cp)
 
     @param arg Argument (unused)
     @param cp Codepoint
-    @return STOPCHAR if @a cp is next char after a right angle bracket,
+    @return UCS4_STOPCHAR if @a cp is next char after a right angle bracket,
         @a cp otherwise
 */
 static uint32_t
 xml_cb_gt(void *arg, uint32_t cp)
 {
-    return cp | (xuchareq(cp, '>') ? LASTCHAR : 0);
+    return cp | (xuchareq(cp, '>') ? UCS4_LASTCHAR : 0);
 }
 
 /**
@@ -675,7 +667,7 @@ xml_cb_gt(void *arg, uint32_t cp)
     Name ::= NameStartChar (NameChar)*
 
     @param arg Pointer to a boolean: true if first character.
-    @return STOPCHAR if the character does not belong to Name production
+    @return UCS4_STOPCHAR if the character does not belong to Name production
 */
 static uint32_t
 xml_cb_not_name(void *arg, uint32_t cp)
@@ -706,7 +698,7 @@ xml_cb_not_name(void *arg, uint32_t cp)
         return cp; // Keep on
     }
     if (startchar) {
-        return STOPCHAR; // Stop: this is not a valid start character
+        return UCS4_STOPCHAR; // Stop: this is not a valid start character
     }
     if (cp == 0xB7
             || (cp >= 0x0300 && cp <= 0x36F)
@@ -714,7 +706,7 @@ xml_cb_not_name(void *arg, uint32_t cp)
             || cp == 0x2040) {
         return cp; // Keep on, this is valid continuation char
     }
-    return STOPCHAR; // Stop: not valid even as continuation
+    return UCS4_STOPCHAR; // Stop: not valid even as continuation
 }
 
 /**
@@ -753,10 +745,10 @@ xml_cb_string(void *arg, uint32_t cp)
     unsigned char tmp;
 
     if ((tmp = *(const unsigned char *)state->cur) >= 0x7F || tmp != cp) {
-        return STOPCHAR;
+        return UCS4_STOPCHAR;
     }
     state->cur++;
-    return cp | (state->cur == state->end ? LASTCHAR : 0);
+    return cp | (state->cur == state->end ? UCS4_LASTCHAR : 0);
 }
 
 /**
@@ -786,7 +778,8 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
 
 /// Callback state for literal reading
 typedef struct xml_cb_literal_state_s {
-    uint32_t quote;     ///< NOCHAR at start, quote seen, or STOPCHAR if saw final quote
+    /// UCS4_NOCHAR at start, quote seen in progress, or UCS4_STOPCHAR if saw final quote
+    uint32_t quote;
 } xml_cb_literal_state_t;
 
 /**
@@ -802,22 +795,21 @@ xml_cb_literal(void *arg, uint32_t cp)
 {
     xml_cb_literal_state_t *st = arg;
 
-    switch (st->quote) {
-    case NOCHAR: // Starting matching
+    if (st->quote == UCS4_NOCHAR) {
+        // Starting matching
         if (!xuchareq(cp, '"') && !xuchareq(cp, '\'')) {
-            return STOPCHAR; // Rejected before even started
+            return UCS4_STOPCHAR; // Rejected before even started
         }
         st->quote = cp;
-        return NOCHAR; // Remember the quote, but do not store it
-    case STOPCHAR: // Last character was final quote
-        return STOPCHAR;
-    default:
+        return UCS4_NOCHAR; // Remember the quote, but do not store it
+    }
+    else {
         if (cp != st->quote) {
             return cp; // Content
         }
         // Consume the closing quote and stop at the next character
-        st->quote = STOPCHAR;
-        return NOCHAR;
+        st->quote = UCS4_STOPCHAR;
+        return UCS4_NOCHAR | UCS4_LASTCHAR;
     }
 }
 
@@ -838,13 +830,14 @@ xml_cb_literal(void *arg, uint32_t cp)
 static bool
 xml_read_literal(xml_reader_t *h, xmlerr_info_t errinfo)
 {
-    xml_cb_literal_state_t st = { .quote = NOCHAR };
+    xml_cb_literal_state_t st = { .quote = UCS4_NOCHAR };
 
     // xml_read_until() may return 0 (empty literal), which is valid
     (void)xml_read_until(h, xml_cb_literal, &st);
-    if (st.quote != STOPCHAR) {
+    if (st.quote != UCS4_STOPCHAR) {
         xml_reader_message(h, errinfo,
-                st.quote == NOCHAR ? "Quoted literal expected" : "Unterminated literal");
+                st.quote == UCS4_NOCHAR ?
+                "Quoted literal expected" : "Unterminated literal");
         return false;
     }
     return true;

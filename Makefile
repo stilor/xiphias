@@ -18,7 +18,8 @@ LDFLAGS_test			:= $(LDFLAGS_common) -Wl,-rpath=build/lib
 
 all:
 
-GENERATED				:= src/util/encoding-codepages.c
+GENERATED				:= src/util/encoding-codepages.c \
+						   src/util/ucs4data.c
 
 clean:
 	rm -rf build
@@ -39,6 +40,9 @@ build/outputs.mk: outputs.conf genbuild.py
 # TBD: dependency on the input, and generate one file per codepage? Then how to get this list into output.conf?
 src/util/encoding-codepages.c: src/util/unicode/gen_codepage.py
 	python $< $@
+
+src/util/ucs4data.c: src/util/unicode/gen_unicode_data.py
+	python $< src/util/unicode/UCD $@
 
 __makefiles	:= Makefile build/outputs.mk
 -include build/outputs.mk

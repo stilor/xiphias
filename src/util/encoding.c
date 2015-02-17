@@ -11,6 +11,7 @@
 #include "util/strbuf.h"
 
 #include "util/encoding.h"
+#include "util/unicode.h"
 
 /// List of all encodings
 typedef STAILQ_HEAD(encoding_list_s, encoding_link_s) encoding_list_t;
@@ -371,7 +372,7 @@ typedef struct baton_utf8_s {
 } baton_utf8_t;
 
 /// Length of the multibyte sequence (0: invalid starting char)
-static const uint8_t utf8_len[256] = {
+static const uint8_t utf8_seqlen[256] = {
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x00 - ASCII
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x10 - ASCII
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0x20 - ASCII
@@ -468,9 +469,9 @@ in_UTF8(void *baton, const uint8_t *begin, const uint8_t *end,
         if (!utf8b.len) {
             // New character
             utf8b.val = *ptr++; // .. always advanced ("at least by 1 byte")
-            if ((utf8b.len = utf8_len[utf8b.val]) == 0) {
+            if ((utf8b.len = utf8_seqlen[utf8b.val]) == 0) {
                 // Invalid starter byte
-                *out++ = UNICODE_REPLACEMENT_CHARACTER;
+                *out++ = UCS4_REPLACEMENT_CHARACTER;
                 continue;
             }
             else if (utf8b.len > 1) {
@@ -485,7 +486,7 @@ in_UTF8(void *baton, const uint8_t *begin, const uint8_t *end,
             tmp = *ptr; // Do not advance yet
             if (tmp < utf8b.mintrail || tmp > utf8b.maxtrail) {
                 // Invalid trailer byte; restart decoding at current ptr
-                *out++ = UNICODE_REPLACEMENT_CHARACTER;
+                *out++ = UCS4_REPLACEMENT_CHARACTER;
                 utf8b.len = 0;
                 continue;
             }

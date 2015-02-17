@@ -16,7 +16,7 @@
                 } \
                 else { \
                     /* Invalid value: store replacement, will need to re-parse value normally */ \
-                    *o++ = UNICODE_REPLACEMENT_CHARACTER; \
+                    *o++ = UCS4_REPLACEMENT_CHARACTER; \
                     b.surrogate = 0; \
                     if (o == e) { \
                         /* No more space; will reparse b.val in the next call */ \
@@ -30,7 +30,7 @@
                 b.surrogate = b.val; \
             } \
             else if (surrogate_bits == 0xDC00) { \
-                *o++ = UNICODE_REPLACEMENT_CHARACTER; \
+                *o++ = UCS4_REPLACEMENT_CHARACTER; \
             } \
             else { \
                 *o++ = b.val; \
