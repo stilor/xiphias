@@ -53,4 +53,7 @@ void strbuf_radvance(strbuf_t *buf, size_t sz);
 void strbuf_wadvance(strbuf_t *buf, size_t sz);
 size_t strbuf_lookahead(strbuf_t *buf, void *dest, size_t nbytes);
 
+// String buffers for specific input methods
+strbuf_t *strbuf_file_read(const char *path, size_t sz);
+
 #endif
