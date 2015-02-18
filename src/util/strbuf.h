@@ -55,5 +55,6 @@ size_t strbuf_lookahead(strbuf_t *buf, void *dest, size_t nbytes);
 
 // String buffers for specific input methods
 strbuf_t *strbuf_file_read(const char *path, size_t sz);
+strbuf_t *strbuf_iconv_read(strbuf_t *input, const char *from, const char *to, size_t sz);
 
 #endif
