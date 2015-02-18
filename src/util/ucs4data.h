@@ -64,4 +64,11 @@ enum {
     UCS4_NFC_QC_M,  ///< Characyer may be allowed in NFC (needs full check)
 };
 
+extern const uint32_t ucs4_full_decomp[];
+extern const uint32_t ucs4_composes_with[];
+extern const ucs4data_t ucs4_characters[];
+
+/// Get canonical combining class for a character
+#define ucs4_get_ccc(cp) (ucs4_characters[cp].ccc)
+
 #endif

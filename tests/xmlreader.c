@@ -81,9 +81,8 @@ evequal_message(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     const xml_reader_cbparam_message_t *x2 = &e2->message;
 
     return str_null_or_equal(x1->loc.src, x2->loc.src)
-            // TBD: temporarily disabled location checks until UCS-4 based location updater implemented
-            // && x1->loc.line == x2->loc.line
-            // && x1->loc.pos == x2->loc.pos
+            && x1->loc.line == x2->loc.line
+            && x1->loc.pos == x2->loc.pos
             && str_null_or_equal(x1->msg, x2->msg)
             && x1->info == x2->info;
 }
@@ -325,7 +324,7 @@ run_testcase(const void *arg)
     test_cb_t cbarg;
 
     printf("%s\n", tc->desc);
-    printf("- Input: %s\n", tc->input);
+    printf("- Input: %s/%s\n", XML_INPUT_DIR, tc->input);
     printf("- Encoded into '%s', %s Byte-order mark\n",
             tc->encoding, tc->use_bom ? "with" : "without");
     if (tc->transport_encoding) {

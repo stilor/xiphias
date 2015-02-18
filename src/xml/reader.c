@@ -42,6 +42,7 @@ enum {
     READER_SAW_CR   = 0x0004,       ///< Converting CRLF: saw 0xD, ignore next 0xA/0x85
     READER_POS_RESET= 0x0008,       ///< Reset position before reading the next char
     READER_ASCII    = 0x0010,       ///< Only ASCII characters allowed while reading declaration
+    READER_TOKENLOC = 0x0020,       ///< Token location information is valid
 };
 
 /**
@@ -83,7 +84,8 @@ struct xml_reader_s {
     strbuf_t *buf_raw;              ///< Raw input buffer (in document's encoding)
     strbuf_t *buf_proc;             ///< Processed input buffer (transcoded + translated)
     uint32_t flags;                 ///< Reader flags
-    xmlerr_loc_t loc;               ///< Current reader's position
+    xmlerr_loc_t curloc;            ///< Current reader's position
+    xmlerr_loc_t tokenloc;          ///< Reader's position at the beginning of last token
     const xml_reader_xmldecl_declinfo_t *declinfo;  ///< Expected declaration
     enum xml_info_version_e parser_version;         ///< Version assumed when parsing
 
@@ -207,9 +209,12 @@ xml_reader_new(strbuf_t *buf, const char *location)
     h->buf_raw = buf;
     h->buf_proc = NULL;
     h->flags = 0;
-    h->loc.src = xstrdup(location);
-    h->loc.line = 1;
-    h->loc.pos = 0;
+    h->curloc.src = xstrdup(location);
+    h->curloc.line = 1;
+    h->curloc.pos = 0;
+    h->tokenloc.src = NULL;
+    h->tokenloc.line = 1;
+    h->tokenloc.pos = 0;
     h->tokenbuf = xmalloc(INITIAL_TOKENBUF_SIZE);
     h->tokenbuf_end = h->tokenbuf + INITIAL_TOKENBUF_SIZE;
     h->tokenbuf_len = 0;
@@ -249,7 +254,8 @@ xml_reader_delete(xml_reader_t *h)
     xfree(h->enc_transport);
     xfree(h->enc_detected);
     xfree(h->enc_xmldecl);
-    xfree(h->loc.src);
+    xfree(h->curloc.src);
+    // h->tokenloc.src not freed - it is sharing a reference with h->curloc.src
     xfree(h->tokenbuf);
     xfree(h->namestorage);
     xfree(h);
@@ -325,7 +331,7 @@ xml_reader_message(xml_reader_t *h, xmlerr_info_t info, const char *fmt, ...)
     };
     va_list ap;
 
-    cbparam.message.loc = h->loc;
+    cbparam.message.loc = (h->flags & READER_TOKENLOC) ? h->tokenloc : h->curloc;
     cbparam.message.info = info;
     va_start(ap, fmt);
     cbparam.message.msg = xvasprintf(fmt, ap);
@@ -542,36 +548,89 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 
     bufptr = h->tokenbuf;
     total = 0;
+    h->flags &= ~READER_TOKENLOC;
     while (!stop && strbuf_rptr(h->buf_proc, &begin, &end)) {
         for (ptr = begin; !stop && ptr < (const uint32_t *)end; ptr++) {
             cp = *ptr;
-            if (!cp) {
-                // Non-fatal: recover by skipping the character
-                xml_reader_message(h, XMLERR(ERROR, XML, P_Char),
-                        "NUL character encountered");
+            if ((h->flags & READER_SAW_CR) != 0 && (cp == 0x0A || cp == 0x85)) {
+                // EOL normalization. This is "continuation" of a previous character - so
+                // is treated before positioning update.
+                h->flags &= ~READER_SAW_CR;
                 continue;
-            }
-            if (cp >= 0x7F && (h->flags & READER_ASCII) != 0) {
-                // Only complain once
-                h->flags &= ~READER_ASCII;
-                xml_reader_message(h, h->declinfo->generr,
-                        "Non-ASCII characters in %s", h->declinfo->name);
-            }
-            if (xml_is_restricted(cp)) {
-                // Non-fatal: just let the app figure what to do with it
-                xml_reader_message(h, XMLERR(ERROR, XML, P_Char),
-                        "Restricted character");
             }
             // TBD substitute character references if requested - need to happen before normcheck
             // TBD normalization check
-            // TBD EOL handling
-            // TBD update location
+
+            // XML processor MUST behave as if it normalized all line breaks
+            // in external parsed entities (including the document entity) on input,
+            // before parsing, by translating all of the following to a single #xA
+            // character:
+            // 1. the two-character sequence #xD #xA
+            // 2. the two-character sequence #xD #x85
+            // 3. the single character #x85
+            // 4. the single character #x2028
+            // 5. any #xD character that is not immediately followed by #xA or #x85.
+            // (we do slightly different but equivalent: translate #xD to #xA immediately
+            // and skipping the next character if it is #xA or #x85)
+            if (cp == 0x0D) {
+                cp = 0x0A;
+            }
+            else if (cp == 0x85 || cp == 0x2028) {
+                cp = 0x0A;
+            }
+
             // TBD check for whitespace and set a flag in reader for later detection of ignorable
             // (via the argument - when reading chardata, point to a structure that has such flag)
             // TBD if in DTD, and not parsing a literal/comment/PI - recognize parameter entities
             if ((cp = func(arg, *ptr)) == UCS4_STOPCHAR) {
                 stop = true;
                 break; // This character is rejected
+            }
+
+            // Character not rejected, update position - but do not count combining marks. Note that
+            // we're checking original character - *ptr - not preprocessed, so that we update position
+            // based on actual input.
+            // TBD: check UAX#19 - AFAIU, this is what "Stacked boundaries" treatment implies
+            // TBD location update should be conditionally called if position tracking is not disabled
+            if (h->flags & READER_POS_RESET) {
+                h->flags &= ~READER_POS_RESET;
+                h->curloc.line++;
+                h->curloc.pos = 0;
+            }
+            if (ucs4_get_ccc(*ptr) == 0) {
+                h->curloc.pos++; // TBD expand tabstops
+            }
+            if ((h->flags & READER_TOKENLOC) == 0) {
+                h->flags |= READER_TOKENLOC;
+                h->tokenloc = h->curloc;
+            }
+
+            // Check for different disallowed characters
+            if (!*ptr) {
+                // Non-fatal: recover by skipping the character
+                xml_reader_message(h, XMLERR(ERROR, XML, P_Char),
+                        "NUL character encountered");
+                continue;
+            }
+            else if (*ptr >= 0x7F && (h->flags & READER_ASCII) != 0) {
+                // Only complain once
+                h->flags &= ~READER_ASCII;
+                xml_reader_message(h, h->declinfo->generr,
+                        "Non-ASCII characters in %s", h->declinfo->name);
+            }
+            else if (xml_is_restricted(*ptr)) {
+                // Non-fatal: just let the app figure what to do with it
+                xml_reader_message(h, XMLERR(ERROR, XML, P_Char),
+                        "Restricted character");
+            }
+
+            if (cp == 0x0A) {
+                // Newline and it wasn't rejected - increment line number *after this character*
+                // TBD now with tokenloc - drop POS_RESET flag and just do reset here? Point
+                // TBD curloc to next unread character and move before func()? Pointing to the
+                // TBD next character would allow xml_read_string() and the likes to point to
+                // TBD exact location where a certain character was expected.
+                h->flags |= READER_POS_RESET;
             }
             if (cp & UCS4_LASTCHAR) {
                 stop = true; // This character is accepted but is known to be the last
@@ -752,7 +811,7 @@ xml_cb_string(void *arg, uint32_t cp)
 }
 
 /**
-    Read an expected string.
+    Read an expected string (fixed character sequence of markup).
 
     @param h Reader handle
     @param s String expected in the document; must be ASCII-only
@@ -764,15 +823,18 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
 {
     xml_cb_string_state_t state;
     size_t len;
+    bool rv = true;
 
     len = strlen(s);
     state.cur = s;
     state.end = s + len;
     if (len != xml_read_until(h, xml_cb_string, &state)) {
+        // We want the error message to point to the exact invalid character
+        h->flags &= ~READER_TOKENLOC;
         xml_reader_message(h, errinfo, "Expected string: '%s'", s);
-        return false;
+        rv = false;
     }
-    return true;
+    return rv;
 }
 
 
@@ -1060,6 +1122,12 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h, xml_reader_cbparam_t *cbp)
             }
             attrlist++;
         }
+        if (!attrlist->name) {
+            // Non-fatal: continue parsing as if matching the following production
+            //   Name Eq ('"' (Char - '"')* '"' | "'" (Char - "'")* "'")
+            xml_reader_message(h, declinfo->generr,
+                    "Unexpected pseudo-attribute");
+        }
 
         // Parse Eq ::= S* '=' S*
         (void)xml_read_whitespace(h);
@@ -1076,15 +1144,9 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h, xml_reader_cbparam_t *cbp)
             attrlist->check(h, cbp);
             attrlist++;
         }
-        else {
-            // Non-fatal: continue parsing as if matching the following production
-            //   Name Eq ('"' (Char - '"')* '"' | "'" (Char - "'")* "'")
-            xml_reader_message(h, declinfo->generr,
-                    "Unexpected pseudo-attribute");
-        }
     }
 
-    // Check if any mandatory attributes were omitted
+    // Check if any remaining mandatory attributes were omitted
     while (attrlist->name) {
         if (attrlist->mandatory) {
             // Non-fatal: just assume the default
@@ -1095,9 +1157,11 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h, xml_reader_cbparam_t *cbp)
         attrlist++;
     }
 
+    h->flags &= ~READER_TOKENLOC;
     return; // Normal return
 
 malformed: // Any fatal malformedness
+    h->flags &= ~READER_TOKENLOC;
     h->flags |= READER_FATAL;
     xml_reader_message(h, declinfo->generr, "Malformed %s", declinfo->name);
     return;
@@ -1171,7 +1235,7 @@ xml_elemtype_push(xml_reader_t *h)
     }
     n->offs = h->namestorage_offs;
     n->len = len;
-    n->loc = h->loc;
+    n->loc = h->tokenloc; // TBD pass in the location of opening '<'?
     memcpy(&h->namestorage[n->offs], name, len);
     h->namestorage_offs += len;
     SLIST_INSERT_HEAD(&h->elem_nested, n, link);
@@ -1315,6 +1379,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
             return;
         }
     }
+    h->flags &= ~READER_TOKENLOC;
 }
 
 /**
@@ -1355,6 +1420,7 @@ xml_parse_ETag(xml_reader_t *h)
         // No valid name - try to recover by skipping until closing bracket
         xml_read_until_gt(h);
     }
+    h->flags &= ~READER_TOKENLOC;
 }
 
 /**
