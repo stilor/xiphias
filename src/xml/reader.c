@@ -40,9 +40,7 @@ enum {
     READER_STARTED  = 0x0001,       ///< Reader has started the operation
     READER_FATAL    = 0x0002,       ///< Reader encountered a fatal error
     READER_SAW_CR   = 0x0004,       ///< Converting CRLF: saw 0xD, ignore next 0xA/0x85
-    READER_POS_RESET= 0x0008,       ///< Reset position before reading the next char
-    READER_ASCII    = 0x0010,       ///< Only ASCII characters allowed while reading declaration
-    READER_TOKENLOC = 0x0020,       ///< Token location information is valid
+    READER_ASCII    = 0x0008,       ///< Only ASCII characters allowed while reading declaration
 };
 
 /**
@@ -55,7 +53,7 @@ typedef struct xml_reader_xmldecl_attrdesc_s {
     bool mandatory;         ///< True if the attribute is mandatory
 
     /// Value validation function
-    void (*check)(xml_reader_t *h, xml_reader_cbparam_t *cbp);
+    void (*check)(xml_reader_t *h);
 } xml_reader_xmldecl_attrdesc_t;
 
 /// Declaration info for XMLDecl/TextDecl:
@@ -87,7 +85,8 @@ struct xml_reader_s {
     xmlerr_loc_t curloc;            ///< Current reader's position
     xmlerr_loc_t tokenloc;          ///< Reader's position at the beginning of last token
     const xml_reader_xmldecl_declinfo_t *declinfo;  ///< Expected declaration
-    enum xml_info_version_e parser_version;         ///< Version assumed when parsing
+    enum xml_info_version_e version;                ///< Version assumed when parsing
+    enum xml_info_standalone_e standalone;          ///< Document's standalone status
 
     xml_reader_cb_t func;           ///< Callback function
     void *arg;                      ///< Argument to callback function
@@ -109,6 +108,14 @@ struct xml_reader_s {
 
 /// Function for conditional read termination: returns true if the character is rejected
 typedef uint32_t (*xml_condread_func_t)(void *arg, uint32_t cp);
+
+/// Convenience macro: report an error at the start of the last token
+#define xml_reader_message_lasttoken(h, ...) \
+        xml_reader_message(h, &h->tokenloc, __VA_ARGS__)
+
+/// Convenience macro: report an error at current location (i.e. after a lookahead)
+#define xml_reader_message_current(h, ...) \
+        xml_reader_message(h, &h->curloc, __VA_ARGS__)
 
 /**
     Determine if a character is a restricted character. Restricted characters are
@@ -163,7 +170,8 @@ xml_reader_set_encoding(xml_reader_t *h, const char *encname)
 
     if (encname != NULL) {
         if ((hndnew = encoding_open(encname)) == NULL) {
-            xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+            // XMLDecl location passed via h->tokenloc
+            xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                     "Unsupported encoding '%s'", encname);
             return false;
         }
@@ -174,7 +182,7 @@ xml_reader_set_encoding(xml_reader_t *h, const char *encname)
         if (!encoding_switch(&h->enc, hndnew)) {
             // Replacing with an incompatible encoding is not possible;
             // the data that has been read previously cannot be trusted.
-            xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+            xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                     "Incompatible encodings: '%s' and '%s'",
                     encoding_name(h->enc), encname);
             return false;
@@ -211,17 +219,16 @@ xml_reader_new(strbuf_t *buf, const char *location)
     h->flags = 0;
     h->curloc.src = xstrdup(location);
     h->curloc.line = 1;
-    h->curloc.pos = 0;
-    h->tokenloc.src = NULL;
-    h->tokenloc.line = 1;
-    h->tokenloc.pos = 0;
+    h->curloc.pos = 1;
+    h->tokenloc = h->curloc; // Shares reference to copy of location
     h->tokenbuf = xmalloc(INITIAL_TOKENBUF_SIZE);
     h->tokenbuf_end = h->tokenbuf + INITIAL_TOKENBUF_SIZE;
     h->tokenbuf_len = 0;
     h->namestorage_size = INITIAL_NAMESTACK_SIZE;
     h->namestorage_offs = 0;
     h->namestorage = xmalloc(INITIAL_NAMESTACK_SIZE);
-    h->parser_version = XML_INFO_VERSION_1_0; // Until we read a different version
+    h->version = XML_INFO_VERSION_NO_VALUE;
+    h->standalone = XML_INFO_STANDALONE_NO_VALUE;
     SLIST_INIT(&h->elem_nested);
     SLIST_INIT(&h->elem_free);
     return h;
@@ -316,31 +323,6 @@ xml_reader_invoke_callback(xml_reader_t *h, const xml_reader_cbparam_t *cbparam)
 }
 
 /**
-    Report an error/warning/note for the current location in a handle.
-
-    @param h Reader handle
-    @param info Error code
-    @param fmt Message format
-    @return Nothing
-*/
-void
-xml_reader_message(xml_reader_t *h, xmlerr_info_t info, const char *fmt, ...)
-{
-    xml_reader_cbparam_t cbparam = {
-        .cbtype = XML_READER_CB_MESSAGE,
-    };
-    va_list ap;
-
-    cbparam.message.loc = (h->flags & READER_TOKENLOC) ? h->tokenloc : h->curloc;
-    cbparam.message.info = info;
-    va_start(ap, fmt);
-    cbparam.message.msg = xvasprintf(fmt, ap);
-    va_end(ap);
-    xml_reader_invoke_callback(h, &cbparam);
-    xfree(cbparam.message.msg);
-}
-
-/**
     Report an error/warning/note for an arbitrary location in a handle.
 
     @param h Reader handle
@@ -350,15 +332,14 @@ xml_reader_message(xml_reader_t *h, xmlerr_info_t info, const char *fmt, ...)
     @return Nothing
 */
 void
-xml_reader_message_loc(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
+xml_reader_message(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
         const char *fmt, ...)
 {
-    xml_reader_cbparam_t cbparam = {
-        .cbtype = XML_READER_CB_MESSAGE,
-    };
+    xml_reader_cbparam_t cbparam;
     va_list ap;
 
-    cbparam.message.loc = *loc;
+    cbparam.cbtype = XML_READER_CB_MESSAGE;
+    cbparam.loc = *loc;
     cbparam.message.info = info;
     va_start(ap, fmt);
     cbparam.message.msg = xvasprintf(fmt, ap);
@@ -541,17 +522,17 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 {
     const void *begin, *end;
     const uint32_t *ptr;
-    uint32_t cp;
+    uint32_t cp, cp0;
     size_t clen, offs, bufsz, total;
     uint8_t *bufptr;
     bool stop = false;
 
     bufptr = h->tokenbuf;
     total = 0;
-    h->flags &= ~READER_TOKENLOC;
+    h->tokenloc = h->curloc;
     while (!stop && strbuf_rptr(h->buf_proc, &begin, &end)) {
         for (ptr = begin; !stop && ptr < (const uint32_t *)end; ptr++) {
-            cp = *ptr;
+            cp0 = *ptr; // codepoint before possible substitution by func
             if ((h->flags & READER_SAW_CR) != 0 && (cp == 0x0A || cp == 0x85)) {
                 // EOL normalization. This is "continuation" of a previous character - so
                 // is treated before positioning update.
@@ -572,84 +553,79 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
             // 5. any #xD character that is not immediately followed by #xA or #x85.
             // (we do slightly different but equivalent: translate #xD to #xA immediately
             // and skipping the next character if it is #xA or #x85)
-            if (cp == 0x0D) {
-                cp = 0x0A;
+            if (cp0 == 0x0D) {
+                h->flags |= READER_SAW_CR;
+                cp0 = 0x0A;
             }
-            else if (cp == 0x85 || cp == 0x2028) {
-                cp = 0x0A;
+            else if (cp0 == 0x85 || cp0 == 0x2028) {
+                cp0 = 0x0A;
             }
 
             // TBD check for whitespace and set a flag in reader for later detection of ignorable
             // (via the argument - when reading chardata, point to a structure that has such flag)
             // TBD if in DTD, and not parsing a literal/comment/PI - recognize parameter entities
-            if ((cp = func(arg, *ptr)) == UCS4_STOPCHAR) {
+            if ((cp = func(arg, cp0)) == UCS4_STOPCHAR) {
                 stop = true;
                 break; // This character is rejected
             }
 
-            // Character not rejected, update position - but do not count combining marks. Note that
-            // we're checking original character - *ptr - not preprocessed, so that we update position
-            // based on actual input.
-            // TBD: check UAX#19 - AFAIU, this is what "Stacked boundaries" treatment implies
-            // TBD location update should be conditionally called if position tracking is not disabled
-            if (h->flags & READER_POS_RESET) {
-                h->flags &= ~READER_POS_RESET;
-                h->curloc.line++;
-                h->curloc.pos = 0;
-            }
-            if (ucs4_get_ccc(*ptr) == 0) {
-                h->curloc.pos++; // TBD expand tabstops
-            }
-            if ((h->flags & READER_TOKENLOC) == 0) {
-                h->flags |= READER_TOKENLOC;
-                h->tokenloc = h->curloc;
-            }
-
-            // Check for different disallowed characters
-            if (!*ptr) {
+            // Not rejected: check if original input was a disallowed character
+            if (!cp0) {
                 // Non-fatal: recover by skipping the character
-                xml_reader_message(h, XMLERR(ERROR, XML, P_Char),
+                xml_reader_message_current(h, XMLERR(ERROR, XML, P_Char),
                         "NUL character encountered");
                 continue;
             }
-            else if (*ptr >= 0x7F && (h->flags & READER_ASCII) != 0) {
+            else if (cp0 >= 0x7F && (h->flags & READER_ASCII) != 0) {
                 // Only complain once
                 h->flags &= ~READER_ASCII;
-                xml_reader_message(h, h->declinfo->generr,
+                xml_reader_message_current(h, h->declinfo->generr,
                         "Non-ASCII characters in %s", h->declinfo->name);
             }
-            else if (xml_is_restricted(*ptr)) {
+            else if (xml_is_restricted(cp0)) {
                 // Non-fatal: just let the app figure what to do with it
-                xml_reader_message(h, XMLERR(ERROR, XML, P_Char),
+                xml_reader_message_current(h, XMLERR(ERROR, XML, P_Char),
                         "Restricted character");
             }
 
-            if (cp == 0x0A) {
-                // Newline and it wasn't rejected - increment line number *after this character*
-                // TBD now with tokenloc - drop POS_RESET flag and just do reset here? Point
-                // TBD curloc to next unread character and move before func()? Pointing to the
-                // TBD next character would allow xml_read_string() and the likes to point to
-                // TBD exact location where a certain character was expected.
-                h->flags |= READER_POS_RESET;
-            }
+            // Store the character returned by func and see if func requested a stop
             if (cp & UCS4_LASTCHAR) {
                 stop = true; // This character is accepted but is known to be the last
                 cp &= ~UCS4_LASTCHAR;
             }
-            if (cp == UCS4_NOCHAR) {
-                continue; // Ignored
+
+            if (cp != UCS4_NOCHAR) {
+                clen = utf8_len(cp);
+                if (bufptr + clen > h->tokenbuf_end) {
+                    // Double token storage
+                    offs = bufptr - h->tokenbuf;
+                    bufsz = 2 * (h->tokenbuf_end - h->tokenbuf);
+                    h->tokenbuf = xrealloc(h->tokenbuf, bufsz);
+                    h->tokenbuf_end = h->tokenbuf + bufsz;
+                    bufptr = h->tokenbuf + offs;
+                }
+                utf8_store(&bufptr, cp);
+                total += clen;
             }
-            clen = utf8_len(cp);
-            if (bufptr + clen > h->tokenbuf_end) {
-                // Double token storage
-                offs = bufptr - h->tokenbuf;
-                bufsz = 2 * (h->tokenbuf_end - h->tokenbuf);
-                h->tokenbuf = xrealloc(h->tokenbuf, bufsz);
-                h->tokenbuf_end = h->tokenbuf + bufsz;
-                bufptr = h->tokenbuf + offs;
+
+            // Character not rejected, update position - but do not count combining marks. Note that
+            // we're checking original character - cp0 - not preprocessed, so that we update position
+            // based on actual input.
+            // TBD: check UAX#19 - AFAIU, this is what "Stacked boundaries" treatment implies
+            // TBD location update should be conditionally called if position tracking is not disabled
+
+            if (cp0 == 0x0A) {
+                // Newline and it wasn't rejected - increment line number *after this character*
+                // TBD curloc to next unread character and move before func()? Pointing to the
+                // TBD next character would allow xml_read_string() and the likes to point to
+                // TBD exact location where a certain character was expected.
+                h->curloc.line++;
+                h->curloc.pos = 0;
             }
-            utf8_store(&bufptr, cp);
-            total += clen;
+            if (ucs4_get_ccc(cp0) == 0) {
+                h->curloc.pos++; // TBD expand tabstops
+            }
+
         }
         // Consumed this block
         strbuf_radvance(h->buf_proc, (const uint8_t *)ptr - (const uint8_t *)begin);
@@ -823,18 +799,15 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
 {
     xml_cb_string_state_t state;
     size_t len;
-    bool rv = true;
 
     len = strlen(s);
     state.cur = s;
     state.end = s + len;
     if (len != xml_read_until(h, xml_cb_string, &state)) {
-        // We want the error message to point to the exact invalid character
-        h->flags &= ~READER_TOKENLOC;
-        xml_reader_message(h, errinfo, "Expected string: '%s'", s);
-        rv = false;
+        xml_reader_message_lasttoken(h, errinfo, "Expected string: '%s'", s);
+        return false;
     }
-    return rv;
+    return true;
 }
 
 
@@ -897,7 +870,7 @@ xml_read_literal(xml_reader_t *h, xmlerr_info_t errinfo)
     // xml_read_until() may return 0 (empty literal), which is valid
     (void)xml_read_until(h, xml_cb_literal, &st);
     if (st.quote != UCS4_STOPCHAR) {
-        xml_reader_message(h, errinfo,
+        xml_reader_message_lasttoken(h, errinfo,
                 st.quote == UCS4_NOCHAR ?
                 "Quoted literal expected" : "Unterminated literal");
         return false;
@@ -915,7 +888,7 @@ xml_read_literal(xml_reader_t *h, xmlerr_info_t errinfo)
     @return Nothing
 */
 static void
-check_VersionInfo(xml_reader_t *h, xml_reader_cbparam_t *cbp)
+check_VersionInfo(xml_reader_t *h)
 {
     const uint8_t *str = h->tokenbuf;
     size_t sz = h->tokenbuf_len;
@@ -923,12 +896,11 @@ check_VersionInfo(xml_reader_t *h, xml_reader_cbparam_t *cbp)
 
     if (sz == 3) {
         if (xustrneq(str, "1.0", 3)) {
-            cbp->xmldecl.version = XML_INFO_VERSION_1_0;
+            h->version = XML_INFO_VERSION_1_0;
             return;
         }
         else if (sz == 3 && xustrneq(str, "1.1", 3)) {
-            h->parser_version = XML_INFO_VERSION_1_1;
-            cbp->xmldecl.version = XML_INFO_VERSION_1_1;
+            h->version = XML_INFO_VERSION_1_1;
             return;
         }
     }
@@ -951,14 +923,14 @@ check_VersionInfo(xml_reader_t *h, xml_reader_cbparam_t *cbp)
         document. This means that an XML 1.0 processor will accept 1.x
         documents provided they do not use any non-1.0 features.
     */
-    cbp->xmldecl.version = XML_INFO_VERSION_1_0;
-    xml_reader_message(h, XMLERR(WARN, XML, FUTURE_VERSION),
+    h->version = XML_INFO_VERSION_1_0;
+    xml_reader_message_lasttoken(h, XMLERR(WARN, XML, FUTURE_VERSION),
             "Document specifies unknown 1.x XML version");
     return; // Normal return
 
 bad_version:
     // Non-fatal: recover by assuming version was missing
-    xml_reader_message(h, h->declinfo->generr, "Unsupported XML version");
+    xml_reader_message_lasttoken(h, h->declinfo->generr, "Unsupported XML version");
     return;
 }
 
@@ -970,7 +942,7 @@ bad_version:
     @return Nothing
 */
 static void
-check_EncName(xml_reader_t *h, xml_reader_cbparam_t *cbp)
+check_EncName(xml_reader_t *h)
 {
     const uint8_t *str = h->tokenbuf;
     const uint8_t *s;
@@ -993,12 +965,11 @@ check_EncName(xml_reader_t *h, xml_reader_cbparam_t *cbp)
     }
 
     h->enc_xmldecl = xustrndup(str, sz);
-    cbp->xmldecl.encoding = h->enc_xmldecl;
     return; // Normal return
 
 bad_encoding:
     // Non-fatal: recover by assuming no encoding specification
-    xml_reader_message(h, h->declinfo->generr, "Invalid encoding name");
+    xml_reader_message_lasttoken(h, h->declinfo->generr, "Invalid encoding name");
     return;
 }
 
@@ -1012,20 +983,20 @@ bad_encoding:
     @return Nothing
 */
 static void
-check_SD_YesNo(xml_reader_t *h, xml_reader_cbparam_t *cbp)
+check_SD_YesNo(xml_reader_t *h)
 {
     const uint8_t *str = h->tokenbuf;
     size_t sz = h->tokenbuf_len;
 
     if (sz == 2 && xustrneq(str, "no", 2)) {
-        cbp->xmldecl.standalone = XML_INFO_STANDALONE_NO;
+        h->standalone = XML_INFO_STANDALONE_NO;
     }
     else if (sz == 3 && xustrneq(str, "yes", 3)) {
-        cbp->xmldecl.standalone = XML_INFO_STANDALONE_YES;
+        h->standalone = XML_INFO_STANDALONE_YES;
     }
     else {
         // Non-fatal: recover by assuming standalone was not specified
-        xml_reader_message(h, h->declinfo->generr, "Unsupported standalone status");
+        xml_reader_message_lasttoken(h, h->declinfo->generr, "Unsupported standalone status");
     }
 }
 
@@ -1068,28 +1039,27 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
                      (("'" ('yes' | 'no') "'") | ('"' ('yes' | 'no') '"'))
 
     @param h Reader handle
-    @param cbp Callback parameter
-    @return Nothing
+    @return true if XMLDecl found and parsed, false otherwise
 */
-static void
-xml_parse_XMLDecl_TextDecl(xml_reader_t *h, xml_reader_cbparam_t *cbp)
+static bool
+xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
 {
     const xml_reader_xmldecl_declinfo_t *declinfo = h->declinfo;
     const xml_reader_xmldecl_attrdesc_t *attrlist = declinfo->attrlist;
+    xml_reader_cbparam_t cbp;
     uint8_t labuf[6]; // ['<?xml' + whitespace] or [?>]
     size_t len;
 
     if (6 != xml_lookahead(h, labuf, 6)
             || !xustrneq(labuf, "<?xml", 5)
             || !xml_is_whitespace(labuf[5])) {
-        return; // Does not start with a declaration
+        return false; // Does not start with a declaration
     }
-
-    // We have something resembling a declaration
-    cbp->xmldecl.has_decl = true;
 
     // We know it's there, checked above
     (void)xml_read_string(h, "<?xml", declinfo->generr);
+    cbp.cbtype = XML_READER_CB_XMLDECL;
+    cbp.loc = h->tokenloc;
 
     while (true) {
         len = xml_read_whitespace(h);
@@ -1098,8 +1068,10 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h, xml_reader_cbparam_t *cbp)
         // If it was a Name, it is further checked against the expected
         // attribute list and Literal is then verified for begin a valid value
         // for Name.
-        if (2 == xml_lookahead(h, labuf, 2) && xustrneq(labuf, "?>", 2)) {
-            xml_read_string(h, "?>", declinfo->generr);
+        if (1 == xml_lookahead(h, labuf, 1) && xuchareq(labuf[0], '?')) {
+            if (!xml_read_string(h, "?>", declinfo->generr)) {
+                goto malformed;
+            }
             break;
         }
         // We may have no whitespace before final ?>, but must get some before
@@ -1116,7 +1088,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h, xml_reader_cbparam_t *cbp)
             }
             if (attrlist->mandatory) {
                 // Non-fatal: continue with next pseudo-attributes
-                xml_reader_message(h, declinfo->generr,
+                xml_reader_message_lasttoken(h, declinfo->generr,
                         "Mandatory pseudo-attribute '%s' missing in %s",
                         attrlist->name, declinfo->name);
             }
@@ -1125,7 +1097,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h, xml_reader_cbparam_t *cbp)
         if (!attrlist->name) {
             // Non-fatal: continue parsing as if matching the following production
             //   Name Eq ('"' (Char - '"')* '"' | "'" (Char - "'")* "'")
-            xml_reader_message(h, declinfo->generr,
+            xml_reader_message_lasttoken(h, declinfo->generr,
                     "Unexpected pseudo-attribute");
         }
 
@@ -1141,7 +1113,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h, xml_reader_cbparam_t *cbp)
 
         if (attrlist->name) {
             // Check/get value and advance to the next attribute
-            attrlist->check(h, cbp);
+            attrlist->check(h);
             attrlist++;
         }
     }
@@ -1150,21 +1122,31 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h, xml_reader_cbparam_t *cbp)
     while (attrlist->name) {
         if (attrlist->mandatory) {
             // Non-fatal: just assume the default
-            xml_reader_message(h, declinfo->generr,
+            xml_reader_message_lasttoken(h, declinfo->generr,
                     "Mandatory pseudo-attribute '%s' missing in %s",
                     attrlist->name, declinfo->name);
         }
         attrlist++;
     }
 
-    h->flags &= ~READER_TOKENLOC;
-    return; // Normal return
+    // Secret knowledge: xml_reader_start() will do some further checks
+    // that involve XMLDecl; we want them reported at the start of the
+    // declaration. Pass it back via h->tokenloc.
+    h->tokenloc = cbp.loc;
 
-malformed: // Any fatal malformedness
-    h->flags &= ~READER_TOKENLOC;
+    // Emit an event (callback) for XML declaration
+    cbp.xmldecl.encoding = h->enc_xmldecl;
+    cbp.xmldecl.version = h->version;
+    cbp.xmldecl.standalone = h->standalone;
+    xml_reader_invoke_callback(h, &cbp);
+
+    return true; // Normal return
+
+malformed: // Any fatal malformedness: report location where actual error was
     h->flags |= READER_FATAL;
-    xml_reader_message(h, declinfo->generr, "Malformed %s", declinfo->name);
-    return;
+    xml_reader_message_current(h, declinfo->generr,
+            "Malformed %s", declinfo->name);
+    return false;
 }
 
 /**
@@ -1260,9 +1242,9 @@ xml_elemtype_pop(xml_reader_t *h)
     OOPS_ASSERT(n);
     SLIST_REMOVE_HEAD(&h->elem_nested, link);
     if (len != n->len || memcmp(&h->namestorage[n->offs], name, len)) {
-        xml_reader_message(h, XMLERR(ERROR, XML, WFC_ELEMENT_TYPE_MATCH),
+        xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, WFC_ELEMENT_TYPE_MATCH),
                 "Closing element type mismatch: '%.*s'", (int)len, name);
-        xml_reader_message_loc(h, &n->loc, XMLERR_NOTE,
+        xml_reader_message(h, &n->loc, XMLERR_NOTE,
                 "Opening element: '%.*s'", (int)n->len, &h->namestorage[n->offs]);
     }
     h->namestorage_offs = n->offs;
@@ -1316,10 +1298,12 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
     if (!xml_read_string(h, "<", XMLERR(ERROR, XML, P_STag))) {
         OOPS_ASSERT(0); // This function should not be called unless looked ahead
     }
+    cbp.cbtype = XML_READER_CB_STAG;
+    cbp.loc = h->tokenloc;
 
     if ((len = xml_read_Name(h)) == 0) {
         // No valid name - try to recover by skipping until closing bracket
-        xml_reader_message(h, XMLERR(ERROR, XML, P_STag),
+        xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_STag),
                 "Expected element type");
         xml_read_until_gt(h);
         return;
@@ -1327,7 +1311,6 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
 
     // Notify the application that a new element has started
     n = SLIST_FIRST(&h->elem_nested);
-    cbp.cbtype = XML_READER_CB_STAG;
     cbp.stag.type = (const char *)h->tokenbuf; // TBD remove cast, use xml_char_t typedef
     cbp.stag.typelen = len;
     cbp.stag.parent = n ? n->baton : NULL;
@@ -1341,7 +1324,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
     while (true) {
         len = xml_read_whitespace(h);
         if (xml_lookahead(h, &la, 1) != 1) {
-            xml_reader_message(h, XMLERR(ERROR, XML, P_STag),
+            xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
                     "Element start tag truncated");
             return;
         }
@@ -1370,16 +1353,16 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
         else if (len && (len = xml_read_Name(h)) != 0) {
             // Attribute, if any, must be preceded by S (whitespace)
             // TBD: read attributes - wrap this condition in a loop
+            // TBD: use separate cbparam to preserve cbp->loc for closing bracket callback
         }
         else {
             // Try to recover by reading till end of opening tag
-            xml_reader_message(h, XMLERR(ERROR, XML, P_STag),
+            xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
                     "Expect whitespace, or >, or />");
             xml_read_until_gt(h);
             return;
         }
     }
-    h->flags &= ~READER_TOKENLOC;
 }
 
 /**
@@ -1401,14 +1384,15 @@ xml_parse_ETag(xml_reader_t *h)
     if (!xml_read_string(h, "</", XMLERR(ERROR, XML, P_ETag))) {
         OOPS_ASSERT(0); // This function should not be called unless looked ahead
     }
+    cbp.cbtype = XML_READER_CB_ETAG;
+    cbp.loc = h->tokenloc;
     if ((len = xml_read_Name(h)) == 0) {
         // No valid name - try to recover by skipping until closing bracket
-        xml_reader_message(h, XMLERR(ERROR, XML, P_ETag),
+        xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_ETag),
                 "Expected element type");
         xml_read_until_gt(h);
         return;
     }
-    cbp.cbtype = XML_READER_CB_ETAG;
     cbp.stag.type = (const char *)h->tokenbuf; // TBD remove cast, use xml_char_t typedef
     cbp.stag.typelen = len;
     cbp.etag.baton = xml_elemtype_pop(h);
@@ -1420,7 +1404,6 @@ xml_parse_ETag(xml_reader_t *h)
         // No valid name - try to recover by skipping until closing bracket
         xml_read_until_gt(h);
     }
-    h->flags &= ~READER_TOKENLOC;
 }
 
 /**
@@ -1460,7 +1443,7 @@ xml_parse_element(xml_reader_t *h)
     if (!is_empty_element) {
         xml_parse_content(h);
         if (xml_lookahead(h, labuf, 2) < 2) {
-            xml_reader_message(h, XMLERR(ERROR, XML, P_element),
+            xml_reader_message_current(h, XMLERR(ERROR, XML, P_element),
                     "Root element end tag missing");
             return;
         }
@@ -1484,16 +1467,6 @@ xml_reader_start(xml_reader_t *h)
     uint8_t adbuf[4];       // 4 bytes for encoding detection, per XML spec suggestion
     size_t bom_len, adsz;
     const char *encname;
-    xml_reader_cbparam_t cbparam = {
-        .cbtype = XML_READER_CB_XMLDECL,
-        .xmldecl = {
-            .has_decl = false,
-            .encoding = NULL,
-            .standalone = XML_INFO_STANDALONE_NO_VALUE,
-            .version = XML_INFO_VERSION_NO_VALUE,
-            .initial_encoding = NULL,
-        },
-    };
 
     // No more setup changes
     h->flags |= READER_STARTED;
@@ -1503,7 +1476,7 @@ xml_reader_start(xml_reader_t *h)
     adsz = strbuf_lookahead(h->buf_raw, adbuf, sizeof(adbuf));
     if ((encname = encoding_detect(adbuf, adsz, &bom_len)) != NULL) {
         if (!xml_reader_set_encoding(h, encname)) {
-            xml_reader_message(h, XMLERR_NOTE, "(autodetected from %s)",
+            xml_reader_message_current(h, XMLERR_NOTE, "(autodetected from %s)",
                     bom_len ? "Byte-order Mark" : "content");
             h->flags |= READER_FATAL;
             return;
@@ -1523,9 +1496,6 @@ xml_reader_start(xml_reader_t *h)
         OOPS_ASSERT(0);
     }
 
-    // Record the encoding we've used initially
-    cbparam.xmldecl.initial_encoding = encoding_name(h->enc);
-
     // Create a temporary reader buffer
     xc.h = h;
     xc.la_start = xc.initial;
@@ -1537,8 +1507,18 @@ xml_reader_start(xml_reader_t *h)
 
     // Parse the declaration; expect only ASCII
     h->flags |= READER_ASCII;
-    xml_parse_XMLDecl_TextDecl(h, &cbparam);
+    if (xml_parse_XMLDecl_TextDecl(h)) {
+        // Consumed declaration from the raw buffer; advance before setting
+        // permanent transcoding operations
+        strbuf_radvance(h->buf_raw, xc.la_offs);
+    }
     h->flags &= ~READER_ASCII;
+
+    // If there was no XML declaration, assume 1.0 (where XMLDecl is optional)
+    // TBD for external parsed entities, need to inherit version from including document
+    if (h->version == XML_INFO_VERSION_NO_VALUE) {
+        h->version = XML_INFO_VERSION_1_0;
+    }
 
     // Done with the temporary buffer: free the memory buffer if it was reallocated;
     // advance the raw buffer by the amount used by XML declaration.
@@ -1547,12 +1527,7 @@ xml_reader_start(xml_reader_t *h)
     }
 
     // Set up permanent transcoder (we do it always, but the caller probably won't
-    // proceed with further decoding if READER_FATAL is reported). Only advance if
-    // there was a declaration - otherwise, la_offs is just a look-ahead that was
-    // used to determine the absense of the declaration.
-    if (cbparam.xmldecl.has_decl) {
-        strbuf_radvance(h->buf_raw, xc.la_offs);
-    }
+    // proceed with further decoding if READER_FATAL is reported).
     strbuf_delete(h->buf_proc);
     h->buf_proc = strbuf_new(NULL, 1024 * sizeof(uint32_t));
     strbuf_setops(h->buf_proc, &xml_reader_transcode_ops, h);
@@ -1562,7 +1537,7 @@ xml_reader_start(xml_reader_t *h)
         // excess data. If this fails, the error is already reported - try to recover by
         // keeping the old encoding.
         if (!xml_reader_set_encoding(h, h->enc_xmldecl)) {
-            xml_reader_message(h, XMLERR_NOTE, "(encoding from XML declaration)");
+            xml_reader_message_lasttoken(h, XMLERR_NOTE, "(encoding from XML declaration)");
         }
     }
 
@@ -1580,7 +1555,7 @@ xml_reader_start(xml_reader_t *h)
     if (!bom_len && h->enc_xmldecl
             && !strcmp(h->enc_xmldecl, "UTF-16")) {
         // Non-fatal: managed to detect the encoding somehow
-        xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+        xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "UTF-16 encoding without byte-order mark");
     }
 
@@ -1592,21 +1567,13 @@ xml_reader_start(xml_reader_t *h)
     // Errata: The terms "UTF-8" and "UTF-16" in this specification do not apply to
     // related character encodings, including but not limited to UTF-16BE, UTF-16LE,
     // or CESU-8.
-    if (!cbparam.xmldecl.encoding && !h->enc_transport
+    if (!h->enc_xmldecl && !h->enc_transport
             && strcmp(encoding_name(h->enc), "UTF-16")
             && strcmp(encoding_name(h->enc), "UTF-8")) {
         // Non-fatal: recover by using whatever encoding we detected
-        xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+        xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "No external encoding information, no encoding in %s, content in %s encoding",
                 h->declinfo->name, encoding_name(h->enc));
-    }
-
-    // If everything was alright so far, notify the application of the XML declaration
-    // (either real or implied) and prepare for parsing the content after it.
-    if ((h->flags & READER_FATAL) == 0) {
-
-        // Emit an event (callback) for XML declaration
-        xml_reader_invoke_callback(h, &cbparam);
     }
 }
 
@@ -1667,7 +1634,8 @@ xml_reader_process_document_entity(xml_reader_t *h)
                 }
                 else {
                     // Recover by reading up until closing angle bracket
-                    xml_reader_message(h, XMLERR(ERROR, XML, P_document),
+                    xml_reader_message_current(h,
+                            XMLERR(ERROR, XML, P_document),
                             "Document type definition not allowed here");
                     xml_read_until_gt(h);
                 }
@@ -1678,7 +1646,7 @@ xml_reader_process_document_entity(xml_reader_t *h)
             else {
                 if (seen_element) {
                     // Recover by reading the element, even if there are multiple roots
-                    xml_reader_message(h, XMLERR(ERROR, XML, P_document),
+                    xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
                             "One root element allowed in a document");
                 }
                 xml_parse_element(h);
@@ -1686,8 +1654,9 @@ xml_reader_process_document_entity(xml_reader_t *h)
             }
         }
         else {
-            // Recover by reading up until next left angle bracket
-            xml_reader_message(h, XMLERR(ERROR, XML, P_document),
+            // Recover by reading up until next left angle bracket. Report
+            // the error at failing location (not the last valid token)
+            xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
                     "Invalid content at root level");
             (void)xml_read_until_lt(h);
         }
@@ -1696,11 +1665,11 @@ xml_reader_process_document_entity(xml_reader_t *h)
     // Skip checking for certain errors if reading was aborted prematurely
     if ((h->flags & READER_FATAL) == 0) {
         if (!seen_element) {
-            xml_reader_message(h, XMLERR(ERROR, XML, P_document),
+            xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
                     "No root element");
         }
         if (!encoding_clean(h->enc)) {
-            xml_reader_message(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+            xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                     "Partial characters at end of input");
         }
     }

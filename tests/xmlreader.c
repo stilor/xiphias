@@ -64,10 +64,7 @@ evprint_message(const xml_reader_cbparam_t *cbparam)
     const xml_reader_cbparam_message_t *x = &cbparam->message;
     uint32_t s = XMLERR_SEVERITY(x->info);
 
-    printf("%s:%u:%u: %s [%s %03u:%04u]",
-            x->loc.src ? x->loc.src : "<undef>",
-            x->loc.line,
-            x->loc.pos,
+    printf("%s [%s %03u:%04u]",
             x->msg ? x->msg : "<no message>",
             s < sizeofarray(severity) ? severity[s] : "???",
             XMLERR_SPEC(x->info),
@@ -80,10 +77,7 @@ evequal_message(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     const xml_reader_cbparam_message_t *x1 = &e1->message;
     const xml_reader_cbparam_message_t *x2 = &e2->message;
 
-    return str_null_or_equal(x1->loc.src, x2->loc.src)
-            && x1->loc.line == x2->loc.line
-            && x1->loc.pos == x2->loc.pos
-            && str_null_or_equal(x1->msg, x2->msg)
+    return str_null_or_equal(x1->msg, x2->msg)
             && x1->info == x2->info;
 }
 
@@ -102,12 +96,10 @@ evprint_xmldecl(const xml_reader_cbparam_t *cbparam)
     };
     const xml_reader_cbparam_xmldecl_t *x = &cbparam->xmldecl;
 
-    printf("%s, encoding '%s', standalone '%s', version '%s' (initial encoding: '%s')",
-            x->has_decl ? "has declaration" : "implied declaration",
+    printf("encoding '%s', standalone '%s', version '%s'",
             x->encoding ? x->encoding : "<unknown>",
             x->standalone < sizeofarray(stdalone) ? stdalone[x->standalone] : "???",
-            x->version < sizeofarray(xmlversion) ? xmlversion[x->version] : "???",
-            x->initial_encoding ? x->initial_encoding : "<unknown>");
+            x->version < sizeofarray(xmlversion) ? xmlversion[x->version] : "???");
 }
 
 static bool
@@ -116,11 +108,9 @@ evequal_xmldecl(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     const xml_reader_cbparam_xmldecl_t *x1 = &e1->xmldecl;
     const xml_reader_cbparam_xmldecl_t *x2 = &e2->xmldecl;
 
-    return x1->has_decl == x2->has_decl
-            && str_null_or_equal(x1->encoding, x2->encoding)
+    return str_null_or_equal(x1->encoding, x2->encoding)
             && x1->standalone == x2->standalone
-            && x1->version == x2->version
-            && str_null_or_equal(x1->initial_encoding, x2->initial_encoding);
+            && x1->version == x2->version;
 }
 
 static void
@@ -233,7 +223,11 @@ static void
 print_event(const xml_reader_cbparam_t *cbparam)
 {
     if (cbparam->cbtype < sizeofarray(events) && events[cbparam->cbtype].desc) {
-        printf("  %s: ", events[cbparam->cbtype].desc);
+        printf("  [%s:%u:%u] %s: ",
+                cbparam->loc.src ? cbparam->loc.src : "<undef>",
+                cbparam->loc.line,
+                cbparam->loc.pos,
+                events[cbparam->cbtype].desc);
         events[cbparam->cbtype].print(cbparam);
         printf("\n");
     }
@@ -247,6 +241,9 @@ equal_events(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 {
     if (e1->cbtype != e2->cbtype
             || e1->cbtype >= sizeofarray(events)
+            || !str_null_or_equal(e1->loc.src, e2->loc.src)
+            || e1->loc.line != e2->loc.line
+            || e1->loc.pos != e2->loc.pos
             || !events[e1->cbtype].equal) {
         return false;
     }
@@ -260,7 +257,7 @@ equal_events(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 #define FL_ETAG         etag
 #define FL(t)           FL_##t
 
-#define E(t, ...)       { .cbtype = XML_READER_CB_##t, .FL(t) = { __VA_ARGS__ }, }
+#define E(t, l, ...)    { .cbtype = XML_READER_CB_##t, .loc = l, .FL(t) = { __VA_ARGS__ }, }
 #define END             { .cbtype = XML_READER_CB_NONE, }
 
 // Initializer for location info
