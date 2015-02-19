@@ -37,6 +37,7 @@ iconv_more(void *arg, void *begin, size_t sz)
     char *inbuf, *outbuf;
     size_t insz, outsz;
 
+    strbuf_defrag(ia->buf);
     if (!strbuf_rptr(ia->buf, &in_begin, &in_end)) {
         return 0; // No more input
     }
@@ -49,10 +50,7 @@ iconv_more(void *arg, void *begin, size_t sz)
             // That's ok, will fetch more next time
         }
         else if (errno == EINVAL) {
-            // TBD iconv does not seem to convert partial multibyte characters -
-            // will barf here if a multibyte sequence wraps around buf boundary.
-            // Have some interface in strbuf.h to "defragment" input buffer?
-            OOPS_ASSERT(0);
+            // That's ok too: next call will defrag and retry
         }
         else if (errno == EILSEQ) {
             OOPS_ASSERT(0); // TBD how to handle?

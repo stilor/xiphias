@@ -97,6 +97,56 @@ strbuf_setops(strbuf_t *buf, const strbuf_ops_t *ops, void *arg)
 }
 
 /**
+    "Defragment" a buffer: move the readable part to the beginning 
+    of the buffer, then try to fetch more data if possible.
+
+    This is used by, for example, iconv-based input - which cannot
+    handle a multibyte sequence wrapping around the buffer's end.
+
+    @param buf Buffer
+    @return Nothing
+*/
+void
+strbuf_defrag(strbuf_t *buf)
+{
+    void *tmp;
+    size_t sz;
+
+    if (buf->roffs + buf->rsize <= buf->memsz) {
+        // Already contiguous, just move down to the start of the buffer
+        memmove(buf->mem, buf->mem + buf->roffs, buf->rsize);
+    }
+    else {
+        // Wraps around; sz is the size of the "start" chunk that needs
+        // to be moved to the start of the buffer
+        sz = buf->memsz - buf->roffs;
+        if (buf->rsize <= buf->roffs) {
+            // We can do it inside the buffer
+            memmove(buf->mem + sz, buf->mem, buf->rsize - sz);
+            memmove(buf->mem, buf->mem + buf->roffs, sz);
+        }
+        else {
+            // Worst case: need a temporary buffer
+            tmp = xmalloc(sz);
+            memcpy(tmp, buf->mem + buf->roffs, sz);
+            memmove(buf->mem + sz, buf->mem, buf->rsize - sz);
+            memcpy(buf->mem, tmp, sz);
+            xfree(tmp);
+        }
+    }
+
+    // Whatever we did, readable content now starts at offset 0
+    buf->roffs = 0;
+
+    // Pull more data if available and have space
+    if (buf->rsize != buf->memsz && (buf->flags & BUF_NO_INPUT) == 0
+            && buf->ops && buf->ops->more) {
+        buf->rsize += buf->ops->more(buf->arg, buf->mem + buf->rsize,
+                buf->memsz - buf->rsize);
+    }
+}
+
+/**
     Get pointers to start/end of a current contiguous readable block.
 
     @param buf Buffer
@@ -109,10 +159,6 @@ strbuf_rptr(strbuf_t *buf, const void **pbegin, const void **pend)
 {
     size_t end;
 
-    // TBD some kind of a watermark for reading in? otherwise, strbuf-iconv.c
-    // will not work if there's a part of multibyte sequence stuck in a buffer.
-    // TBD or, just create a strbuf_defrag() that will do both - relocate the
-    // readable portion so that it's contiguous at the start and try to fetch more?
     if (!buf->rsize && (buf->flags & BUF_NO_INPUT) == 0
             && buf->ops && buf->ops->more) {
         // Empty: reset the read offset (so that we could fetch as much as

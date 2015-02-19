@@ -45,6 +45,7 @@ void strbuf_delete(strbuf_t *buf);
 
 // Modifications
 void strbuf_setops(strbuf_t *buf, const strbuf_ops_t *ops, void *arg);
+void strbuf_defrag(strbuf_t *buf);
 
 // Reading/writing
 size_t strbuf_rptr(strbuf_t *buf, const void **pbegin, const void **pend);
