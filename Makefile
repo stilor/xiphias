@@ -16,6 +16,11 @@ LDFLAGS_common			:= -L build/lib
 LDFLAGS_lib				:= $(LDFLAGS_common) -fPIC -shared
 LDFLAGS_test			:= $(LDFLAGS_common) -Wl,-rpath=build/lib
 
+ifeq ($(COVERAGE),yes)
+CFLAGS_common			+= --coverage
+LDFLAGS_common			+= --coverage
+endif
+
 all:
 
 GENERATED				:= src/util/encoding-codepages.c \

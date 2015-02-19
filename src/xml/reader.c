@@ -125,11 +125,12 @@ typedef uint32_t (*xml_condread_func_t)(void *arg, uint32_t cp);
     completely illegal in XML1.0 (directly inserted and inserted as character reference).
     They are allowed in character references in XML1.1 documents.
 
+    @param h Reader handle
     @param cp Codepoint
     @return true if @a cp is a restricted character
 */
 static inline bool
-xml_is_restricted(uint32_t cp)
+xml_is_restricted(xml_reader_t *h, uint32_t cp)
 {
     static const bool restricted_chars[] = {
 #define R(x)    [x] = true
@@ -141,8 +142,12 @@ xml_is_restricted(uint32_t cp)
         R(0x96), R(0x97), R(0x98), R(0x99), R(0x9A), R(0x9B), R(0x9C), R(0x9D), R(0x9E), R(0x9F),
 #undef R
     };
+    size_t exclusion_limit;
 
-    return cp < sizeofarray(restricted_chars) ? restricted_chars[cp] : false;
+    // Different in XML1.0 and XML1.1: XML1.0 did not exclude 0x7F..0x84 and
+    // 0x85..0x9F blocks; these were valid characters.
+    exclusion_limit = h->version == XML_INFO_VERSION_1_0 ? 0x20 : sizeofarray(restricted_chars);
+    return cp < exclusion_limit ? restricted_chars[cp] : false;
 }
 
 /**
@@ -651,7 +656,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
                 xml_reader_message_current(h, h->declinfo->generr,
                         "Non-ASCII characters in %s", h->declinfo->name);
             }
-            else if (xml_is_restricted(cp0)) {
+            else if (xml_is_restricted(h, cp0)) {
                 // Non-fatal: just let the app figure what to do with it
                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_Char),
                         "Restricted character");
