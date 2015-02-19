@@ -41,6 +41,7 @@ enum {
     READER_FATAL    = 0x0002,       ///< Reader encountered a fatal error
     READER_SAW_CR   = 0x0004,       ///< Converting CRLF: saw 0xD, ignore next 0xA/0x85
     READER_ASCII    = 0x0008,       ///< Only ASCII characters allowed while reading declaration
+    READER_LOCTRACK = 0x0010,       ///< Track the current position for error reporting
 };
 
 /**
@@ -87,6 +88,8 @@ struct xml_reader_s {
     const xml_reader_xmldecl_declinfo_t *declinfo;  ///< Expected declaration
     enum xml_info_version_e version;                ///< Version assumed when parsing
     enum xml_info_standalone_e standalone;          ///< Document's standalone status
+    enum xml_reader_normalization_e normalization;  ///< Desired normalization behavior
+    size_t tabsize;
 
     xml_reader_cb_t func;           ///< Callback function
     void *arg;                      ///< Argument to callback function
@@ -216,7 +219,8 @@ xml_reader_new(strbuf_t *buf, const char *location)
     h->enc = NULL;
     h->buf_raw = buf;
     h->buf_proc = NULL;
-    h->flags = 0;
+    h->flags = READER_LOCTRACK;
+    h->tabsize = 8;
     h->curloc.src = xstrdup(location);
     h->curloc.line = 1;
     h->curloc.pos = 1;
@@ -293,6 +297,44 @@ xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname)
 }
 
 /**
+    Set desired normalization checking.
+
+    @param h Reader handle
+    @param norm Normalization check behavior (on/off/default)
+    @return Nothing
+*/
+void
+xml_reader_set_normalization(xml_reader_t *h, enum xml_reader_normalization_e norm)
+{
+    OOPS_ASSERT(!(h->flags & READER_STARTED));
+
+    h->normalization = norm;
+}
+
+/**
+    Turn location tracking on/off.
+
+    @param h Reader handle
+    @param onoff True if locations shall be tracked
+    @param tabsz If location is tracked, size of a tabstop
+        (1 to count tabs as a single character)
+    @return Nothing
+*/
+void
+xml_reader_set_location_tracking(xml_reader_t *h, bool onoff, size_t tabsz)
+{
+    OOPS_ASSERT(!(h->flags & READER_STARTED));
+
+    if (onoff) {
+        h->flags |= READER_LOCTRACK;
+        h->tabsize = tabsz;
+    }
+    else {
+        h->flags &= ~READER_LOCTRACK;
+    }
+}
+
+/**
     Set callback functions for the reader.
 
     @param h Reader handle
@@ -319,6 +361,33 @@ xml_reader_invoke_callback(xml_reader_t *h, const xml_reader_cbparam_t *cbparam)
 {
     if (h->func) {
         h->func(h->arg, cbparam);
+    }
+}
+
+/**
+    Update reader's position when reading the specified character.
+
+    @param h Reader handle
+    @param cp Code point being read
+    @return Nothing
+*/
+static void
+xml_reader_update_position(xml_reader_t *h, uint32_t cp)
+{
+    if (cp == 0x0A) {
+        // Newline and it wasn't rejected - increment line number *after this character*
+        h->curloc.line++;
+        h->curloc.pos = 1;
+    }
+    else if (cp == 0x09) {
+        // Round down, move to next tabstop, account for 1-based position
+        h->curloc.pos = (h->curloc.pos / h->tabsize) * h->tabsize + h->tabsize + 1;
+    }
+    else if (ucs4_get_ccc(cp) == 0) {
+        // Do not count combining marks - supposedly they're displayed with the preceding
+        // character.
+        // TBD: check UAX#19 - AFAIU, this is what "Stacked boundaries" treatment implies
+        h->curloc.pos++; // TBD expand tabstops
     }
 }
 
@@ -608,24 +677,12 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
                 total += clen;
             }
 
-            // Character not rejected, update position - but do not count combining marks. Note that
-            // we're checking original character - cp0 - not preprocessed, so that we update position
+            // Character not rejected, update position. Note that we're checking
+            // the original character - cp0 - not processed, so that we update position
             // based on actual input.
-            // TBD: check UAX#19 - AFAIU, this is what "Stacked boundaries" treatment implies
-            // TBD location update should be conditionally called if position tracking is not disabled
-
-            if (cp0 == 0x0A) {
-                // Newline and it wasn't rejected - increment line number *after this character*
-                // TBD curloc to next unread character and move before func()? Pointing to the
-                // TBD next character would allow xml_read_string() and the likes to point to
-                // TBD exact location where a certain character was expected.
-                h->curloc.line++;
-                h->curloc.pos = 0;
+            if (h->flags & READER_LOCTRACK) {
+                xml_reader_update_position(h, cp0);
             }
-            if (ucs4_get_ccc(cp0) == 0) {
-                h->curloc.pos++; // TBD expand tabstops
-            }
-
         }
         // Consumed this block
         strbuf_radvance(h->buf_proc, (const uint8_t *)ptr - (const uint8_t *)begin);
@@ -1518,6 +1575,11 @@ xml_reader_start(xml_reader_t *h)
     // TBD for external parsed entities, need to inherit version from including document
     if (h->version == XML_INFO_VERSION_NO_VALUE) {
         h->version = XML_INFO_VERSION_1_0;
+    }
+    // Default normalization behavior depends on version: off in 1.0, on in 1.1
+    if (h->normalization == XML_READER_NORM_DEFAULT) {
+        h->normalization = (h->version == XML_INFO_VERSION_1_0) ?
+                XML_READER_NORM_OFF : XML_READER_NORM_ON;
     }
 
     // Done with the temporary buffer: free the memory buffer if it was reallocated;

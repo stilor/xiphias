@@ -357,11 +357,11 @@ static const testcase_t testcases[] = {
         .encoding = "UTF-8",
         .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
-            E(MESSAGE, LOC("nonascii-decl.xml", 4, 2),
+            E(MESSAGE, LOC("nonascii-decl.xml", 4, 9),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
                     .msg = "Non-ASCII characters in XMLDecl",
             ),
-            E(MESSAGE, LOC("nonascii-decl.xml", 4, 2),
+            E(MESSAGE, LOC("nonascii-decl.xml", 4, 9),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
                     .msg = "Unexpected pseudo-attribute",
             ),
