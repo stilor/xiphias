@@ -1,3 +1,6 @@
+XML Processing Harness (XPH, Xiphias)
+=====================================
+
 Milestones:
 - XML reader
 - XML infoset
@@ -10,14 +13,19 @@ Milestones:
 - XSLT 1.0
 - XSLT 1.1
 - XProc
-- Tree differ
+- Tree differ (XMLDiff)
 
 General:
+--------
 
 Open questions:
-- XML 1.1 normalization - scope of applicability (seems inconsistent as it
-would apply to non-root element's attribute values, but not to root's attribute
-values)
+---------------
+
+[XML 1.0/1.1]
+- XML 1.1 normalization - scope of applicability (seems inconsistent as 'relevant 
+constructs' would apply to non-root element's attribute values, but not to root's
+attribute values, or to comments/PIs inside the root element, but not at the top
+level)
 - Reserved xml namespaces - latest errata in 1.0 changed the reservation from
 [Xx][Mm][Ll] to xml- in PIs and xml: in element and attribute names. There is
 no similar errata in XML 1.1 spec.

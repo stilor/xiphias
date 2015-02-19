@@ -13,12 +13,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "defs.h"
+
 void *xmalloc(size_t sz);
 void *xrealloc(const void *ptr, size_t sz);
 void xfree(const void *ptr);
 char *xstrdup(const char *s);
 char *xstrndup(const char *s, size_t sz);
 char *xvasprintf(const char *fmt, va_list ap);
+char *xasprintf(const char *fmt, ...) __printflike(1,2);
 
 /**
     Compare a UTF-8 string to a local-encoded string.

@@ -2,11 +2,8 @@
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 #include <sys/stat.h>
 #include <errno.h>
-#include <fcntl.h>
-#include <iconv.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "util/strbuf.h"
 #include "util/encoding.h"
@@ -310,16 +307,11 @@ run_testcase(const void *arg)
     const testcase_t *tc = arg;
     xml_reader_t *reader;
     strbuf_t *sbuf;
-    struct stat sb;
     char *path = NULL;
-    size_t len, len2, orig_len, conv_len;
-    char *buf, *buf2, *orig_buf = NULL, *conv_buf = NULL;
-    int fd = -1;
-    int rv;
-    iconv_t cd = (iconv_t)-1;
     result_t rc = FAIL;
     test_cb_t cbarg;
 
+    // Brief summary of the test
     printf("%s\n", tc->desc);
     printf("- Input: %s/%s\n", XML_INPUT_DIR, tc->input);
     printf("- Encoded into '%s', %s Byte-order mark\n",
@@ -328,67 +320,23 @@ run_testcase(const void *arg)
         printf("- Reporting transport encoding '%s'\n",
                 tc->transport_encoding);
     }
-    // Read the input
-    len = strlen(XML_INPUT_DIR) + 1 + strlen(tc->input) + 1;
-    path = xmalloc(len);
-    snprintf(path, len, "%s/%s", XML_INPUT_DIR, tc->input);
-    if (stat(path, &sb) < 0) {
-        printf("Input not found: %s (%s)\n", path, strerror(errno));
-        goto out;
-    }
-    orig_len = len = sb.st_size;
-    if (tc->use_bom) {
-        orig_len += 3;   // BOM is 3 bytes in UTF-8
-    }
-    buf = orig_buf = xmalloc(orig_len);
-    if (tc->use_bom) {
-        buf[0] = 0xEF;
-        buf[1] = 0xBB;
-        buf[2] = 0xBF;
-        buf += 3;
-    }
-    if ((fd = open(path, O_RDONLY)) < 0) {
-        printf("Failed to open: %s (%s)\n", path, strerror(errno));
-        goto out;
-    }
-    errno = 0;
-    rv = read(fd, buf, len);
-    if (rv < 0 || (size_t)rv != len) {
-        printf("Read failed: %s (%s) %d != %zu\n", path, strerror(errno), rv, len);
-        goto out;
-    }
-    close(fd);
-    fd = -1;
 
-    // Convert to requested encoding
-    conv_len = orig_len;
-    do {
-        conv_buf = xmalloc(conv_len);
-        buf = orig_buf;
-        len = orig_len;
-        buf2 = conv_buf;
-        len2 = conv_len;
-        if ((cd = iconv_open(tc->encoding, "UTF-8")) == (iconv_t)-1) {
-            printf("Encoding '%s' not supported: %s\n", tc->encoding, strerror(errno));
-            goto out;
+    // Set up input stream
+    path = xasprintf("%s/%s", XML_INPUT_DIR, tc->input);
+    sbuf = strbuf_file_read(path, 4096);
+    if (tc->use_bom) {
+        void *start, *end;
+
+        if (strbuf_wptr(sbuf, &start, &end) < 3) {
+            OOPS_ASSERT(0); // There shouldn't be anything in the buffer yet
         }
-        if (iconv(cd, &buf, &len, &buf2, &len2) == (size_t)-1) {
-            if (errno != E2BIG) {
-                printf("Conversion error for '%s': %s\n", path, strerror(errno));
-                goto out;
-            }
-            // insufficient output buffer
-            xfree(conv_buf);
-            conv_buf = NULL;
-            conv_len *= 2;
-        }
-        iconv_close(cd);
-        cd = (iconv_t)-1;
-    } while (conv_buf == NULL);
+        memcpy(start, "\xEF\xBB\xBF", 3);
+        strbuf_wadvance(sbuf, 3);
+    }
+    sbuf = strbuf_iconv_read(sbuf, "UTF-8", tc->encoding, 4096);
 
     // Run the test
     printf("XML reader events:\n");
-    sbuf = strbuf_new(conv_buf, conv_len - len2);
     reader = xml_reader_new(sbuf, tc->input);
 
     cbarg.expect = tc->events;
@@ -413,16 +361,7 @@ run_testcase(const void *arg)
         rc = PASS;
     }
 
-out:
-    if (cd != (iconv_t)-1) {
-        iconv_close(cd);
-    }
-    if (fd >= 0) {
-        close(fd);
-    }
     xfree(path);
-    xfree(orig_buf);
-    xfree(conv_buf);
     return rc;
 }
 

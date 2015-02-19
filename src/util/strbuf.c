@@ -109,6 +109,10 @@ strbuf_rptr(strbuf_t *buf, const void **pbegin, const void **pend)
 {
     size_t end;
 
+    // TBD some kind of a watermark for reading in? otherwise, strbuf-iconv.c
+    // will not work if there's a part of multibyte sequence stuck in a buffer.
+    // TBD or, just create a strbuf_defrag() that will do both - relocate the
+    // readable portion so that it's contiguous at the start and try to fetch more?
     if (!buf->rsize && (buf->flags & BUF_NO_INPUT) == 0
             && buf->ops && buf->ops->more) {
         // Empty: reset the read offset (so that we could fetch as much as

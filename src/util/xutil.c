@@ -100,7 +100,7 @@ xstrndup(const char *s, size_t sz)
 }
 
 /**
-    Allocating sprintf.
+    Allocating vsprintf.
 
     @param fmt Format
     @param ap Arguments
@@ -128,4 +128,22 @@ xvasprintf(const char *fmt, va_list ap)
         (void)vsnprintf(buf, alloc, fmt, ap0);
     }
     return buf;
+}
+
+/**
+    Allocating sprintf.
+
+    @param fmt Format
+    @return Allocated string
+*/
+char *
+xasprintf(const char *fmt, ...)
+{
+    va_list ap;
+    char *rv;
+
+    va_start(ap, fmt);
+    rv = xvasprintf(fmt, ap);
+    va_end(ap);
+    return rv;
 }
