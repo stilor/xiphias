@@ -20,7 +20,13 @@ typedef struct testcase_s {
     const char *input;                      ///< Input file name
     bool use_bom;                           ///< Prepend byte order mark to this file?
     const char *encoding;                   ///< Transcode the file to this encoding
-    const char *transport_encoding;         ///< If not NULL, configure XML reader with it
+
+    /// Allow to take some extra setup steps
+    result_t (*pretest)(xml_reader_t *h, const void *arg);
+    const void *pretest_arg;                ///< Argument to pretest function
+
+    // Events must be last: they're present in all tests, or warning will result
+    // from using default initializations
     const xml_reader_cbparam_t *events;     ///< Events expected while parsing this input
 } testcase_t;
 
@@ -293,7 +299,7 @@ run_testcase(const void *arg)
     xml_reader_t *reader;
     strbuf_t *sbuf;
     char *path = NULL;
-    result_t rc = FAIL;
+    result_t rc;
     test_cb_t cbarg;
 
     // Brief summary of the test
@@ -302,24 +308,20 @@ run_testcase(const void *arg)
     printf("- Encoded into '%s', %s Byte-order mark\n",
             tc->encoding ? tc->encoding : "UTF-8",
             tc->use_bom ? "with" : "without");
-    if (tc->transport_encoding) {
-        printf("- Reporting transport encoding '%s'\n",
-                tc->transport_encoding);
-    }
 
-    // Set up input stream
+    // Set up input stream chain
     path = xasprintf("%s/%s", XML_INPUT_DIR, tc->input);
     sbuf = strbuf_file_read(path, 4096);
+    sbuf = test_strbuf_subst(sbuf, '\\', 4096);
     if (tc->use_bom) {
         void *start, *end;
 
         if (strbuf_wptr(sbuf, &start, &end) < 3) {
             OOPS_ASSERT(0); // There shouldn't be anything in the buffer yet
         }
-        memcpy(start, "\xEF\xBB\xBF", 3);
+        memcpy(start, "\xEF\xBB\xBF", 3); // BOM in UTF-8
         strbuf_wadvance(sbuf, 3);
     }
-    sbuf = test_strbuf_subst(sbuf, '\\', 4096);
     if (tc->encoding) {
         sbuf = strbuf_iconv_read(sbuf, "UTF-8", tc->encoding, 4096);
     }
@@ -332,11 +334,10 @@ run_testcase(const void *arg)
     cbarg.failed = false;
     xml_reader_set_callback(reader, test_cb, &cbarg);
 
-    if (tc->transport_encoding) {
-        xml_reader_set_transport_encoding(reader, tc->transport_encoding);
+    rc = tc->pretest ? tc->pretest(reader, tc->pretest_arg) : PASS;
+    if (rc == PASS) {
+        xml_reader_process_document_entity(reader);
     }
-
-    xml_reader_process_document_entity(reader);
     xml_reader_delete(reader);
 
     while (cbarg.expect->cbtype != XML_READER_CB_NONE) {

@@ -19,6 +19,28 @@
                 .is_empty = true, \
         )
 
+struct test_set_transport_encoding_s {
+    const char *enc;
+    bool expected;
+};
+
+static result_t
+test_set_transport_encoding(xml_reader_t *h, const void *arg)
+{
+    const struct test_set_transport_encoding_s *sts = arg;
+
+    printf("- Setting transport encoding to '%s'\n", sts->enc);
+    return xml_reader_set_transport_encoding(h, sts->enc) == sts->expected ?
+            PASS : FAIL;
+}
+
+#define TEST_TRANSPORT_ENCODING(e, r) \
+        .pretest = test_set_transport_encoding, \
+        .pretest_arg = &(const struct test_set_transport_encoding_s){ \
+            .enc = (e), \
+            .expected = (r), \
+        },
+
 static const testcase_t testcases_encoding[] = {
     {
         .desc = "No declaration in UTF-8, with BOM",
@@ -193,7 +215,7 @@ static const testcase_t testcases_encoding[] = {
         .input = "simple-utf16.xml",
         .use_bom = true,
         .encoding = "UTF-16BE",
-        .transport_encoding = "INVALID_ENCODING",
+        TEST_TRANSPORT_ENCODING("INVALID_ENCODING", false)
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-utf16.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -238,7 +260,7 @@ static const testcase_t testcases_encoding[] = {
         .desc = "Incompatible encodings from transport layer and from autodetection",
         .input = "simple-utf8.xml",
         .use_bom = true,
-        .transport_encoding = "UTF-16BE",
+        TEST_TRANSPORT_ENCODING("UTF-16BE", true)
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-utf8.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -589,7 +611,7 @@ static const testcase_t testcases_xmldecl[] = {
                 "(has transport encoding)",
         .input = "simple-no-decl.xml",
         .encoding = "IBM037",
-        .transport_encoding = "IBM500",
+        TEST_TRANSPORT_ENCODING("IBM500", true)
         .events = (const xml_reader_cbparam_t[]){
             E_XMLDECL_A("simple-no-decl.xml", 1, 1),
             END,
