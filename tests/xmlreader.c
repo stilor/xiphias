@@ -300,7 +300,8 @@ run_testcase(const void *arg)
     printf("%s\n", tc->desc);
     printf("- Input: %s/%s\n", XML_INPUT_DIR, tc->input);
     printf("- Encoded into '%s', %s Byte-order mark\n",
-            tc->encoding, tc->use_bom ? "with" : "without");
+            tc->encoding ? tc->encoding : "UTF-8",
+            tc->use_bom ? "with" : "without");
     if (tc->transport_encoding) {
         printf("- Reporting transport encoding '%s'\n",
                 tc->transport_encoding);

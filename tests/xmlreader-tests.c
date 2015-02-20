@@ -24,8 +24,6 @@ static const testcase_t testcases_encoding[] = {
         .desc = "No declaration in UTF-8, with BOM",
         .input = "simple-no-decl.xml",
         .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E_XMLDECL_A("simple-no-decl.xml", 1, 1),
             END,
@@ -34,9 +32,6 @@ static const testcase_t testcases_encoding[] = {
     {
         .desc = "No declaration in UTF-8, without BOM",
         .input = "simple-no-decl.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E_XMLDECL_A("simple-no-decl.xml", 1, 1),
             END,
@@ -47,7 +42,6 @@ static const testcase_t testcases_encoding[] = {
         .input = "simple-no-decl.xml",
         .use_bom = true,
         .encoding = "UTF-16BE",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -61,9 +55,7 @@ static const testcase_t testcases_encoding[] = {
     {
         .desc = "No declaration in UTF-16BE, without BOM",
         .input = "simple-no-decl.xml",
-        .use_bom = false,
         .encoding = "UTF-16BE",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -79,7 +71,6 @@ static const testcase_t testcases_encoding[] = {
         .input = "simple-no-decl.xml",
         .use_bom = true,
         .encoding = "UTF-16LE",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -93,9 +84,7 @@ static const testcase_t testcases_encoding[] = {
     {
         .desc = "No declaration in UTF-16LE, without BOM",
         .input = "simple-no-decl.xml",
-        .use_bom = false,
         .encoding = "UTF-16LE",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -110,8 +99,6 @@ static const testcase_t testcases_encoding[] = {
         .desc = "Simple XML in UTF-8, with BOM",
         .input = "simple-utf8.xml",
         .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("simple-utf8.xml", 1, 1),
                     .encoding = "UTF-8",
@@ -125,9 +112,6 @@ static const testcase_t testcases_encoding[] = {
     {
         .desc = "Simple XML in UTF-8, without BOM",
         .input = "simple-utf8.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("simple-utf8.xml", 1, 1),
                     .encoding = "UTF-8",
@@ -143,7 +127,6 @@ static const testcase_t testcases_encoding[] = {
         .input = "simple-utf16.xml",
         .use_bom = true,
         .encoding = "UTF-16BE",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("simple-utf16.xml", 1, 1),
                     .encoding = "UTF-16",
@@ -159,7 +142,6 @@ static const testcase_t testcases_encoding[] = {
         .input = "simple-utf16.xml",
         .use_bom = true,
         .encoding = "UTF-16LE",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("simple-utf16.xml", 1, 1),
                     .encoding = "UTF-16",
@@ -173,9 +155,7 @@ static const testcase_t testcases_encoding[] = {
     {
         .desc = "Simple XML in UTF-16 (BE), without BOM",
         .input = "simple-utf16.xml",
-        .use_bom = false,
         .encoding = "UTF-16BE",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("simple-utf16.xml", 1, 1),
                     .encoding = "UTF-16",
@@ -193,9 +173,7 @@ static const testcase_t testcases_encoding[] = {
     {
         .desc = "Simple XML in UTF-16 (LE), without BOM",
         .input = "simple-utf16.xml",
-        .use_bom = false,
         .encoding = "UTF-16LE",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("simple-utf16.xml", 1, 1),
                     .encoding = "UTF-16",
@@ -234,8 +212,6 @@ static const testcase_t testcases_encoding[] = {
         .desc = "Simple XML with invalid encoding declaration",
         .input = "simple-invalid-encoding.xml",
         .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("simple-invalid-encoding.xml", 1, 1),
                     .encoding = "INVALID_ENCODING_WITH_A_VERY_LONG_NAME_THAT"
@@ -262,7 +238,6 @@ static const testcase_t testcases_encoding[] = {
         .desc = "Incompatible encodings from transport layer and from autodetection",
         .input = "simple-utf8.xml",
         .use_bom = true,
-        .encoding = "UTF-8",
         .transport_encoding = "UTF-16BE",
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-utf8.xml", 1, 1),
@@ -280,8 +255,6 @@ static const testcase_t testcases_encoding[] = {
         .desc = "Incompatible encodings from autodetection and from declaration",
         .input = "simple-utf16.xml",
         .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("simple-utf16.xml", 1, 1),
                     .encoding = "UTF-16",
@@ -330,9 +303,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Truncated declaration #1",
         .input = "truncated-decl1.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("truncated-decl1.xml", 1, 21),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -352,9 +322,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Truncated declaration #2",
         .input = "truncated-decl2.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("truncated-decl2.xml", 1, 30),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -370,9 +337,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Truncated declaration #3",
         .input = "truncated-decl3.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("truncated-decl3.xml", 1, 38),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -388,9 +352,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Non-ASCII character in declaration",
         .input = "nonascii-decl.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("nonascii-decl.xml", 4, 9),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -412,9 +373,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "No mandatory attribute #1",
         .input = "decl-no-version1.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-no-version1.xml", 1, 7),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -432,9 +390,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "No mandatory attribute #2",
         .input = "decl-no-version2.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-no-version2.xml", 1, 7),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -452,9 +407,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Wrong order of pseudo-attributes",
         .input = "decl-wrong-order.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-wrong-order.xml", 1, 7),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -476,9 +428,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Extra pseudo-attribute at the end",
         .input = "decl-extra-attr1.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-extra-attr1.xml", 1, 55),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -496,9 +445,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Malformed declaration #1",
         .input = "decl-malformed1.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-malformed1.xml", 1, 20),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -514,9 +460,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Pseudo-attribute without = #1",
         .input = "decl-no-equal1.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-no-equal1.xml", 1, 29),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -532,9 +475,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Pseudo-attribute without = #2",
         .input = "decl-no-equal2.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-no-equal2.xml", 1, 14),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -550,9 +490,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Pseudo-attribute without quotes",
         .input = "decl-no-quote.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-no-quote.xml", 1, 32),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -568,9 +505,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Future XML 1.x version",
         .input = "decl-xml-1.2.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-xml-1.2.xml", 1, 15),
                     .info = XMLERR(WARN, XML, FUTURE_VERSION),
@@ -588,9 +522,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Unsupported XML version",
         .input = "decl-xml-2.0.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-xml-2.0.xml", 1, 15),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -608,9 +539,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Invalid encoding value",
         .input = "decl-invalid-encoding.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-invalid-encoding.xml", 1, 30),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -628,9 +556,6 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Invalid standalone value",
         .input = "decl-invalid-standalone.xml",
-        .use_bom = true,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-invalid-standalone.xml", 1, 32),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -648,9 +573,7 @@ static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Document with no declaration in non-UTF8/UTF16 encoding",
         .input = "simple-no-decl.xml",
-        .use_bom = false,
         .encoding = "IBM037",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -665,7 +588,6 @@ static const testcase_t testcases_xmldecl[] = {
         .desc = "Document with no declaration in non-UTF8/UTF16 encoding "
                 "(has transport encoding)",
         .input = "simple-no-decl.xml",
-        .use_bom = false,
         .encoding = "IBM037",
         .transport_encoding = "IBM500",
         .events = (const xml_reader_cbparam_t[]){
@@ -675,13 +597,10 @@ static const testcase_t testcases_xmldecl[] = {
     },
 };
 
-static const testcase_t testcases_element[] = {
+static const testcase_t testcases_toplevel[] = {
     {
         .desc = "Simple opening/closing tags",
         .input = "simple-open-close.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("simple-open-close.xml", 1, 1),
                     .encoding = "UTF-8",
@@ -706,9 +625,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "Invalid top-level content (no XMLDecl)",
         .input = "invalid-top-level-nodecl.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("invalid-top-level-nodecl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, P_document),
@@ -724,9 +640,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "Invalid top-level content (with XMLDecl)",
         .input = "invalid-top-level.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("invalid-top-level.xml", 1, 1),
                     .encoding = "UTF-8",
@@ -747,9 +660,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "Invalid top-level content (with XMLDecl & root element)",
         .input = "invalid-top-level-withroot.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("invalid-top-level-withroot.xml", 1, 1),
                     .encoding = "UTF-8",
@@ -767,9 +677,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "DTD specified twice",
         .input = "dtd-twice.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("dtd-twice.xml", 2, 1),
                     .info = XMLERR(ERROR, XML, P_document),
@@ -782,9 +689,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "DTD specified after root element",
         .input = "dtd-after-element.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E_XMLDECL_A("dtd-after-element.xml", 1, 1),
             E(MESSAGE, LOC("dtd-after-element.xml", 2, 1),
@@ -797,9 +701,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "Root element specified twice",
         .input = "root-element-twice.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E_XMLDECL_A("root-element-twice.xml", 1, 1),
             E(MESSAGE, LOC("root-element-twice.xml", 2, 1),
@@ -813,9 +714,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "No root element",
         .input = "no-root-element.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("no-root-element.xml", 1, 1),
                     .encoding = NULL,
@@ -832,9 +730,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "Bad element type in empty tag",
         .input = "bad-emptytag-name.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("bad-emptytag-name.xml", 1, 2),
                     .info = XMLERR(ERROR, XML, P_STag),
@@ -846,9 +741,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "Bad element type in start tag",
         .input = "bad-stag-name.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("bad-stag-name.xml", 1, 2),
                     .info = XMLERR(ERROR, XML, P_STag),
@@ -860,9 +752,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "Truncated start tag",
         .input = "truncated-stag.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("truncated-stag.xml", 1, 1),
                     .type = "a",
@@ -880,9 +769,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "Bad character in start tag #1",
         .input = "stag-badchar1.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("stag-badchar1.xml", 1, 1),
                     .type = "element",
@@ -900,9 +786,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "Bad character in start tag #2",
         .input = "stag-badchar2.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("stag-badchar2.xml", 1, 1),
                     .type = "element",
@@ -920,9 +803,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "No name in end tag",
         .input = "etag-noname.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("etag-noname.xml", 1, 1),
                     .type = "a",
@@ -940,9 +820,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "Bad name in end tag",
         .input = "etag-badname.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("etag-badname.xml", 1, 1),
                     .type = "a",
@@ -960,9 +837,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "End tag mismatch to start tag",
         .input = "etag-mismatch.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("etag-mismatch.xml", 1, 1),
                     .type = "a",
@@ -990,9 +864,6 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "Missing closing bracket in end tag",
         .input = "etag-missing-bracket.xml",
-        .use_bom = false,
-        .encoding = "UTF-8",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("etag-missing-bracket.xml", 1, 1),
                     .type = "a",
@@ -1016,9 +887,7 @@ static const testcase_t testcases_element[] = {
     {
         .desc = "Element immediately following XMLDecl in non-ASCII",
         .input = "element-nonutf8-name.xml",
-        .use_bom = false,
         .encoding = "ISO-8859-1",
-        .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("element-nonutf8-name.xml", 1, 1),
                     .encoding = "ISO-8859-1",
@@ -1040,6 +909,14 @@ static const testcase_t testcases_element[] = {
             END,
         },
     },
+    {
+        .desc = "Comments & Processing instructions",
+        .input = "comments-pis.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            E_XMLDECL_A("comments-pis.xml", 3, 1),
+            END,
+        },
+    },
 };
 
 static const testset_t testset[] = {
@@ -1058,11 +935,11 @@ static const testset_t testset[] = {
         .ncases = sizeofarray(testcases_xmldecl),
     },
     {
-        .desc = "Element tests",
+        .desc = "Toplevel content",
         .func = run_testcase,
-        .cases = testcases_element,
+        .cases = testcases_toplevel,
         .size = sizeof(testcase_t),
-        .ncases = sizeofarray(testcases_element),
+        .ncases = sizeofarray(testcases_toplevel),
     },
 };
 

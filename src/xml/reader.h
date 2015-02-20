@@ -89,8 +89,8 @@ typedef void (*xml_reader_cb_t)(void *arg, const xml_reader_cbparam_t *cbparam);
 xml_reader_t *xml_reader_new(struct strbuf_s *buf, const char *location);
 void xml_reader_delete(xml_reader_t *h);
 bool xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname);
-void xml_reader_set_normalization(xml_reader_t *h, enum xml_reader_normalization_e norm);
-void xml_reader_set_location_tracking(xml_reader_t *h, bool onoff, size_t tabsz);
+bool xml_reader_set_normalization(xml_reader_t *h, enum xml_reader_normalization_e norm);
+bool xml_reader_set_location_tracking(xml_reader_t *h, bool onoff, size_t tabsz);
 void xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg);
 
 void xml_reader_message(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,

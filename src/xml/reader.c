@@ -147,7 +147,10 @@ xml_is_restricted(xml_reader_t *h, uint32_t cp)
     // Different in XML1.0 and XML1.1: XML1.0 did not exclude 0x7F..0x84 and
     // 0x85..0x9F blocks; these were valid characters.
     exclusion_limit = h->version == XML_INFO_VERSION_1_0 ? 0x20 : sizeofarray(restricted_chars);
-    return cp < exclusion_limit ? restricted_chars[cp] : false;
+    if (cp < exclusion_limit) {
+        return restricted_chars[cp];
+    }
+    return false;
 }
 
 /**
@@ -288,7 +291,10 @@ xml_reader_delete(xml_reader_t *h)
 bool
 xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname)
 {
-    OOPS_ASSERT(!(h->flags & READER_STARTED));
+    if (h->flags & READER_STARTED) {
+        // Will have no effect once the parsing begins
+        return false;
+    }
 
     // Delete old encoding so that compatibility check is not performed:
     // we have not read any data yet
@@ -306,14 +312,18 @@ xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname)
 
     @param h Reader handle
     @param norm Normalization check behavior (on/off/default)
-    @return Nothing
+    @return true if reader's normalization behavior was set, false if failed
 */
-void
+bool
 xml_reader_set_normalization(xml_reader_t *h, enum xml_reader_normalization_e norm)
 {
-    OOPS_ASSERT(!(h->flags & READER_STARTED));
+    if (h->flags & READER_STARTED) {
+        // May have missed denormalized characters once the parsing begins
+        return false;
+    }
 
     h->normalization = norm;
+    return true;
 }
 
 /**
@@ -323,12 +333,14 @@ xml_reader_set_normalization(xml_reader_t *h, enum xml_reader_normalization_e no
     @param onoff True if locations shall be tracked
     @param tabsz If location is tracked, size of a tabstop
         (1 to count tabs as a single character)
-    @return Nothing
+    @return false if parser is already active, true if location tracking is modified
 */
-void
+bool
 xml_reader_set_location_tracking(xml_reader_t *h, bool onoff, size_t tabsz)
 {
-    OOPS_ASSERT(!(h->flags & READER_STARTED));
+    if (h->flags & READER_STARTED) {
+        return false;
+    }
 
     if (onoff) {
         h->flags |= READER_LOCTRACK;
@@ -337,6 +349,7 @@ xml_reader_set_location_tracking(xml_reader_t *h, bool onoff, size_t tabsz)
     else {
         h->flags &= ~READER_LOCTRACK;
     }
+    return true;
 }
 
 /**
