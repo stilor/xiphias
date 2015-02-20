@@ -247,21 +247,6 @@ equal_events(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     return events[e1->cbtype].equal(e1, e2);
 }
 
-// Some macro magic for declaring event (which is a disciminated union)
-#define FL_MESSAGE      message
-#define FL_XMLDECL      xmldecl
-#define FL_STAG         stag
-#define FL_ETAG         etag
-#define FL(t)           FL_##t
-
-#define E(t, l, ...)    { .cbtype = XML_READER_CB_##t, .loc = l, .FL(t) = { __VA_ARGS__ }, }
-#define END             { .cbtype = XML_READER_CB_NONE, }
-
-// Initializer for location info
-#define LOC(s,l,p)      { .src = (s), .line = (l), .pos = (p), }
-
-#include "xmlreader-tests.c"
-
 typedef struct test_cb_s {
     const xml_reader_cbparam_t *expect;
     bool failed;
@@ -366,16 +351,20 @@ run_testcase(const void *arg)
     return rc;
 }
 
-static const testset_t testset[] = {
-    {
-        .func = run_testcase,
-        .cases = testcases,
-        .size = sizeof(testcase_t),
-        .ncases = sizeofarray(testcases),
-    }
-};
+// Some macro magic for declaring event (which is a disciminated union)
+#define FL_MESSAGE      message
+#define FL_XMLDECL      xmldecl
+#define FL_STAG         stag
+#define FL_ETAG         etag
+#define FL(t)           FL_##t
 
-static const testsuite_t testsuite = TEST_SUITE("Tests for XML reader API", testset);
+#define E(t, l, ...)    { .cbtype = XML_READER_CB_##t, .loc = l, .FL(t) = { __VA_ARGS__ }, }
+#define END             { .cbtype = XML_READER_CB_NONE, }
+
+// Initializer for location info
+#define LOC(s,l,p)      { .src = (s), .line = (l), .pos = (p), }
+
+#include "xmlreader-tests.c"
 
 /**
     Main routine for XML reader test suite.

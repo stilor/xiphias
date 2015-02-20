@@ -40,7 +40,6 @@ test__exec_simple_testcase(const void *arg)
 {
     const testset__simple_t *ts = arg;
 
-    printf("%s\n", ts->desc);
     return ts->func();
 }
 
@@ -167,11 +166,11 @@ run_set(const testsuite_t *suite, size_t si, test_stats_t *stats)
     const testset_t *set = &suite->sets[si];
     size_t i;
 
-    printf("====  RUNNING TEST SET %zu\n", si + 1);
+    printf("====  RUNNING TEST SET %zu: %s\n", si + 1, set->desc);
     for (i = 0; i < set->ncases; i++) {
         run_case(suite, si, i, stats);
     }
-    printf("==== FINISHED TEST SET %zu\n", si + 1);
+    printf("==== FINISHED TEST SET %zu: %s\n", si + 1, set->desc);
 }
 
 /**

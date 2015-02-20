@@ -28,6 +28,7 @@ typedef result_t (*testfunc0_t)(void);
 
 /// Set of tests
 typedef struct testset_s {
+    const char *desc;       ///< Test set description
     testfunc_t func;        ///< Function to call for this set
     const void *cases;      ///< Test cases in this set
     size_t size;            ///< Size of each test case structure
@@ -37,13 +38,13 @@ typedef struct testset_s {
 /// Simple test set: single function w/o arguments and a description
 typedef struct testset__simple_s {
     testfunc0_t func;       ///< Simple test function
-    const char *desc;       ///< Description of the test
 } testset__simple_t;
 
 /// Declare simple test set with single function and no arguments
 #define TEST_SET_SIMPLE(f, d) { \
+    .desc = (d), \
     .func = test__exec_simple_testcase, \
-    .cases = &(const testset__simple_t){ .func = (f), .desc = (d), }, \
+    .cases = &(const testset__simple_t){ .func = (f) }, \
     .size = 0, \
     .ncases = 1, \
 }

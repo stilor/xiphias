@@ -19,7 +19,7 @@
                 .is_empty = true, \
         )
 
-static const testcase_t testcases[] = {
+static const testcase_t testcases_encoding[] = {
     {
         .desc = "No declaration in UTF-8, with BOM",
         .input = "simple-no-decl.xml",
@@ -51,7 +51,8 @@ static const testcase_t testcases[] = {
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
-                    .msg = "No external encoding information, no encoding in XMLDecl, content in UTF-16BE encoding",
+                    .msg = "No external encoding information, no encoding in "
+                    "XMLDecl, content in UTF-16BE encoding",
             ),
             E_XMLDECL_A("simple-no-decl.xml", 1, 1),
             END,
@@ -66,7 +67,8 @@ static const testcase_t testcases[] = {
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
-                    .msg = "No external encoding information, no encoding in XMLDecl, content in UTF-16BE encoding",
+                    .msg = "No external encoding information, no encoding "
+                    "in XMLDecl, content in UTF-16BE encoding",
             ),
             E_XMLDECL_A("simple-no-decl.xml", 1, 1),
             END,
@@ -81,7 +83,8 @@ static const testcase_t testcases[] = {
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
-                    .msg = "No external encoding information, no encoding in XMLDecl, content in UTF-16LE encoding",
+                    .msg = "No external encoding information, no encoding "
+                    "in XMLDecl, content in UTF-16LE encoding",
             ),
             E_XMLDECL_A("simple-no-decl.xml", 1, 1),
             END,
@@ -96,7 +99,8 @@ static const testcase_t testcases[] = {
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
-                    .msg = "No external encoding information, no encoding in XMLDecl, content in UTF-16LE encoding",
+                    .msg = "No external encoding information, no encoding "
+                    "in XMLDecl, content in UTF-16LE encoding",
             ),
             E_XMLDECL_A("simple-no-decl.xml", 1, 1),
             END,
@@ -234,13 +238,17 @@ static const testcase_t testcases[] = {
         .transport_encoding = NULL,
         .events = (const xml_reader_cbparam_t[]){
             E(XMLDECL, LOC("simple-invalid-encoding.xml", 1, 1),
-                    .encoding = "INVALID_ENCODING_WITH_A_VERY_LONG_NAME_THAT_IS_GOING_TO_SPAN_A_FEW_LINES_AND_PROBABLY_REQUIRE_REALLOCATION_OF_THE_BUFFER",
+                    .encoding = "INVALID_ENCODING_WITH_A_VERY_LONG_NAME_THAT"
+                    "_IS_GOING_TO_SPAN_A_FEW_LINES_AND_PROBABLY_REQUIRE_"
+                    "REALLOCATION_OF_THE_BUFFER",
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),
             E(MESSAGE, LOC("simple-invalid-encoding.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
-                    .msg = "Unsupported encoding 'INVALID_ENCODING_WITH_A_VERY_LONG_NAME_THAT_IS_GOING_TO_SPAN_A_FEW_LINES_AND_PROBABLY_REQUIRE_REALLOCATION_OF_THE_BUFFER'",
+                    .msg = "Unsupported encoding 'INVALID_ENCODING_WITH_A_VERY"
+                    "_LONG_NAME_THAT_IS_GOING_TO_SPAN_A_FEW_LINES_AND_PROBABLY"
+                    "_REQUIRE_REALLOCATION_OF_THE_BUFFER'",
             ),
             E(MESSAGE, LOC("simple-invalid-encoding.xml", 1, 1),
                     .info = XMLERR_NOTE,
@@ -292,6 +300,9 @@ static const testcase_t testcases[] = {
             END,
         },
     },
+};
+
+static const testcase_t testcases_xmldecl[] = {
     {
         .desc = "Truncated declaration #1",
         .input = "truncated-decl1.xml",
@@ -619,14 +630,16 @@ static const testcase_t testcases[] = {
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
-                    .msg = "No external encoding information, no encoding in XMLDecl, content in IBM500 encoding",
+                    .msg = "No external encoding information, "
+                    "no encoding in XMLDecl, content in IBM500 encoding",
             ),
             E_XMLDECL_A("simple-no-decl.xml", 1, 1),
             END,
         },
     },
     {
-        .desc = "Document with no declaration in non-UTF8/UTF16 encoding (has transport encoding)",
+        .desc = "Document with no declaration in non-UTF8/UTF16 encoding "
+                "(has transport encoding)",
         .input = "simple-no-decl.xml",
         .use_bom = false,
         .encoding = "IBM037",
@@ -636,6 +649,9 @@ static const testcase_t testcases[] = {
             END,
         },
     },
+};
+
+static const testcase_t testcases_element[] = {
     {
         .desc = "Simple opening/closing tags",
         .input = "simple-open-close.xml",
@@ -1001,3 +1017,30 @@ static const testcase_t testcases[] = {
         },
     },
 };
+
+static const testset_t testset[] = {
+    {
+        .desc = "Encoding tests",
+        .func = run_testcase,
+        .cases = testcases_encoding,
+        .size = sizeof(testcase_t),
+        .ncases = sizeofarray(testcases_encoding),
+    },
+    {
+        .desc = "XML/Text declaration tests",
+        .func = run_testcase,
+        .cases = testcases_xmldecl,
+        .size = sizeof(testcase_t),
+        .ncases = sizeofarray(testcases_xmldecl),
+    },
+    {
+        .desc = "Element tests",
+        .func = run_testcase,
+        .cases = testcases_element,
+        .size = sizeof(testcase_t),
+        .ncases = sizeofarray(testcases_element),
+    },
+};
+
+static const testsuite_t testsuite = TEST_SUITE("Tests for XML reader API", testset);
+
