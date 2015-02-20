@@ -607,7 +607,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
     while (!stop && strbuf_rptr(h->buf_proc, &begin, &end)) {
         for (ptr = begin; !stop && ptr < (const uint32_t *)end; ptr++) {
             cp0 = *ptr; // codepoint before possible substitution by func
-            if ((h->flags & READER_SAW_CR) != 0 && (cp == 0x0A || cp == 0x85)) {
+            if ((h->flags & READER_SAW_CR) != 0 && (cp0 == 0x0A || cp0 == 0x85)) {
                 // EOL normalization. This is "continuation" of a previous character - so
                 // is treated before positioning update.
                 h->flags &= ~READER_SAW_CR;

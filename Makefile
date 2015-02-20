@@ -18,7 +18,7 @@ CFLAGS_common			:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered \
 						   -Wsign-compare -Wlogical-op -Waggregate-return \
 						   -Wmissing-field-initializers -Wnested-externs \
-						   -g -O0 -fno-common -iquote src $(CFLAGS_extra)
+						   -g -O1 -fno-common -iquote src $(CFLAGS_extra)
 
 CFLAGS_lib				:= $(CFLAGS_common) -fPIC
 CFLAGS_test				:= $(CFLAGS_common)
@@ -30,7 +30,6 @@ LDFLAGS_test			:= $(LDFLAGS_common) -Wl,-rpath=build/lib
 all:
 
 coverage:
-	@$(MAKE) clean
 	@$(MAKE) all CFLAGS_extra='--coverage' LDFLAGS_extra='--coverage'
 	@$(MAKE) check
 	mkdir -p build/coverage
