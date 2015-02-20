@@ -1,5 +1,16 @@
 # vi: set sw=4 ts=4 :
 
+COVERAGE_TOOL			:= lcov
+COVERAGE_CMD-gcovr		:= gcovr -r . -e "^tests/" --html --html-details \
+						   -o build/coverage/index.html
+COVERAGE_CMD-lcov		:= lcov --directory build/src --capture \
+						   --rc lcov_branch_coverage=1 \
+						   --output-file build/lcov.info && \
+						   genhtml --output-directory build/coverage --show-details \
+						   --frames --title "Xiphias coverage" --legend \
+						   --rc lcov_branch_coverage=1 --branch-coverage \
+						   --function-coverage build/lcov.info
+
 CC	= gcc
 CFLAGS_common			:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wstrict-overflow=4 -Wignored-qualifiers -Wunused-but-set-parameter \
@@ -7,21 +18,23 @@ CFLAGS_common			:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered \
 						   -Wsign-compare -Wlogical-op -Waggregate-return \
 						   -Wmissing-field-initializers -Wnested-externs \
-						   -g -O0 -fno-common -iquote src
+						   -g -O0 -fno-common -iquote src $(CFLAGS_extra)
 
 CFLAGS_lib				:= $(CFLAGS_common) -fPIC
 CFLAGS_test				:= $(CFLAGS_common)
 
-LDFLAGS_common			:= -L build/lib
+LDFLAGS_common			:= -L build/lib $(LDFLAGS_extra)
 LDFLAGS_lib				:= $(LDFLAGS_common) -fPIC -shared
 LDFLAGS_test			:= $(LDFLAGS_common) -Wl,-rpath=build/lib
 
-ifeq ($(COVERAGE),yes)
-CFLAGS_common			+= --coverage
-LDFLAGS_common			+= --coverage
-endif
-
 all:
+
+coverage:
+	@$(MAKE) clean
+	@$(MAKE) all CFLAGS_extra='--coverage' LDFLAGS_extra='--coverage'
+	@$(MAKE) check
+	mkdir -p build/coverage
+	$(COVERAGE_CMD-$(COVERAGE_TOOL))
 
 GENERATED				:= src/util/encoding-codepages.c \
 						   src/util/ucs4data.c
@@ -33,6 +46,7 @@ clean:
 check:
 
 docs:
+	rm -rf build/doc
 	mkdir -p build/doc
 	doxygen src/Doxyfile
 
