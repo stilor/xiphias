@@ -4,12 +4,15 @@ COVERAGE_TOOL			:= lcov
 COVERAGE_CMD-gcovr		:= gcovr -r . -e "^tests/" --html --html-details \
 						   -o build/coverage/index.html
 COVERAGE_CMD-lcov		:= lcov --directory build/src --capture \
-						   --rc lcov_branch_coverage=1 \
-						   --output-file build/lcov.info && \
+						   		--rc lcov_branch_coverage=1 \
+						   		--output-file build/lcov-raw.info && \
+						   lcov --remove build/lcov-raw.info "/usr/include/*" \
+						   		--rc lcov_branch_coverage=1 \
+						   		--output-file build/lcov.info && \
 						   genhtml --output-directory build/coverage --show-details \
-						   --frames --title "Xiphias coverage" --legend \
-						   --rc lcov_branch_coverage=1 --branch-coverage \
-						   --function-coverage build/lcov.info
+						   		--frames --title "Xiphias coverage" --legend \
+						   		--rc lcov_branch_coverage=1 --branch-coverage \
+						   		--function-coverage build/lcov.info
 
 CC	= gcc
 CFLAGS_common			:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
@@ -18,7 +21,7 @@ CFLAGS_common			:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered \
 						   -Wsign-compare -Wlogical-op -Waggregate-return \
 						   -Wmissing-field-initializers -Wnested-externs \
-						   -g -O1 -fno-common -iquote src $(CFLAGS_extra)
+						   -g -O2 -fno-common -iquote src $(CFLAGS_extra)
 
 CFLAGS_lib				:= $(CFLAGS_common) -fPIC
 CFLAGS_test				:= $(CFLAGS_common)
@@ -31,6 +34,7 @@ all:
 
 coverage:
 	@$(MAKE) all CFLAGS_extra='--coverage' LDFLAGS_extra='--coverage'
+	find build -name "*.gcda" | xargs rm -f
 	@$(MAKE) check
 	mkdir -p build/coverage
 	$(COVERAGE_CMD-$(COVERAGE_TOOL))
