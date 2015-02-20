@@ -21,6 +21,9 @@
 /// OR'ed by conditional read functions to indicate a stop after the current character
 #define UCS4_LASTCHAR    (0x80000000)
 
+/// Maximum allowed UCS-4 codepoint
+#define UCS4_MAX         (0x0010FFFF)
+
 /// Maximum number of bytes to encode a character in UTF-8
 #define UTF8_LEN_MAX    4
 
@@ -44,7 +47,7 @@ utf8_len(uint32_t cp)
     else if (cp < 0x10000) {
         return 3;   // 4-bit start, 2x 6-bit trailing
     }
-    else if (cp < 0x110000) { // Unicode limit
+    else if (cp <= UCS4_MAX) { // Unicode limit
         return 4;   // 3-bit start, 3x 6-bit trailing
     }
     else {

@@ -659,7 +659,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
             else if (xml_is_restricted(h, cp0)) {
                 // Non-fatal: just let the app figure what to do with it
                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_Char),
-                        "Restricted character");
+                        "Restricted character U+%04X", cp0);
             }
 
             // Store the character returned by func and see if func requested a stop

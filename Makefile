@@ -15,13 +15,14 @@ COVERAGE_CMD-lcov		:= lcov --directory build/src --capture \
 						   		--function-coverage build/lcov.info
 
 CC	= gcc
+OPTIMIZE				:= -O2
 CFLAGS_common			:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wstrict-overflow=4 -Wignored-qualifiers -Wunused-but-set-parameter \
 						   -Wmaybe-uninitialized -Wpointer-arith -Wtype-limits -Wbad-function-cast \
 						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered \
 						   -Wsign-compare -Wlogical-op -Waggregate-return \
 						   -Wmissing-field-initializers -Wnested-externs \
-						   -g -O2 -fno-common -iquote src $(CFLAGS_extra)
+						   -g $(OPTIMIZE) -fno-common -iquote src $(CFLAGS_extra)
 
 CFLAGS_lib				:= $(CFLAGS_common) -fPIC
 CFLAGS_test				:= $(CFLAGS_common)

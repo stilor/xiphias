@@ -333,6 +333,7 @@ run_testcase(const void *arg)
         memcpy(start, "\xEF\xBB\xBF", 3);
         strbuf_wadvance(sbuf, 3);
     }
+    sbuf = test_strbuf_subst(sbuf, '\\', 4096);
     sbuf = strbuf_iconv_read(sbuf, "UTF-8", tc->encoding, 4096);
 
     // Run the test

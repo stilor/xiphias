@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include "util/defs.h"
+#include "util/strbuf.h"
 
 /// Test outcome
 typedef enum result_e {
@@ -65,5 +66,8 @@ int test_run_cmdline(const testsuite_t *suite, unsigned int argc, char *argv[]);
 
 // Internal interfaces (not to be called directly)
 result_t test__exec_simple_testcase(const void *arg);
+
+// Other test framework
+strbuf_t *test_strbuf_subst(strbuf_t *input, uint8_t esc, size_t sz);
 
 #endif
