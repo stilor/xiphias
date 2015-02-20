@@ -518,10 +518,11 @@ static const strbuf_ops_t xml_reader_transcode_ops = {
     @param h Reader handle
     @param buf Buffer to read into
     @param bufsz Buffer size
+    @param peof Set to true if EOF is detected
     @return Number of characters read
 */
 static size_t
-xml_lookahead(xml_reader_t *h, uint8_t *buf, size_t bufsz)
+xml_lookahead(xml_reader_t *h, uint8_t *buf, size_t bufsz, bool *peof)
 {
     uint32_t tmp[MAX_LOOKAHEAD_SIZE];
     const uint32_t *ptr = tmp;
@@ -529,6 +530,9 @@ xml_lookahead(xml_reader_t *h, uint8_t *buf, size_t bufsz)
 
     OOPS_ASSERT(bufsz <= MAX_LOOKAHEAD_SIZE);
     nread = strbuf_lookahead(h->buf_proc, tmp, bufsz * sizeof(uint32_t));
+    if (peof) {
+        *peof = !nread;
+    }
     OOPS_ASSERT((nread & 3) == 0); // h->buf_proc must have an integral number of characters
     nread /= 4;
     for (i = 0; i < nread; i++) {
@@ -1112,7 +1116,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     uint8_t labuf[6]; // ['<?xml' + whitespace] or [?>]
     size_t len;
 
-    if (6 != xml_lookahead(h, labuf, 6)
+    if (6 != xml_lookahead(h, labuf, 6, NULL)
             || !xustrneq(labuf, "<?xml", 5)
             || !xml_is_whitespace(labuf[5])) {
         return false; // Does not start with a declaration
@@ -1130,7 +1134,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
         // If it was a Name, it is further checked against the expected
         // attribute list and Literal is then verified for begin a valid value
         // for Name.
-        if (1 == xml_lookahead(h, labuf, 1) && xuchareq(labuf[0], '?')) {
+        if (1 == xml_lookahead(h, labuf, 1, NULL) && xuchareq(labuf[0], '?')) {
             if (!xml_read_string(h, "?>", declinfo->generr)) {
                 goto malformed;
             }
@@ -1385,7 +1389,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
 
     while (true) {
         len = xml_read_whitespace(h);
-        if (xml_lookahead(h, &la, 1) != 1) {
+        if (xml_lookahead(h, &la, 1, NULL) != 1) {
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
                     "Element start tag truncated");
             return;
@@ -1504,7 +1508,7 @@ xml_parse_element(xml_reader_t *h)
     xml_parse_STag_EmptyElemTag(h, &is_empty_element);
     if (!is_empty_element) {
         xml_parse_content(h);
-        if (xml_lookahead(h, labuf, 2) < 2) {
+        if (xml_lookahead(h, labuf, 2, NULL) < 2) {
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_element),
                     "Root element end tag missing");
             return;
@@ -1656,6 +1660,7 @@ xml_reader_process_document_entity(xml_reader_t *h)
     uint8_t labuf[4]; // Lookahead buffer
     bool seen_dtd = false;
     bool seen_element = false;
+    bool eof;
 
     /*
         Document entity matches the following productions per XML spec (1.1).
@@ -1684,10 +1689,10 @@ xml_reader_process_document_entity(xml_reader_t *h)
     while ((h->flags & READER_FATAL) == 0) {
         (void)xml_read_whitespace(h); // Skip whitespace if any
         memset(labuf, 0, sizeof(labuf));
-        if (xml_lookahead(h, labuf, 4) == 0) {
+        if (xml_lookahead(h, labuf, 4, &eof) == 0 && eof) {
             break; // No more input
         }
-        if (labuf[0] == '<') {
+        else if (labuf[0] == '<') {
             // Comment, PI, doctypedecl and element all start with '<'
             if (labuf[1] == '!') {
                 // Comment or doctypedecl

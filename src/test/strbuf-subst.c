@@ -4,11 +4,12 @@
 /**
     @file
     Substituting string buffer. Operates in UTF-8.
-    Supported substitution (S indicates escape character configured
+    Supported substitution (\ indicates escape character configured
     when creating the string buffer):
-    SS - Substitute with the escape character itself
-    S<newline> - Remove the newline
-    SUHHHH/ - Substitute with Unicode character U+HHHH (may have up to 6
+    \\ - Substitute with the escape character itself
+    \<newline> - Remove the newline (consumes either \n or \r\n)
+    \UHHHH/ - Substitute with Unicode character U+HHHH (may have up to 6
+    \BHH/ - Substitute a single byte
         hexadecimal digits).
 */
 #include <string.h>
@@ -24,17 +25,41 @@ enum subst_mode_e {
     SUBST_NONE,         ///< Normal passthrough
     SUBST_ESCAPE,       ///< Seen escape character
     SUBST_CODEPOINT,    ///< UCS-4 codepoint substitution
+    SUBST_BYTE,         ///< Substitute a single byte (to create invalid characters)
 };
 
 /// State structure
 typedef struct subst_state_s {
     strbuf_t *input;                ///< Substituted stream
     enum subst_mode_e mode;         ///< Current mode of substitution
-    uint32_t ucs4;                  ///< UCS4 code point (accumulated so far)
+    uint32_t val;                   ///< Value accumulated so far
     uint8_t utf8_out[UTF8_LEN_MAX]; ///< UTF-8 output not yet flushed
     size_t utf8_sz;                 ///< Size of the remaining UTF-8 output
     uint8_t esc;                    ///< Escape character
 } subst_state_t;
+
+/**
+    Convert a hexadecimal digit to a numeric value.
+
+    @param digit Character to convert
+    @return Digital value
+*/
+static uint32_t
+fromhex(uint8_t digit)
+{
+    if (digit >= '0' && digit <= '9') {
+        return digit - '0';
+    }
+    else if (digit >= 'A' && digit <= 'F') {
+        return digit - 'A' + 10;
+    }
+    else if (digit >= 'a' && digit <= 'f') {
+        return digit - 'a' + 10;
+    }
+    else {
+        OOPS_ASSERT(0); // invalid hex digit
+    }
+}
 
 /**
     Input generator
@@ -84,8 +109,12 @@ subst_more(void *arg, void *begin, size_t sz)
                     // Skip CR and wait for LF
                 }
                 else if (*in_ptr == 'U') {
-                    ss->ucs4 = 0; // Start of a codepoint substitution
+                    ss->val = 0; // Start of a codepoint substitution
                     ss->mode = SUBST_CODEPOINT;
+                }
+                else if (*in_ptr == 'B') {
+                    ss->val = 0; // Start of a codepoint substitution
+                    ss->mode = SUBST_BYTE;
                 }
                 else {
                     OOPS_ASSERT(0); // Unknown substitution
@@ -95,27 +124,27 @@ subst_more(void *arg, void *begin, size_t sz)
                 if (*in_ptr == '/') {
                     // End of a code point. Store from the end of the out
                     // buffer
-                    ss->utf8_sz = utf8_len(ss->ucs4);
+                    ss->utf8_sz = utf8_len(ss->val);
                     tmp = ss->utf8_out + UTF8_LEN_MAX - ss->utf8_sz;
-                    utf8_store(&tmp, ss->ucs4);
+                    utf8_store(&tmp, ss->val);
                     ss->mode = SUBST_NONE;
                 }
                 else {
                     // Next digit
-                    ss->ucs4 *= 16;
-                    if (*in_ptr >= '0' && *in_ptr <= '9') {
-                        ss->ucs4 += *in_ptr - '0';
-                    }
-                    else if (*in_ptr >= 'A' && *in_ptr <= 'F') {
-                        ss->ucs4 += *in_ptr - 'A' + 10;
-                    }
-                    else if (*in_ptr >= 'a' && *in_ptr <= 'f') {
-                        ss->ucs4 += *in_ptr - 'a' + 10;
-                    }
-                    else {
-                        OOPS_ASSERT(0); // invalid hex digit
-                    }
-                    OOPS_ASSERT(ss->ucs4 <= UCS4_MAX); // too many digits
+                    ss->val *= 16;
+                    ss->val += fromhex(*in_ptr);
+                    OOPS_ASSERT(ss->val <= UCS4_MAX); // too many digits
+                }
+                break;
+            case SUBST_BYTE:
+                if (*in_ptr == '/') {
+                    *ptr++ = ss->val;
+                    ss->mode = SUBST_NONE;
+                }
+                else {
+                    ss->val *= 16;
+                    ss->val += fromhex(*in_ptr);
+                    OOPS_ASSERT(ss->val <= 0xFF); // too many digits
                 }
                 break;
             default:

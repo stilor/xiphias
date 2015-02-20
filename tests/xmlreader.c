@@ -319,7 +319,9 @@ run_testcase(const void *arg)
         strbuf_wadvance(sbuf, 3);
     }
     sbuf = test_strbuf_subst(sbuf, '\\', 4096);
-    sbuf = strbuf_iconv_read(sbuf, "UTF-8", tc->encoding, 4096);
+    if (tc->encoding) {
+        sbuf = strbuf_iconv_read(sbuf, "UTF-8", tc->encoding, 4096);
+    }
 
     // Run the test
     printf("XML reader events:\n");

@@ -290,7 +290,10 @@ encoding_in_from_strbuf(encoding_handle_t *hnd, strbuf_t *buf,
             (either to produce output, or store it in internal state) and/or
             produce some output (from input, or from stored internal state).
         */
-        OOPS_ASSERT(len || out != *pout);
+        if (!len && out == *pout) {
+            // bad encoding implementation
+            OOPS_ASSERT(0);
+        }
         total += len;
         strbuf_radvance(buf, len);
     } while (*pout < end_out);

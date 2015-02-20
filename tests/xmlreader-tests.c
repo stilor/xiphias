@@ -300,6 +300,30 @@ static const testcase_t testcases_encoding[] = {
             END,
         },
     },
+    {
+        .desc = "Partial character at end of input",
+        .input = "partial-chars.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            E_XMLDECL_A("partial-chars.xml", 1, 1),
+            E(MESSAGE, LOC("partial-chars.xml", 3, 2),
+                    .info = XMLERR(ERROR, XML, ENCODING_ERROR),
+                    .msg = "Partial characters at end of input",
+            ),
+            END,
+        },
+    },
+    {
+        .desc = "Invalid character at top level",
+        .input = "invalid-chars-top-level.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            E_XMLDECL_A("invalid-chars-top-level.xml", 1, 1),
+            E(MESSAGE, LOC("invalid-chars-top-level.xml", 1, 5),
+                    .info = XMLERR(ERROR, XML, P_document),
+                    .msg = "Invalid content at root level",
+            ),
+            END,
+        },
+    },
 };
 
 static const testcase_t testcases_xmldecl[] = {
