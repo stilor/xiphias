@@ -7,8 +7,111 @@
 
 #include "util/strbuf.h"
 #include "util/encoding.h"
+#include "util/unicode.h"
 #include "util/xutil.h"
 #include "test/testlib.h"
+
+typedef struct testcase_utf8store_s {
+    uint32_t codepoint;
+    const uint8_t *utf8;
+    size_t len;
+    bool oops;
+} testcase_utf8store_t;
+
+static result_t
+run_tc_utf8store(const void *arg)
+{
+    const testcase_utf8store_t *tc = arg;
+    uint8_t buf[UTF8_LEN_MAX];
+    uint8_t *ptr = buf;
+    result_t rc = PASS;
+    size_t len;
+
+    if (tc->oops) {
+        printf("Codepoint U+%04X: expect OOPS on len/store\n", tc->codepoint);
+        EXPECT_OOPS_BEGIN();
+        (void)utf8_len(tc->codepoint);
+        EXPECT_OOPS_END(rc = FAIL);
+        EXPECT_OOPS_BEGIN();
+        utf8_store(&ptr, tc->codepoint);
+        EXPECT_OOPS_END(rc = FAIL);
+    }
+    else {
+        printf("Codepoint U+%04X: expect %zu byte sequence\n",
+                tc->codepoint, tc->len);
+        OOPS_ASSERT(tc->len <= UTF8_LEN_MAX);
+        if (tc->len != (len = utf8_len(tc->codepoint))) {
+            printf("But got %zu bytes as length!\n", len);
+            rc = FAIL;
+        }
+        else {
+            utf8_store(&ptr, tc->codepoint);
+            if (ptr != buf + len) {
+                printf("But stored %zu bytes!\n", len);
+                rc = FAIL;
+            }
+            else if (memcmp(buf, tc->utf8, len)) {
+                printf("Byte sequence does not match expected\n");
+                rc = FAIL;
+            }
+        }
+    }
+    
+    return rc;
+}
+
+#define TC_UTF8(cp, o, ...) \
+{ \
+    .codepoint = (cp), \
+    .utf8 = (const uint8_t []){ __VA_ARGS__ }, \
+    .len = sizeof((const uint8_t []){ __VA_ARGS__ }), \
+    .oops = (o), \
+}
+
+static const testcase_utf8store_t testcase_utf8store[] = {
+    TC_UTF8(0x000000, false, 0x00),
+    TC_UTF8(0x000001, false, 0x01),
+    TC_UTF8(0x000010, false, 0x10),
+    TC_UTF8(0x00007F, false, 0x7F),
+    TC_UTF8(0x000080, false, 0xC2, 0x80),
+    TC_UTF8(0x000081, false, 0xC2, 0x81),
+    TC_UTF8(0x0000BF, false, 0xC2, 0xBF),
+    TC_UTF8(0x0000C0, false, 0xC3, 0x80),
+    TC_UTF8(0x000100, false, 0xC4, 0x80),
+    TC_UTF8(0x000400, false, 0xD0, 0x80),
+    TC_UTF8(0x0007C0, false, 0xDF, 0x80),
+    TC_UTF8(0x0007FF, false, 0xDF, 0xBF),
+    TC_UTF8(0x000800, false, 0xE0, 0xA0, 0x80),
+    TC_UTF8(0x000801, false, 0xE0, 0xA0, 0x81),
+    TC_UTF8(0x00083F, false, 0xE0, 0xA0, 0xBF),
+    TC_UTF8(0x000840, false, 0xE0, 0xA1, 0x80),
+    TC_UTF8(0x000FFF, false, 0xE0, 0xBF, 0xBF),
+    TC_UTF8(0x001000, false, 0xE1, 0x80, 0x80),
+    TC_UTF8(0x00103F, false, 0xE1, 0x80, 0xBF),
+    TC_UTF8(0x001040, false, 0xE1, 0x81, 0x80),
+    TC_UTF8(0x001FFF, false, 0xE1, 0xBF, 0xBF),
+    TC_UTF8(0x00F000, false, 0xEF, 0x80, 0x80),
+    TC_UTF8(0x00F03F, false, 0xEF, 0x80, 0xBF),
+    TC_UTF8(0x00FFC0, false, 0xEF, 0xBF, 0x80),
+    TC_UTF8(0x00FFFF, false, 0xEF, 0xBF, 0xBF),
+    TC_UTF8(0x010000, false, 0xF0, 0x90, 0x80, 0x80),
+    TC_UTF8(0x01003F, false, 0xF0, 0x90, 0x80, 0xBF),
+    TC_UTF8(0x010FC0, false, 0xF0, 0x90, 0xBF, 0x80),
+    TC_UTF8(0x010FFF, false, 0xF0, 0x90, 0xBF, 0xBF),
+    TC_UTF8(0x03F000, false, 0xF0, 0xBF, 0x80, 0x80),
+    TC_UTF8(0x03F03F, false, 0xF0, 0xBF, 0x80, 0xBF),
+    TC_UTF8(0x03FFC0, false, 0xF0, 0xBF, 0xBF, 0x80),
+    TC_UTF8(0x03FFFF, false, 0xF0, 0xBF, 0xBF, 0xBF),
+    TC_UTF8(0x040000, false, 0xF1, 0x80, 0x80, 0x80),
+    TC_UTF8(0x080000, false, 0xF2, 0x80, 0x80, 0x80),
+    TC_UTF8(0x0C0000, false, 0xF3, 0x80, 0x80, 0x80),
+    TC_UTF8(0x100000, false, 0xF4, 0x80, 0x80, 0x80),
+    TC_UTF8(0x10FFFF, false, 0xF4, 0x8F, 0xBF, 0xBF),
+    TC_UTF8(0x110000, true),
+    TC_UTF8(0x7FFFFFFF, true),
+    TC_UTF8(0x80000000, true),
+    TC_UTF8(0xFFFFFFFF, true),
+};
 
 /// Describes a single test case for XML reader
 typedef struct testcase_input_s {
@@ -318,6 +421,7 @@ static const testcase_input_t testcase_inputs_UTF16LE[] = {
 };
 
 static const testset_t testsets[] = {
+    TEST_SET(run_tc_utf8store, "UTF-8 storage primitives", testcase_utf8store),
     TEST_SET(run_tc_input, "UTF-16BE", testcase_inputs_UTF16BE),
     TEST_SET(run_tc_input, "UTF-16LE", testcase_inputs_UTF16LE),
 };

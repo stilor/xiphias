@@ -23,6 +23,9 @@
 /// Denote a function that does not return
 #define __noreturn __attribute__((__noreturn__))
 
+/// Denote unused function/variable
+#define __unused __attribute__((__unused__))
+
 /// Denote a function taking printf-style argument
 #define __printflike(f,a) __attribute__((__format__(__printf__,f,a)))
 

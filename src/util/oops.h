@@ -13,17 +13,44 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#if defined(NO_OOPS)
-static inline void
-__oops_assert(unsigned long c)
-{
-    if (!c) { exit(1); }
-}
+#if defined(OOPS_COVERAGE)
+#include <setjmp.h>
+
+static jmp_buf *oops_buf;
+
+#define EXPECT_OOPS_BEGIN() \
+        do { \
+            jmp_buf expect_oops_buf; \
+            if (!setjmp(expect_oops_buf)) { \
+                oops_buf = &expect_oops_buf;
+
+#define EXPECT_OOPS_END(oopsdidnothappen) \
+                printf("Expected OOPS, but did not happen\n"); \
+                oopsdidnothappen; \
+            } \
+            else { \
+                oops_buf = NULL; \
+            } \
+        } while (0)
 
 static inline void __noreturn
 __oops(void)
 {
-    exit(1);
+    printf("OOPS in coverage run\n");
+    if (!oops_buf) {
+        exit(1);
+    }
+    else {
+        longjmp(*oops_buf, 1);
+    }
+}
+
+static inline void
+__oops_assert(unsigned long c)
+{
+    if (!c) {
+        __oops();
+    }
 }
 
 #define OOPS_ASSERT(c) __oops_assert((unsigned long)(c))

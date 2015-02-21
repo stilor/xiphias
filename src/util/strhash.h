@@ -9,6 +9,7 @@
 #define __util_strhash_h_
 
 #include <stddef.h>
+#include "defs.h"
 
 /// Opaque hash for string storage
 typedef struct strhash_s strhash_t;

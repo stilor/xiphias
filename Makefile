@@ -37,7 +37,7 @@ LDFLAGS_test			:= $(LDFLAGS_common) -Wl,-rpath=build/lib
 all:
 
 coverage:
-	@$(MAKE) all CFLAGS_extra='--coverage -DNO_OOPS' LDFLAGS_extra='--coverage' OPTIMIZE='-O0'
+	@$(MAKE) all CFLAGS_extra='--coverage -DOOPS_COVERAGE' LDFLAGS_extra='--coverage' OPTIMIZE='-O0'
 	find build -name "*.gcda" | xargs rm -f
 	@$(MAKE) check
 	mkdir -p build/coverage
