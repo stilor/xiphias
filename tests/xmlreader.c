@@ -25,6 +25,10 @@ typedef struct testcase_s {
     result_t (*pretest)(xml_reader_t *h, const void *arg);
     const void *pretest_arg;                ///< Argument to pretest function
 
+    /// Extra checks in the test event callback
+    result_t (*checkevt)(xml_reader_t *h, xml_reader_cbparam_t *e, const void *arg);
+    const void *checkevt_arg;               ///< Argument to checkevt function
+
     // Events must be last: they're present in all tests, or warning will result
     // from using default initializations
     const xml_reader_cbparam_t *events;     ///< Events expected while parsing this input
@@ -254,6 +258,8 @@ equal_events(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 }
 
 typedef struct test_cb_s {
+    xml_reader_t *h;
+    const testcase_t *tc;
     const xml_reader_cbparam_t *expect;
     bool failed;
 } test_cb_t;
@@ -266,9 +272,10 @@ typedef struct test_cb_s {
     @return Nothing
 */
 static void
-test_cb(void *arg, const xml_reader_cbparam_t *cbparam)
+test_cb(void *arg, xml_reader_cbparam_t *cbparam)
 {
     test_cb_t *cbarg = arg;
+    result_t rc;
 
     if (equal_events(cbarg->expect, cbparam)) {
         printf("             PASS: ");
@@ -283,6 +290,13 @@ test_cb(void *arg, const xml_reader_cbparam_t *cbparam)
     }
     if (cbarg->expect->cbtype != XML_READER_CB_NONE) {
         cbarg->expect += 1;
+    }
+    if (cbarg->tc->checkevt) {
+        rc = cbarg->tc->checkevt(cbarg->h, cbparam, cbarg->tc->checkevt_arg);
+        if (rc != PASS) {
+            printf("             FAIL: in test-specific callback\n");
+            cbarg->failed = true;
+        }
     }
 }
 
@@ -332,25 +346,24 @@ run_testcase(const void *arg)
 
     cbarg.expect = tc->events;
     cbarg.failed = false;
+    cbarg.h = reader;
+    cbarg.tc = tc;
     xml_reader_set_callback(reader, test_cb, &cbarg);
 
     rc = tc->pretest ? tc->pretest(reader, tc->pretest_arg) : PASS;
+
     if (rc == PASS) {
         xml_reader_process_document_entity(reader);
+        while (cbarg.expect->cbtype != XML_READER_CB_NONE) {
+            printf("  (not seen) FAIL: ");
+            print_event(cbarg.expect);
+            cbarg.expect += 1;
+            cbarg.failed = true;
+        }
+        rc = cbarg.failed ? FAIL : PASS;
     }
+
     xml_reader_delete(reader);
-
-    while (cbarg.expect->cbtype != XML_READER_CB_NONE) {
-        printf("  (not seen) FAIL: ");
-        print_event(cbarg.expect);
-        cbarg.expect += 1;
-        cbarg.failed = true;
-    }
-
-    if (!cbarg.failed) {
-        rc = PASS;
-    }
-
     xfree(path);
     return rc;
 }

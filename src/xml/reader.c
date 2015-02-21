@@ -163,6 +163,7 @@ xml_is_restricted(xml_reader_t *h, uint32_t cp)
 static bool
 xml_is_whitespace(uint32_t cp)
 {
+    // COV: test for 0xD character requires parsing content and recognition of character refs
     return xuchareq(cp, 0x20) || xuchareq(cp, 0x9) || xuchareq(cp, 0xA)
             || xuchareq(cp, 0xD);
 }
@@ -227,8 +228,9 @@ xml_reader_new(strbuf_t *buf, const char *location)
     h->enc = NULL;
     h->buf_raw = buf;
     h->buf_proc = NULL;
+    h->func = NULL;
+    h->arg = NULL;
     h->flags = READER_LOCTRACK;
-    h->tabsize = 8;
     h->curloc.src = xstrdup(location);
     h->curloc.line = 1;
     h->curloc.pos = 1;
@@ -241,6 +243,8 @@ xml_reader_new(strbuf_t *buf, const char *location)
     h->namestorage = xmalloc(INITIAL_NAMESTACK_SIZE);
     h->version = XML_INFO_VERSION_NO_VALUE;
     h->standalone = XML_INFO_STANDALONE_NO_VALUE;
+    h->normalization = XML_READER_NORM_DEFAULT;
+    h->tabsize = 8;
     SLIST_INIT(&h->elem_nested);
     SLIST_INIT(&h->elem_free);
     return h;
@@ -375,7 +379,7 @@ xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg)
     @return None
 */
 static void
-xml_reader_invoke_callback(xml_reader_t *h, const xml_reader_cbparam_t *cbparam)
+xml_reader_invoke_callback(xml_reader_t *h, xml_reader_cbparam_t *cbparam)
 {
     if (h->func) {
         h->func(h->arg, cbparam);

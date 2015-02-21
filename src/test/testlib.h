@@ -49,6 +49,15 @@ typedef struct testset__simple_s {
     .ncases = 1, \
 }
 
+/// Declare a test set
+#define TEST_SET(f, d, c) { \
+    .desc = (d), \
+    .func = (f), \
+    .cases = (c), \
+    .size = sizeof(c[0]), \
+    .ncases = sizeofarray(c), \
+}
+
 /// Test suite
 typedef struct testsuite_s {
     const testset_t *sets;  ///< Test sets in this testsuite

@@ -1,6 +1,72 @@
 /* vi: set ts=4 sw=4 et : */
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
+static result_t
+set_reader_options_pre(xml_reader_t *h, const void *arg)
+{
+    if (!xml_reader_set_transport_encoding(h, "UTF-8")) {
+        printf("Failed to set transport encoding\n");
+        return FAIL;
+    }
+    if (!xml_reader_set_normalization(h, XML_READER_NORM_OFF)) {
+        printf("Failed to disable normalization checks\n");
+        return FAIL;
+    }
+    if (!xml_reader_set_location_tracking(h, true, 4)) {
+        printf("Failed to configure tabstop size to 4\n");
+        return FAIL;
+    }
+    printf("Pre-parsing configuration set\n");
+    return PASS;
+}
+
+static result_t
+set_reader_options_post(xml_reader_t *h, xml_reader_cbparam_t *e, const void *arg)
+{
+    if (e->cbtype == XML_READER_CB_XMLDECL) {
+        if (xml_reader_set_transport_encoding(h, "UTF-8")) {
+            printf("Succeeded to set transport encoding\n");
+            return FAIL;
+        }
+        if (xml_reader_set_normalization(h, XML_READER_NORM_ON)) {
+            printf("Succeeded to disable normalization checks\n");
+            return FAIL;
+        }
+        if (xml_reader_set_location_tracking(h, true, 2)) {
+            printf("Succeeded to configure tabstop size to 2\n");
+            return FAIL;
+        }
+        printf("Configuration immutable during parsing.\n");
+    }
+    else if (e->cbtype == XML_READER_CB_STAG) {
+        xml_reader_set_callback(h, NULL, NULL);
+    }
+    return PASS;
+}
+
+static const testcase_t testcases_api[] = {
+    {
+        .desc = "Setting reader options before/after parsing start",
+        .input = "simple-utf8.xml",
+        .pretest = set_reader_options_pre,
+        .checkevt = set_reader_options_post,
+        .events = (const xml_reader_cbparam_t[]){
+            E(XMLDECL, LOC("simple-utf8.xml", 1, 1),
+                    .encoding = "UTF-8",
+                    .standalone = XML_INFO_STANDALONE_NO_VALUE,
+                    .version = XML_INFO_VERSION_1_0,
+            ),
+            E(STAG, LOC("simple-utf8.xml", 3, 5),
+                    .type = "a",
+                    .typelen = 1,
+                    .parent = NULL,
+                    .baton = NULL
+            ),
+            END,
+        },
+    },
+};
+
 /**
     Tests for XMLDecl conditions all use dummy <a/> element as document
     content.
@@ -127,7 +193,7 @@ static const testcase_t testcases_encoding[] = {
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),
-            E_XMLDECL_A("simple-utf8.xml", 3, 1),
+            E_XMLDECL_A("simple-utf8.xml", 3, 9),
             END,
         },
     },
@@ -140,7 +206,7 @@ static const testcase_t testcases_encoding[] = {
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),
-            E_XMLDECL_A("simple-utf8.xml", 3, 1),
+            E_XMLDECL_A("simple-utf8.xml", 3, 9),
             END,
         },
     },
@@ -941,29 +1007,12 @@ static const testcase_t testcases_toplevel[] = {
     },
 };
 
-static const testset_t testset[] = {
-    {
-        .desc = "Encoding tests",
-        .func = run_testcase,
-        .cases = testcases_encoding,
-        .size = sizeof(testcase_t),
-        .ncases = sizeofarray(testcases_encoding),
-    },
-    {
-        .desc = "XML/Text declaration tests",
-        .func = run_testcase,
-        .cases = testcases_xmldecl,
-        .size = sizeof(testcase_t),
-        .ncases = sizeofarray(testcases_xmldecl),
-    },
-    {
-        .desc = "Toplevel content",
-        .func = run_testcase,
-        .cases = testcases_toplevel,
-        .size = sizeof(testcase_t),
-        .ncases = sizeofarray(testcases_toplevel),
-    },
+static const testset_t testsets[] = {
+    TEST_SET(run_testcase, "Various API tests", testcases_api),
+    TEST_SET(run_testcase, "Encoding tests", testcases_encoding),
+    TEST_SET(run_testcase, "XML/Text declaration tests", testcases_xmldecl),
+    TEST_SET(run_testcase, "Toplevel content", testcases_toplevel),
 };
 
-static const testsuite_t testsuite = TEST_SUITE("Tests for XML reader API", testset);
+static const testsuite_t testsuite = TEST_SUITE("Tests for XML reader API", testsets);
 

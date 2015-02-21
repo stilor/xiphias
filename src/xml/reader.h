@@ -84,7 +84,7 @@ enum xml_reader_normalization_e {
 typedef struct xml_reader_s xml_reader_t;
 
 /// Reader callback function type
-typedef void (*xml_reader_cb_t)(void *arg, const xml_reader_cbparam_t *cbparam);
+typedef void (*xml_reader_cb_t)(void *arg, xml_reader_cbparam_t *cbparam);
 
 xml_reader_t *xml_reader_new(struct strbuf_s *buf, const char *location);
 void xml_reader_delete(xml_reader_t *h);
