@@ -1,6 +1,9 @@
 # vi: set sw=4 ts=4 :
 
+# lcov: specify everything on the command line, in 1.10 lcov_branch_coverage
+# option is recognized via --rc but not from the configuration file.
 COVERAGE_TOOL			:= lcov
+COVERAGE_IGNORED		:= "/usr/include/*" "util/oops.h" "test/*"
 COVERAGE_CMD-gcovr		:= gcovr -r . -e "^tests/" --html --html-details \
 						   -o build/coverage/index.html
 COVERAGE_CMD-lcov		:= lcov --output-file build/lcov.tmp.info \
@@ -8,7 +11,7 @@ COVERAGE_CMD-lcov		:= lcov --output-file build/lcov.tmp.info \
 								--directory build/src --capture && \
 						   lcov --output-file build/lcov.info \
 						   		--rc lcov_branch_coverage=1 \
-								--remove build/lcov.tmp.info "/usr/include/*" "util/oops.h" "test/*" && \
+								--remove build/lcov.tmp.info $(COVERAGE_IGNORED) && \
 						   genhtml --output-directory build/coverage --show-details \
 						   		--frames --title "Xiphias coverage" --legend \
 						   		--rc lcov_branch_coverage=1 --branch-coverage \
