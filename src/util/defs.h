@@ -11,11 +11,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <stdio.h>
-#include <stdlib.h>
-
-// FIXME: find a better place for such common defs?
-
 /// Calculate the number of elements in an array
 #define sizeofarray(a) ((size_t)(sizeof(a) / sizeof(*a)))
 
@@ -45,35 +40,6 @@
             (__a > __b) ? __a : __b; \
         })
 
-/// Custom assertion macro.
-// FIXME: conditional OOPS -> convert to error handling or assert
-#if defined(NO_OOPS)
-// OOPS versions for coverage testing
-static inline void
-__oops_assert(unsigned long c)
-{
-    if (!c) { exit(1); }
-}
-
-static inline void __noreturn
-__oops(void)
-{
-    exit(1);
-}
-
-#define OOPS_ASSERT(c) __oops_assert((unsigned long)(c))
-#define OOPS __oops()
-#else
-#define OOPS_ASSERT(c) do { \
-    if (!(c)) { \
-        fprintf(stderr, "OOPS [%s] at %s:%d\n", #c, __FILE__, __LINE__); \
-        abort(); \
-    } \
-} while (0)
-#define OOPS do { \
-    fprintf(stderr, "OOPS at %s:%d\n", __FILE__, __LINE__); \
-    abort(); \
-} while (0)
-#endif
+#include "oops.h"
 
 #endif

@@ -3,12 +3,12 @@
 COVERAGE_TOOL			:= lcov
 COVERAGE_CMD-gcovr		:= gcovr -r . -e "^tests/" --html --html-details \
 						   -o build/coverage/index.html
-COVERAGE_CMD-lcov		:= lcov --directory build/src --capture \
+COVERAGE_CMD-lcov		:= lcov --output-file build/lcov.tmp.info \
 						   		--rc lcov_branch_coverage=1 \
-						   		--output-file build/lcov-raw.info && \
-						   lcov --remove build/lcov-raw.info "/usr/include/*" \
+								--directory build/src --capture && \
+						   lcov --output-file build/lcov.info \
 						   		--rc lcov_branch_coverage=1 \
-						   		--output-file build/lcov.info && \
+								--remove build/lcov.tmp.info "/usr/include/*" "util/oops.h" "test/*" && \
 						   genhtml --output-directory build/coverage --show-details \
 						   		--frames --title "Xiphias coverage" --legend \
 						   		--rc lcov_branch_coverage=1 --branch-coverage \
