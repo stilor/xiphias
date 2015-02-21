@@ -81,8 +81,10 @@ FUNC(void *baton, const uint8_t *begin, const uint8_t *end, uint32_t **pout, uin
         X(FUNC)(&utf16b, TOHOST(ptr), pout, end_out);
         ptr += 2;
     }
-    // If stopped one byte short of end - store it for the next call
-    if (ptr == end - 1) {
+    // If stopped one byte short of end and have space - store it for the next call
+    // (we may come here if we already have stored byte and we were not able to store
+    // the next output character; in that case, do not store anything)
+    if (ptr == end - 1 && !utf16b.straddle) {
         utf16b.tmp[0] = *ptr++;
         utf16b.straddle = true;
     }
