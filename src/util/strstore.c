@@ -153,5 +153,5 @@ strstore_free(strstore_t *store, const char *s)
     }
 
     // Expected but not found in the store.
-    OOPS_ASSERT(0);
+    OOPS;
 }

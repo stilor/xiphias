@@ -57,7 +57,7 @@ fromhex(uint8_t digit)
         return digit - 'a' + 10;
     }
     else {
-        OOPS_ASSERT(0); // invalid hex digit
+        OOPS; // invalid hex digit
     }
 }
 
@@ -117,7 +117,7 @@ subst_more(void *arg, void *begin, size_t sz)
                     ss->mode = SUBST_BYTE;
                 }
                 else {
-                    OOPS_ASSERT(0); // Unknown substitution
+                    OOPS; // Unknown substitution
                 }
                 break;
             case SUBST_CODEPOINT:
@@ -148,7 +148,7 @@ subst_more(void *arg, void *begin, size_t sz)
                 }
                 break;
             default:
-                OOPS_ASSERT(0); // Invalid mode - should not get here
+                OOPS; // Invalid mode - should not get here
             }
             in_ptr++;
         }

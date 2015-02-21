@@ -51,7 +51,7 @@ utf8_len(uint32_t cp)
         return 4;   // 3-bit start, 3x 6-bit trailing
     }
     else {
-        OOPS_ASSERT(0);
+        OOPS;
     }
 }
 
@@ -87,7 +87,7 @@ utf8_store(uint8_t **pp, uint32_t cp)
         *p++ = 0x80 | (cp & 0x3F);
     }
     else {
-        OOPS_ASSERT(0);
+        OOPS;
     }
     *pp = p;
 }

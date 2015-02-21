@@ -62,7 +62,7 @@ encoding__register(encoding_link_t *lnk)
 
     enc = lnk->enc;
     if (encoding_search(enc->name)) {
-        OOPS_ASSERT(0); // Already registered
+        OOPS; // Already registered
     }
 
     // Search for same detection signatures if there's a conflict
@@ -660,7 +660,7 @@ utf32_in(void *baton, const uint8_t *begin, const uint8_t *end,
         uint32_t **pout, uint32_t *end_out)
 {
     // TBD: UTF-32 encodings not implemented yet
-    OOPS_ASSERT(0);
+    OOPS;
     return 0;
 }
 static const encoding_sig_t sig_UTF32LE[] = {

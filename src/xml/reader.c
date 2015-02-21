@@ -1379,7 +1379,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
     *is_empty = true;
 
     if (!xml_read_string(h, "<", XMLERR(ERROR, XML, P_STag))) {
-        OOPS_ASSERT(0); // This function should not be called unless looked ahead
+        OOPS; // This function should not be called unless looked ahead
     }
     cbp.cbtype = XML_READER_CB_STAG;
     cbp.loc = h->tokenloc;
@@ -1428,7 +1428,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
         }
         else if (xuchareq(la, '>')) {
             if (!xml_read_string(h, ">", XMLERR(ERROR, XML, P_STag))) {
-                OOPS_ASSERT(0); // Cannot fail - we looked ahead
+                OOPS; // Cannot fail - we looked ahead
             }
             *is_empty = false;
             return;
@@ -1465,7 +1465,7 @@ xml_parse_ETag(xml_reader_t *h)
     size_t len;
 
     if (!xml_read_string(h, "</", XMLERR(ERROR, XML, P_ETag))) {
-        OOPS_ASSERT(0); // This function should not be called unless looked ahead
+        OOPS; // This function should not be called unless looked ahead
     }
     cbp.cbtype = XML_READER_CB_ETAG;
     cbp.loc = h->tokenloc;
@@ -1550,6 +1550,7 @@ xml_reader_start(xml_reader_t *h)
     uint8_t adbuf[4];       // 4 bytes for encoding detection, per XML spec suggestion
     size_t bom_len, adsz;
     const char *encname;
+    bool rv;
 
     // No more setup changes
     h->flags |= READER_STARTED;
@@ -1575,8 +1576,9 @@ xml_reader_start(xml_reader_t *h)
 
     // If no encoding passed from the transport layer, and autodetect didn't help,
     // try UTF-8. UTF-8 is built-in, so it should always work.
-    if (!h->enc && !xml_reader_set_encoding(h, "UTF-8")) {
-        OOPS_ASSERT(0);
+    if (!h->enc) {
+        rv = xml_reader_set_encoding(h, "UTF-8");
+        OOPS_ASSERT(rv);
     }
 
     // Create a temporary reader buffer

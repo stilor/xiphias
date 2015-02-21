@@ -331,7 +331,7 @@ run_testcase(const void *arg)
         void *start, *end;
 
         if (strbuf_wptr(sbuf, &start, &end) < 3) {
-            OOPS_ASSERT(0); // There shouldn't be anything in the buffer yet
+            OOPS; // There shouldn't be anything in the buffer yet
         }
         memcpy(start, "\xEF\xBB\xBF", 3); // BOM in UTF-8
         strbuf_wadvance(sbuf, 3);

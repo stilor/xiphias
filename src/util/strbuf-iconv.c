@@ -53,10 +53,10 @@ iconv_more(void *arg, void *begin, size_t sz)
             // That's ok too: next call will defrag and retry
         }
         else if (errno == EILSEQ) {
-            OOPS_ASSERT(0); // TBD how to handle?
+            OOPS; // TBD how to handle?
         }
         else {
-            OOPS_ASSERT(0); // Undocumented error in iconv
+            OOPS; // Undocumented error in iconv
         }
     }
     // Mark a portion of input consumed and return size of output
@@ -104,7 +104,7 @@ strbuf_iconv_read(strbuf_t *input, const char *from, const char *to, size_t sz)
     ia = xmalloc(sizeof(iconv_arg_t));
     if ((ia->cd = iconv_open(to, from)) == (iconv_t)-1) {
         xfree(ia);
-        OOPS_ASSERT(0);
+        OOPS;
     }
     ia->buf = input;
     buf = strbuf_new(NULL, sz);
