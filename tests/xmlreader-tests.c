@@ -44,6 +44,16 @@ set_reader_options_post(xml_reader_t *h, xml_reader_cbparam_t *e, const void *ar
     return PASS;
 }
 
+static result_t
+disable_location_tracking(xml_reader_t *h, const void *arg)
+{
+    if (!xml_reader_set_location_tracking(h, false, 0)) {
+        printf("Failed to disable location tracking\n");
+        return FAIL;
+    }
+    return PASS;
+}
+
 static const testcase_t testcases_api[] = {
     {
         .desc = "Setting reader options before/after parsing start",
@@ -61,6 +71,31 @@ static const testcase_t testcases_api[] = {
                     .typelen = 1,
                     .parent = NULL,
                     .baton = NULL
+            ),
+            END,
+        },
+    },
+    {
+        .desc = "Disable location tracking",
+        .input = "simple-utf8.xml",
+        .pretest = disable_location_tracking,
+        .events = (const xml_reader_cbparam_t[]){
+            E(XMLDECL, LOC("simple-utf8.xml", 1, 1),
+                    .encoding = "UTF-8",
+                    .standalone = XML_INFO_STANDALONE_NO_VALUE,
+                    .version = XML_INFO_VERSION_1_0,
+            ),
+            E(STAG, LOC("simple-utf8.xml", 1, 1),
+                    .type = "a",
+                    .typelen = 1,
+                    .parent = NULL,
+                    .baton = NULL,
+            ),
+            E(ETAG, LOC("simple-utf8.xml", 1, 1),
+                    .type = "a",
+                    .typelen = 1,
+                    .baton = NULL,
+                    .is_empty = true,
             ),
             END,
         },
@@ -608,7 +643,24 @@ static const testcase_t testcases_xmldecl[] = {
         },
     },
     {
-        .desc = "Unsupported XML version",
+        .desc = "Unsupported XML version #1",
+        .input = "decl-xml-1.A.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            E(MESSAGE, LOC("decl-xml-1.A.xml", 1, 15),
+                    .info = XMLERR(ERROR, XML, P_XMLDecl),
+                    .msg = "Unsupported XML version",
+            ),
+            E(XMLDECL, LOC("decl-xml-1.A.xml", 1, 1),
+                    .encoding = NULL,
+                    .standalone = XML_INFO_STANDALONE_NO_VALUE,
+                    .version = XML_INFO_VERSION_NO_VALUE,
+            ),
+            E_XMLDECL_A("decl-xml-1.A.xml", 1, 22),
+            END,
+        },
+    },
+    {
+        .desc = "Unsupported XML version #2",
         .input = "decl-xml-2.0.xml",
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-xml-2.0.xml", 1, 15),
@@ -625,7 +677,7 @@ static const testcase_t testcases_xmldecl[] = {
         },
     },
     {
-        .desc = "Invalid encoding value",
+        .desc = "Invalid encoding value #1",
         .input = "decl-invalid-encoding.xml",
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("decl-invalid-encoding.xml", 1, 30),
@@ -638,6 +690,23 @@ static const testcase_t testcases_xmldecl[] = {
                     .version = XML_INFO_VERSION_1_1,
             ),
             E_XMLDECL_A("decl-invalid-encoding.xml", 1, 37),
+            END,
+        },
+    },
+    {
+        .desc = "Invalid encoding value #2",
+        .input = "decl-invalid-encoding2.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            E(MESSAGE, LOC("decl-invalid-encoding2.xml", 1, 30),
+                    .info = XMLERR(ERROR, XML, P_XMLDecl),
+                    .msg = "Invalid encoding name",
+            ),
+            E(XMLDECL, LOC("decl-invalid-encoding2.xml", 1, 1),
+                    .encoding = NULL,
+                    .standalone = XML_INFO_STANDALONE_NO_VALUE,
+                    .version = XML_INFO_VERSION_1_1,
+            ),
+            E_XMLDECL_A("decl-invalid-encoding2.xml", 1, 41),
             END,
         },
     },
@@ -683,9 +752,107 @@ static const testcase_t testcases_xmldecl[] = {
             END,
         },
     },
+    {
+        .desc = "Position updates with combining marks",
+        .input = "combining-mark.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            E(STAG, LOC("combining-mark.xml", 1, 1),
+                    .type = "a\xCC\x81",
+                    .typelen = 3,
+                    .parent = NULL,
+                    .baton = NULL,
+            ),
+            E(ETAG, LOC("combining-mark.xml", 1, 4),
+                    .type = "a\xCC\x81",
+                    .typelen = 3,
+                    .baton = NULL,
+                    .is_empty = false,
+            ),
+            END,
+        },
+    },
+    {
+        .desc = "NUL/restricted characters in input (1.0)",
+        .input = "nul-restricted-char-1.0.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            E(MESSAGE, LOC("nul-restricted-char-1.0.xml", 1, 19),
+                    .info = XMLERR(ERROR, XML, P_Char),
+                    .msg = "NUL character encountered",
+            ),
+            E(XMLDECL, LOC("nul-restricted-char-1.0.xml", 1, 1),
+                    .encoding = NULL,
+                    .standalone = XML_INFO_STANDALONE_NO_VALUE,
+                    .version = XML_INFO_VERSION_1_0,
+            ),
+            E_XMLDECL_A("nul-restricted-char-1.0.xml", 2, 1),
+            E(MESSAGE, LOC("nul-restricted-char-1.0.xml", 3, 6),
+                    .info = XMLERR(ERROR, XML, P_Char),
+                    .msg = "Restricted character U+0001",
+            ),
+            E(MESSAGE, LOC("nul-restricted-char-1.0.xml", 4, 6),
+                    .info = XMLERR(ERROR, XML, P_Char),
+                    .msg = "Restricted character U+001E",
+            ),
+            END,
+        },
+    },
+    {
+        .desc = "NUL/restricted characters in input (1.1)",
+        .input = "nul-restricted-char-1.1.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            E(MESSAGE, LOC("nul-restricted-char-1.1.xml", 1, 19),
+                    .info = XMLERR(ERROR, XML, P_Char),
+                    .msg = "NUL character encountered",
+            ),
+            E(XMLDECL, LOC("nul-restricted-char-1.1.xml", 1, 1),
+                    .encoding = NULL,
+                    .standalone = XML_INFO_STANDALONE_NO_VALUE,
+                    .version = XML_INFO_VERSION_1_1,
+            ),
+            E_XMLDECL_A("nul-restricted-char-1.1.xml", 2, 1),
+            E(MESSAGE, LOC("nul-restricted-char-1.1.xml", 3, 6),
+                    .info = XMLERR(ERROR, XML, P_Char),
+                    .msg = "Restricted character U+0001",
+            ),
+            E(MESSAGE, LOC("nul-restricted-char-1.1.xml", 4, 6),
+                    .info = XMLERR(ERROR, XML, P_Char),
+                    .msg = "Restricted character U+001E",
+            ),
+            E(MESSAGE, LOC("nul-restricted-char-1.1.xml", 5, 6),
+                    .info = XMLERR(ERROR, XML, P_Char),
+                    .msg = "Restricted character U+007F",
+            ),
+            E(MESSAGE, LOC("nul-restricted-char-1.1.xml", 6, 6),
+                    .info = XMLERR(ERROR, XML, P_Char),
+                    .msg = "Restricted character U+009F",
+            ),
+            END,
+        },
+    },
 };
 
-static const testcase_t testcases_toplevel[] = {
+// To avoid defining twice inline...
+#define VERY_LONG_ELEMENT_NAME \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefgh"
+
+
+static const testcase_t testcases_structure[] = {
     {
         .desc = "Simple opening/closing tags",
         .input = "simple-open-close.xml",
@@ -1005,13 +1172,32 @@ static const testcase_t testcases_toplevel[] = {
             END,
         },
     },
+    {
+        .desc = "Very long element name",
+        .input = "very-long-token.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            E(STAG, LOC("very-long-token.xml", 1, 1),
+                    .type = VERY_LONG_ELEMENT_NAME,
+                    .typelen = sizeof(VERY_LONG_ELEMENT_NAME) - 1,
+                    .parent = NULL,
+                    .baton = NULL
+            ),
+            E(ETAG, LOC("very-long-token.xml", 1, 1),
+                    .type = VERY_LONG_ELEMENT_NAME,
+                    .typelen = sizeof(VERY_LONG_ELEMENT_NAME) - 1,
+                    .baton = NULL,
+                    .is_empty = true,
+            ),
+            END,
+        },
+    },
 };
 
 static const testset_t testsets[] = {
     TEST_SET(run_testcase, "Various API tests", testcases_api),
     TEST_SET(run_testcase, "Encoding tests", testcases_encoding),
     TEST_SET(run_testcase, "XML/Text declaration tests", testcases_xmldecl),
-    TEST_SET(run_testcase, "Toplevel content", testcases_toplevel),
+    TEST_SET(run_testcase, "XML structures", testcases_structure),
 };
 
 static const testsuite_t testsuite = TEST_SUITE("Tests for XML reader API", testsets);

@@ -982,7 +982,7 @@ check_VersionInfo(xml_reader_t *h)
             h->version = XML_INFO_VERSION_1_0;
             return;
         }
-        else if (sz == 3 && xustrneq(str, "1.1", 3)) {
+        else if (xustrneq(str, "1.1", 3)) {
             h->version = XML_INFO_VERSION_1_1;
             return;
         }
@@ -1296,7 +1296,7 @@ xml_elemtype_push(xml_reader_t *h)
     // Adjust buffer size if needed
     while (h->namestorage_offs + len > h->namestorage_size) {
         h->namestorage_size *= 2;
-        xrealloc(h->namestorage, h->namestorage_size);
+        h->namestorage = xrealloc(h->namestorage, h->namestorage_size);
     }
     n->offs = h->namestorage_offs;
     n->len = len;
