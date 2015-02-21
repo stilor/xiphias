@@ -3,12 +3,12 @@
 # lcov: specify everything on the command line, in 1.10 lcov_branch_coverage
 # option is recognized via --rc but not from the configuration file.
 COVERAGE_TOOL			:= lcov
-COVERAGE_IGNORED		:= "/usr/include/*" "util/oops.h" "test/*"
+COVERAGE_IGNORED		:= "/usr/include/*" "src/util/oops.h" "src/test/*" "tests/*"
 COVERAGE_CMD-gcovr		:= gcovr -r . -e "^tests/" --html --html-details \
 						   -o build/coverage/index.html
 COVERAGE_CMD-lcov		:= lcov --output-file build/lcov.tmp.info \
 						   		--rc lcov_branch_coverage=1 \
-								--directory build/src --capture && \
+								--directory build --capture && \
 						   lcov --output-file build/lcov.info \
 						   		--rc lcov_branch_coverage=1 \
 								--remove build/lcov.tmp.info $(COVERAGE_IGNORED) && \
