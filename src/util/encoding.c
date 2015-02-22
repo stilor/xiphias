@@ -553,33 +553,6 @@ static const encoding_t enc_UTF8 = {
 };
 ENCODING_REGISTER(enc_UTF8);
 
-// TBD: implement optimized versions if byte order matches host?
-// TBD: move to <util/defs.h> or new <util/byteorder.h>
-
-/**
-    Translate next two bytes to 16-bit value; little-endian way.
-
-    @param p Input byte stream
-    @return 16-bit value
-*/
-static inline uint16_t
-le16tohost(const uint8_t *p)
-{
-    return (p[1] << 8) | p[0];
-}
-
-/**
-    Translate next two bytes to 16-bit value; big-endian way.
-
-    @param p Input byte stream
-    @return 16-bit value
-*/
-static inline uint16_t
-be16tohost(const uint8_t *p)
-{
-    return (p[0] << 8) | p[1];
-}
-
 // --- UTF-16 encodings ---
 
 /// Runtime data for UTF-8 encoding
@@ -654,9 +627,75 @@ nextchar_utf16(baton_utf16_t *b, uint32_t val, uint32_t **pout, uint32_t *end)
     }
 }
 
-#define FUNC in_UTF16LE
-#define TOHOST le16tohost
-#include "encoding-utf16.c"
+/**
+    Helper for two flavors of UTF-16 implementation.
+    Expects FUNC, TOHOST macros to be defined.
+
+    @param baton Pointer to structure with mapping table
+    @param begin Pointer to the start of the input buffer
+    @param end Pointer to the end of the input buffer
+    @param pout Start of the output buffer (updated to point to next unused dword)
+    @param end_out Pointer to the end of the output buffer
+    @return Number of bytes consumed from the input buffer
+*/
+static inline size_t
+common_UTF16(void *baton, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out, uint16_t (*tohost)(const uint8_t *))
+{
+    baton_utf16_t utf16b; // Local copy to avoid access via pointer
+    const uint8_t *ptr = begin;
+
+    memcpy(&utf16b, baton, sizeof(baton_utf16_t));
+
+    // Re-parse value that did not fit on last call (in case of invalid surrogate pair,
+    // e.g. <D800 0400>, we need to store 2 codepoints: U+FFFD U+0400. If the output buffer
+    // only had space for one, the other is kept in utf16b.val, and utf16b.surrogate is
+    // cleared, so this invocation of NEXTCHAR_UTF16 stores at most one codepoint.
+    if (utf16b.val_valid && *pout < end_out) {
+        utf16b.val_valid = false;
+        nextchar_utf16(&utf16b, utf16b.val, pout, end_out);
+    }
+    // Finish incomplete unit from previous block, if needed
+    if (utf16b.straddle && ptr < end && *pout < end_out) {
+        utf16b.straddle = false;
+        utf16b.tmp[1] = *ptr++;
+        nextchar_utf16(&utf16b, tohost(utf16b.tmp), pout, end_out);
+    }
+    // Reads 2 characters at a time - thus 'end - 1'
+    while (ptr < end - 1 && *pout < end_out) {
+        nextchar_utf16(&utf16b, tohost(ptr), pout, end_out);
+        ptr += 2;
+    }
+    // If stopped one byte short of end and have space - store it for the next call
+    // (we may come here if we already have stored byte and we were not able to store
+    // the next output character; in that case, do not store anything)
+    if (ptr == end - 1 && !utf16b.straddle) {
+        utf16b.tmp[0] = *ptr++;
+        utf16b.straddle = true;
+    }
+    memcpy(baton, &utf16b, sizeof(baton_utf16_t));
+    return ptr - begin;
+}
+
+/**
+    Translate next two bytes to 16-bit value; little-endian way.
+
+    @param p Input byte stream
+    @return 16-bit value
+*/
+static inline uint16_t
+le16tohost(const uint8_t *p)
+{
+    return (p[1] << 8) | p[0];
+}
+
+/// Wrapper for little-endian version of UTF-16
+static size_t
+in_UTF16LE(void *baton, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out)
+{
+    return common_UTF16(baton, begin, end, pout, end_out, le16tohost);
+}
 
 static const encoding_sig_t sig_UTF16LE[] = {
     ENCODING_SIG(true,  0xFF, 0xFE), // BOM
@@ -680,9 +719,25 @@ static const encoding_t enc_UTF16LE = {
 ENCODING_REGISTER(enc_UTF16LE);
 
 
-#define FUNC in_UTF16BE
-#define TOHOST be16tohost
-#include "encoding-utf16.c"
+/**
+    Translate next two bytes to 16-bit value; big-endian way.
+
+    @param p Input byte stream
+    @return 16-bit value
+*/
+static inline uint16_t
+be16tohost(const uint8_t *p)
+{
+    return (p[0] << 8) | p[1];
+}
+
+/// Wrapper for big-endian version of UTF-16
+static size_t
+in_UTF16BE(void *baton, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out)
+{
+    return common_UTF16(baton, begin, end, pout, end_out, be16tohost);
+}
 
 static const encoding_sig_t sig_UTF16BE[] = {
     ENCODING_SIG(true,  0xFE, 0xFF), // BOM
