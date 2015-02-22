@@ -93,6 +93,80 @@ run_tc_api(void)
     return rc;
 }
 
+typedef struct testcase_detect_s {
+    const uint8_t *input;
+    size_t inputsz;
+    size_t bom;
+    const char *encoding;
+} testcase_detect_t;
+
+static result_t
+run_tc_detect(const void *arg)
+{
+    const testcase_detect_t *tc = arg;
+    size_t bom;
+    const char *detected;
+    result_t rc = PASS;
+
+    printf("Trying signature for %s\n",
+            tc->encoding ? tc->encoding : "<unknown encoding>");
+    detected = encoding_detect(tc->input, tc->inputsz, &bom);
+    if (!tc->encoding && !detected) {
+        printf("Unknown encoding, not detected\n");
+    }
+    else if (!tc->encoding) {
+        printf("Unknown encoding but detected '%s'\n", detected);
+        rc = FAIL;
+    }
+    else if (!detected) {
+        printf("Encoding '%s' not detected\n", tc->encoding);
+        rc = FAIL;
+    }
+    else if (strcmp(detected, tc->encoding)) {
+        printf("Encoding '%s' detected as '%s'\n", tc->encoding, detected);
+        rc = FAIL;
+    }
+    else if (bom != tc->bom) {
+        printf("BOM length mismatch %zu != %zu\n", tc->bom, bom);
+        rc = FAIL;
+    }
+
+    return rc;
+}
+
+#define TC_DETECT(e, b, ...) \
+{ \
+    .encoding = (e), \
+    .bom = (b), \
+    .input = (const uint8_t []){ __VA_ARGS__ }, \
+    .inputsz = sizeof((const uint8_t []){ __VA_ARGS__ }), \
+}
+
+static const testcase_detect_t testcase_detect[] = {
+    // Test cases from XML 1.1, App. E, "Autodetection of Character Encodings"
+    TC_DETECT("UTF-32BE", 4, 0x00, 0x00, 0xFE, 0xFF),
+    TC_DETECT("UTF-32LE", 4, 0xFF, 0xFE, 0x00, 0x00),
+    TC_DETECT("UTF-32-2143", 4, 0x00, 0x00, 0xFF, 0xFE),
+    TC_DETECT("UTF-32-3412", 4, 0xFE, 0xFF, 0x00, 0x00),
+    TC_DETECT("UTF-16BE", 2, 0xFE, 0xFF),
+    TC_DETECT("UTF-16LE", 2, 0xFF, 0xFE),
+    TC_DETECT("UTF-8", 3, 0xEF, 0xBB, 0xBF),
+    TC_DETECT("UTF-32BE", 0, 0x00, 0x00, 0x00, 0x3C),
+    TC_DETECT("UTF-32LE", 0, 0x3C, 0x00, 0x00, 0x00),
+    TC_DETECT("UTF-32-2143", 0, 0x00, 0x00, 0x3C, 0x00),
+    TC_DETECT("UTF-32-3412", 0, 0x00, 0x3C, 0x00, 0x00),
+    TC_DETECT("UTF-16BE", 0, 0x00, 0x3C, 0x00, 0x3F),
+    TC_DETECT("UTF-16LE", 0, 0x3C, 0x00, 0x3F, 0x00),
+    TC_DETECT("UTF-8", 0, 0x3C, 0x3F, 0x78, 0x6D),
+    TC_DETECT("IBM500", 0, 0x4C, 0x6F, 0xA7, 0x94),
+
+    // Invalid and corner cases
+    TC_DETECT("UTF-32BE", 0, 0x00, 0x00, 0x00),
+    TC_DETECT("UTF-32BE", 4, 0x00, 0x00, 0xFE),
+    TC_DETECT(NULL, 0, 0x03, 0x03, 0xFF, 0x03),
+};
+
+
 typedef struct testcase_utf8store_s {
     uint32_t codepoint;
     const uint8_t *utf8;
@@ -599,6 +673,7 @@ static const testcase_input_t testcase_inputs_KOI8R[] = {
 
 static const testset_t testsets[] = {
     TEST_SET_SIMPLE(run_tc_api, "API tests"),
+    TEST_SET(run_tc_detect, "Detection of encodings", testcase_detect),
     TEST_SET(run_tc_utf8store, "UTF-8 storage primitives", testcase_utf8store),
     TEST_SET(run_tc_input, "UTF-8", testcase_inputs_UTF8),
     TEST_SET(run_tc_input, "UTF-16BE", testcase_inputs_UTF16BE),

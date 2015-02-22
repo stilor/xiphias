@@ -110,23 +110,34 @@ const char *
 encoding_detect(const uint8_t *buf, size_t bufsz, size_t *bom_len)
 {
     encoding_link_t *lnk;
-    const encoding_t *enc;
+    const encoding_t *enc, *best;
     const encoding_sig_t *sig;
     size_t i, chklen;
 
     // Check longest signatures first
     for (chklen = bufsz; chklen; chklen--) {
+        best = NULL;
         STAILQ_FOREACH(lnk, &encodings, link) {
             enc = lnk->enc;
             for (i = 0, sig = enc->sigs; i < enc->nsigs; i++, sig++) {
-                // On the first cycle, check all signatures at least as
-                // long as the autodetect buffer
-                if ((chklen == sig->len || (chklen == bufsz && sig->len > chklen))
-                        && !memcmp(buf, sig->sig, chklen)) {
+                // Check for exact match first
+                if (chklen == sig->len && !memcmp(buf, sig->sig, chklen)) {
                     *bom_len = sig->bom ? sig->len : 0;
                     return enc->name;
                 }
+                // On the first cycle, also check all signatures at least as
+                // long as the autodetect buffer. Pick the first.
+                if (!best && chklen == bufsz && sig->len > chklen
+                        && !memcmp(buf, sig->sig, chklen)) {
+                    // If we find exact match, we'll overwrite bom_len. Otherwise,
+                    // we'll return best.
+                    *bom_len = sig->bom ? sig->len : 0;
+                    best = enc;
+                }
             }
+        }
+        if (best) {
+            return best->name; // Longest available string was only a part of a signature
         }
     }
     *bom_len = 0;
