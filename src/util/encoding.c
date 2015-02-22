@@ -607,6 +607,53 @@ clean_utf16(void *baton)
     return !utf16b->straddle && !utf16b->surrogate && !utf16b->val_valid;
 }
 
+/**
+    Helper function: store next 16-bit value in UTF16 state and/or output.
+
+    @param b UTF-16 runtime data
+    @param val Next 16-bit value from the input
+    @param pout Start of writable space in output buffer
+    @oaram end End of the output buffer
+    @return Nothing
+*/
+static inline void
+nextchar_utf16(baton_utf16_t *b, uint32_t val, uint32_t **pout, uint32_t *end)
+{
+    uint32_t surrogate_bits = val & 0xFC00;
+
+    if (b->surrogate) {
+        /* Expecting low surrogate */
+        if (surrogate_bits == 0xDC00) {
+            /* Found low surrogate; store combined value */
+            /* 0x360DC00 is ((0xD800 << 10) | 0xDC00) */
+            *(*pout)++ = 0x010000 + ((b->surrogate << 10) ^ val ^ 0x360DC00);
+            b->surrogate = 0;
+            return;
+        }
+        else {
+            /* Invalid value: store replacement, will need to re-parse value normally */
+            *(*pout)++ = UCS4_REPLACEMENT_CHARACTER;
+            b->surrogate = 0;
+            if (*pout == end) {
+                /* No more space; will reparse b->val in the next call */
+                b->val_valid = true;
+                b->val = val;
+                return;
+            }
+        }
+    }
+    if (surrogate_bits == 0xD800) {
+        /* high surrogate - store and expect low surrogate as next unit */
+        b->surrogate = val;
+    }
+    else if (surrogate_bits == 0xDC00) {
+        *(*pout)++ = UCS4_REPLACEMENT_CHARACTER;
+    }
+    else {
+        *(*pout)++ = val;
+    }
+}
+
 #define FUNC in_UTF16LE
 #define TOHOST le16tohost
 #include "encoding-utf16.c"
