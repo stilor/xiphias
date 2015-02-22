@@ -65,6 +65,13 @@ encoding__register(encoding_link_t *lnk)
         OOPS; // Already registered
     }
 
+    // Meta-encodings (those without transcoding method) cannot have
+    // signature strings; real encodings may present the signatures
+    OOPS_ASSERT(enc->in || !enc->sigs);
+
+    // Non-zero size must be accompanied by non-NULL buffer
+    OOPS_ASSERT(!enc->nsigs || enc->sigs);
+
     // Search for same detection signatures if there's a conflict
     for (i = 0, sig = enc->sigs; i < enc->nsigs; i++, sig++) {
         STAILQ_FOREACH(lnkx, &encodings, link) {
@@ -75,13 +82,6 @@ encoding__register(encoding_link_t *lnk)
             }
         }
     }
-
-    // Meta-encodings (those without transcoding method) cannot have
-    // signature strings; real encodings must preset the signatures
-    OOPS_ASSERT(enc->in || !enc->sigs);
-
-    // Non-zero size must be accompanied by non-NULL buffer
-    OOPS_ASSERT(!enc->nsigs || enc->sigs);
 
     STAILQ_INSERT_HEAD(&encodings, lnk, link);
 }

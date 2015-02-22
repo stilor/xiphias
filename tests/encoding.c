@@ -11,6 +11,88 @@
 #include "util/xutil.h"
 #include "test/testlib.h"
 
+static const encoding_t enc_fake_UTF8 = {
+    .name = "UTF-8",
+};
+
+static const encoding_sig_t sig_UTF8X[] = {
+    ENCODING_SIG(true,  0xEF, 0xBB, 0xBF),
+};
+
+static size_t
+in_UTF8X(void *baton, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out)
+{
+    return end - begin;
+}
+
+static const encoding_t enc_UTF8_by_other_name = {
+    .name = "UTF-8X",
+    .sigs = sig_UTF8X,
+    .nsigs = sizeofarray(sig_UTF8X),
+    .in = in_UTF8X, // Must not be meta-encoding
+};
+
+static const encoding_sig_t sig_META[] = {
+    ENCODING_SIG(true,  0xFF, 0xFE, 0xFD, 0xFC)
+};
+
+static const encoding_t enc_META = {
+    .name = "META",
+    .sigs = sig_META,
+    .nsigs = sizeofarray(sig_META),
+};
+
+static const encoding_t enc_BADSIGS = {
+    .name = "BADSIGS",
+    .sigs = NULL,
+    .nsigs = 1,
+};
+
+static result_t
+run_tc_api(void)
+{
+    result_t rc = PASS;
+
+    printf("Registering another UTF-8 encoding\n");
+    EXPECT_OOPS_BEGIN();
+    {
+        static encoding_link_t lnk;
+        lnk.enc = &enc_fake_UTF8;
+        encoding__register(&lnk);
+    }
+    EXPECT_OOPS_END(rc = FAIL);
+
+    printf("Registering another encoding with UTF-8 signature\n");
+    EXPECT_OOPS_BEGIN();
+    {
+        static encoding_link_t lnk;
+        lnk.enc = &enc_UTF8_by_other_name;
+        encoding__register(&lnk);
+    }
+    EXPECT_OOPS_END(rc = FAIL);
+
+    printf("Registering meta encoding with signature\n");
+    EXPECT_OOPS_BEGIN();
+    {
+        static encoding_link_t lnk;
+        lnk.enc = &enc_META;
+        encoding__register(&lnk);
+    }
+    EXPECT_OOPS_END(rc = FAIL);
+
+    printf("Registering encoding with NULL sigs but non-zero count\n");
+    EXPECT_OOPS_BEGIN();
+    {
+        static encoding_link_t lnk;
+        lnk.enc = &enc_BADSIGS;
+        encoding__register(&lnk);
+    }
+    EXPECT_OOPS_END(rc = FAIL);
+
+    return rc;
+}
+
 typedef struct testcase_utf8store_s {
     uint32_t codepoint;
     const uint8_t *utf8;
@@ -516,6 +598,7 @@ static const testcase_input_t testcase_inputs_KOI8R[] = {
 };
 
 static const testset_t testsets[] = {
+    TEST_SET_SIMPLE(run_tc_api, "API tests"),
     TEST_SET(run_tc_utf8store, "UTF-8 storage primitives", testcase_utf8store),
     TEST_SET(run_tc_input, "UTF-8", testcase_inputs_UTF8),
     TEST_SET(run_tc_input, "UTF-16BE", testcase_inputs_UTF16BE),
