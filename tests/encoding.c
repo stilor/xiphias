@@ -290,13 +290,20 @@ run_tc_input(const void *arg)
     encoding_handle_t *eh;
     size_t lastbrk, nextbrk, sz, i;
     uint32_t *out, *ptr, *end, *old;
+    uint32_t tmp;
     result_t rc = PASS;
     int alternator;
 
     printf("Testing %s: %s\n", tc->encoding, tc->desc);
-    out = xmalloc((tc->noutputs + 1)* sizeof(uint32_t));
+
+    // Allocate and initialize with FF: this would make bad UCS-4 codepoints,
+    // so the encodings will not produce them. This is needed for encodings
+    // that need free space to parse their input - but may not produce an
+    // output to actually use it.
+    out = xmalloc(tc->noutputs * sizeof(uint32_t));
+    memset(out, 0xFF, tc->noutputs * sizeof(uint32_t));
     ptr = out;
-    end = out + tc->noutputs + 1; // 1 extra dword if encoding erroneously produces more
+    end = out + tc->noutputs;
 
     eh = encoding_open(tc->encoding);
     for (i = 0, lastbrk = 0; i <= tc->nbreaks; i++, lastbrk = nextbrk) {
@@ -336,12 +343,27 @@ run_tc_input(const void *arg)
         printf("  Expected clean handle - got dirty\n");
         rc = FAIL;
     }
-    encoding_close(eh);
     if (memcmp(out, tc->output, tc->noutputs * sizeof(uint32_t))) {
         printf("  Result does not match!\n");
         rc = FAIL;
     }
 
+    // Attempt to read extra dword (i.e. if the encoding has unflushed output)
+    // (if the test case expects a dirty handle at the end, it may legally
+    // have some unflushed output, so this part is skipped for such tests;
+    // if handle clean status didn't match expected - we've complained above).
+    if (encoding_clean(eh)) {
+        ptr = &tmp;
+        sz = encoding_in(eh, tc->input + tc->inputsz, tc->input + tc->inputsz,
+                &ptr, ptr + 1);
+        if (ptr != &tmp) {
+            printf("  Encoding had unflushed output even though the handle "
+                    "is reported as clean\n");
+            rc = FAIL;
+        }
+    }
+
+    encoding_close(eh);
     xfree(out);
     return rc;
 }
@@ -424,6 +446,60 @@ static const testcase_input_t testcase_inputs_UTF8[] = {
                 ),
         .dirty = false,
         .one_at_a_time = true,
+    },
+    {
+        .encoding = "UTF-8",
+        .desc = "Unclean (1 byte of 2-byte char)",
+        TC_INPUT(0xC4),
+        TC_BREAKS(),
+        TC_OUTPUT(0xFFFFFFFF),
+        .dirty = true,
+        .one_at_a_time = false,
+    },
+    {
+        .encoding = "UTF-8",
+        .desc = "Unclean (1 byte of 3-byte char)",
+        TC_INPUT(0xE3),
+        TC_BREAKS(),
+        TC_OUTPUT(0xFFFFFFFF),
+        .dirty = true,
+        .one_at_a_time = false,
+    },
+    {
+        .encoding = "UTF-8",
+        .desc = "Unclean (2 bytes of 3-byte char)",
+        TC_INPUT(0xE3, 0x88),
+        TC_BREAKS(),
+        TC_OUTPUT(0xFFFFFFFF),
+        .dirty = true,
+        .one_at_a_time = false,
+    },
+    {
+        .encoding = "UTF-8",
+        .desc = "Unclean (1 byte of 4-byte char)",
+        TC_INPUT(0xF1),
+        TC_BREAKS(),
+        TC_OUTPUT(0xFFFFFFFF),
+        .dirty = true,
+        .one_at_a_time = false,
+    },
+    {
+        .encoding = "UTF-8",
+        .desc = "Unclean (2 bytes of 4-byte char)",
+        TC_INPUT(0xF1, 0x93),
+        TC_BREAKS(),
+        TC_OUTPUT(0xFFFFFFFF),
+        .dirty = true,
+        .one_at_a_time = false,
+    },
+    {
+        .encoding = "UTF-8",
+        .desc = "Unclean (3 bytes of 4-byte char)",
+        TC_INPUT(0xF1, 0x93, 0x81),
+        TC_BREAKS(),
+        TC_OUTPUT(0xFFFFFFFF),
+        .dirty = true,
+        .one_at_a_time = false,
     },
 };
 
@@ -535,6 +611,33 @@ static const testcase_input_t testcase_inputs_UTF16BE[] = {
         .dirty = false,
         .one_at_a_time = false,
     },
+    {
+        .encoding = "UTF-16BE",
+        .desc = "Unclean (half of a character)",
+        TC_INPUT(0xD9),
+        TC_BREAKS(),
+        TC_OUTPUT(0xFFFFFFFF),
+        .dirty = true,
+        .one_at_a_time = false,
+    },
+    {
+        .encoding = "UTF-16BE",
+        .desc = "Unclean (only high surrogate)",
+        TC_INPUT(0xD9, 0xB2),
+        TC_BREAKS(),
+        TC_OUTPUT(0xFFFFFFFF),
+        .dirty = true,
+        .one_at_a_time = false,
+    },
+    {
+        .encoding = "UTF-16BE",
+        .desc = "Unclean (bad surrogate + pending normal character)",
+        TC_INPUT(0xD9, 0xB2, 0x00, 0x31),
+        TC_BREAKS(),
+        TC_OUTPUT(0xFFFD),
+        .dirty = true,
+        .one_at_a_time = false,
+    },
 };
 
 static const testcase_input_t testcase_inputs_UTF16LE[] = {
@@ -643,6 +746,33 @@ static const testcase_input_t testcase_inputs_UTF16LE[] = {
         TC_BREAKS(),
         TC_OUTPUT(0xFFFD, 0xE214),
         .dirty = false,
+        .one_at_a_time = false,
+    },
+    {
+        .encoding = "UTF-16LE",
+        .desc = "Unclean (half of a character)",
+        TC_INPUT(0xA2),
+        TC_BREAKS(),
+        TC_OUTPUT(0xFFFFFFFF),
+        .dirty = true,
+        .one_at_a_time = false,
+    },
+    {
+        .encoding = "UTF-16LE",
+        .desc = "Unclean (only high surrogate)",
+        TC_INPUT(0xB2, 0xD9),
+        TC_BREAKS(),
+        TC_OUTPUT(0xFFFFFFFF),
+        .dirty = true,
+        .one_at_a_time = false,
+    },
+    {
+        .encoding = "UTF-16LE",
+        .desc = "Unclean (bad surrogate + pending normal character)",
+        TC_INPUT(0xB2, 0xD9, 0x31, 0x00),
+        TC_BREAKS(),
+        TC_OUTPUT(0xFFFD),
+        .dirty = true,
         .one_at_a_time = false,
     },
 };
