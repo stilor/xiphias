@@ -24,6 +24,12 @@
 /// Maximum allowed UCS-4 codepoint
 #define UCS4_MAX         (0x0010FFFF)
 
+/// Surrogates: first
+#define UCS4_SURROGATE_MIN  (0xD800)
+
+/// Surrogates: last
+#define UCS4_SURROGATE_MAX  (0xDFFF)
+
 /// Maximum number of bytes to encode a character in UTF-8
 #define UTF8_LEN_MAX    4
 

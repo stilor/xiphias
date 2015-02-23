@@ -456,7 +456,7 @@ static const uint8_t utf8_maxtrail[256] = {
 /**
     Perform translation of UTF-8 encoding to UCS-4 code points.
 
-    @param baton Pointer to structure with mapping table
+    @param baton Pointer to structure with UTF-8 runtime data
     @param begin Pointer to the start of the input buffer
     @param end Pointer to the end of the input buffer
     @param pout Start of the output buffer (updated to point to next unused dword)
@@ -558,7 +558,7 @@ ENCODING_REGISTER(enc_UTF8);
 
 // --- UTF-16 encodings ---
 
-/// Runtime data for UTF-8 encoding
+/// Runtime data for UTF-16 encoding
 typedef struct baton_utf16_s {
     uint32_t val;           ///< Accumulated value
     uint32_t surrogate;     ///< Surrogate value previously read
@@ -576,7 +576,7 @@ typedef struct baton_utf16_s {
     @return true if transcoder is in clean state.
 */
 static bool
-clean_utf16(void *baton)
+clean_UTF16(void *baton)
 {
     baton_utf16_t *utf16b = baton;
 
@@ -593,7 +593,7 @@ clean_utf16(void *baton)
     @return Nothing
 */
 static inline void
-nextchar_utf16(baton_utf16_t *b, uint32_t val, uint32_t **pout, uint32_t *end)
+nextchar_UTF16(baton_utf16_t *b, uint32_t val, uint32_t **pout, uint32_t *end)
 {
     uint32_t surrogate_bits = val & 0xFC00;
 
@@ -632,13 +632,13 @@ nextchar_utf16(baton_utf16_t *b, uint32_t val, uint32_t **pout, uint32_t *end)
 
 /**
     Helper for two flavors of UTF-16 implementation.
-    Expects FUNC, TOHOST macros to be defined.
 
-    @param baton Pointer to structure with mapping table
+    @param baton Pointer to structure with UTF-16 runtime data.
     @param begin Pointer to the start of the input buffer
     @param end Pointer to the end of the input buffer
     @param pout Start of the output buffer (updated to point to next unused dword)
     @param end_out Pointer to the end of the output buffer
+    @param tohost Function to convert byte sequence to 16-bit unit.
     @return Number of bytes consumed from the input buffer
 */
 static inline size_t
@@ -656,17 +656,17 @@ common_UTF16(void *baton, const uint8_t *begin, const uint8_t *end,
     // cleared, so this invocation of NEXTCHAR_UTF16 stores at most one codepoint.
     if (utf16b.val_valid && *pout < end_out) {
         utf16b.val_valid = false;
-        nextchar_utf16(&utf16b, utf16b.val, pout, end_out);
+        nextchar_UTF16(&utf16b, utf16b.val, pout, end_out);
     }
     // Finish incomplete unit from previous block, if needed
     if (utf16b.straddle && ptr < end && *pout < end_out) {
         utf16b.straddle = false;
         utf16b.tmp[1] = *ptr++;
-        nextchar_utf16(&utf16b, tohost(utf16b.tmp), pout, end_out);
+        nextchar_UTF16(&utf16b, tohost(utf16b.tmp), pout, end_out);
     }
     // Reads 2 characters at a time - thus 'end - 1'
     while (ptr < end - 1 && *pout < end_out) {
-        nextchar_utf16(&utf16b, tohost(ptr), pout, end_out);
+        nextchar_UTF16(&utf16b, tohost(ptr), pout, end_out);
         ptr += 2;
     }
     // If stopped one byte short of end and have space - store it for the next call
@@ -689,7 +689,7 @@ common_UTF16(void *baton, const uint8_t *begin, const uint8_t *end,
 static inline uint16_t
 le16tohost(const uint8_t *p)
 {
-    return (p[1] << 8) | p[0];
+    return ((uint16_t)0) | (p[1] << 8) | p[0];
 }
 
 /// Wrapper for little-endian version of UTF-16
@@ -717,7 +717,7 @@ static const encoding_t enc_UTF16LE = {
     .sigs = sig_UTF16LE,
     .nsigs = sizeofarray(sig_UTF16LE),
     .in = in_UTF16LE,
-    .in_clean = clean_utf16,
+    .in_clean = clean_UTF16,
 };
 ENCODING_REGISTER(enc_UTF16LE);
 
@@ -731,7 +731,7 @@ ENCODING_REGISTER(enc_UTF16LE);
 static inline uint16_t
 be16tohost(const uint8_t *p)
 {
-    return (p[0] << 8) | p[1];
+    return ((uint16_t)0) | (p[0] << 8) | p[1];
 }
 
 /// Wrapper for big-endian version of UTF-16
@@ -759,7 +759,7 @@ static const encoding_t enc_UTF16BE = {
     .sigs = sig_UTF16BE,
     .nsigs = sizeofarray(sig_UTF16BE),
     .in = in_UTF16BE,
-    .in_clean = clean_utf16,
+    .in_clean = clean_UTF16,
 };
 ENCODING_REGISTER(enc_UTF16BE);
 
@@ -771,14 +771,114 @@ static const encoding_t enc_UTF16 = {
 };
 ENCODING_REGISTER(enc_UTF16);
 
+
+/// Runtime data for UTF-32 encoding
+typedef struct baton_utf32_s {
+    uint8_t tmp[4];         ///< Temporary buffer if a unit straddles block boundary
+    size_t nbytes;          ///< How many more bytes are stored in temporary buffer
+} baton_utf32_t;
+
+/**
+    Check if we're in a middle of 4-byte sequence
+
+    @param baton UTF-32 runtime data
+    @return false if the transcoder has a partial unit read, true otherwise
+*/
+static bool
+clean_UTF32(void *baton)
+{
+    baton_utf32_t *utf32b = baton;
+
+    return !utf32b->nbytes;
+}
+
+/**
+    Check code point for validity and translate to replacement character otherwise.
+
+    @param cp Code point to check
+    @return @a cp if valid, or Unicode replacement character otherwise
+*/
+static inline uint32_t
+valid_UTF32(uint32_t cp)
+{
+    if (cp < UCS4_SURROGATE_MIN) {
+        return cp;
+    }
+    else if (cp > UCS4_SURROGATE_MAX && cp <= UCS4_MAX) {
+        return cp;
+    }
+    else {
+        return UCS4_REPLACEMENT_CHARACTER;
+    }
+}
+
+/**
+    Helper for 4 flavors of UTF-32 implementation.
+
+    @param baton Pointer to structure with mapping table
+    @param begin Pointer to the start of the input buffer
+    @param end Pointer to the end of the input buffer
+    @param pout Start of the output buffer (updated to point to next unused dword)
+    @param end_out Pointer to the end of the output buffer
+    @param tohost Function to convert byte sequence to 32-bit unit.
+    @return Number of bytes consumed from the input buffer
+*/
 static size_t
-utf32_in(void *baton, const uint8_t *begin, const uint8_t *end,
+common_UTF32(void *baton, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out, uint32_t (*tohost)(const uint8_t *))
+{
+    baton_utf32_t *utf32b = baton;
+    const uint8_t *ptr = begin;
+    uint32_t *out = *pout;
+    size_t remains;
+
+    // Finish incomplete unit if possible
+    while (utf32b->nbytes && ptr < end && out < end_out) {
+        utf32b->tmp[utf32b->nbytes++] = *ptr++;
+        if (utf32b->nbytes == 4) {
+            *out++ = valid_UTF32(tohost(utf32b->tmp));
+            utf32b->nbytes = 0;
+        }
+    }
+
+    // Translate as many complete units as possible
+    while (ptr < end - 3 && out < end_out) {
+        *out++ = valid_UTF32(tohost(ptr));
+        ptr += 4;
+    }
+
+    // Store partial remaining unit in temporary buffer
+    remains = end - ptr;
+    if (remains && remains < 4 - utf32b->nbytes) {
+        while (ptr < end) {
+            utf32b->tmp[utf32b->nbytes++] = *ptr++;
+        }
+    }
+
+    *pout = out;
+    return ptr - begin;
+}
+
+/**
+    Translate next 4 bytes to 32-bit value; little-endian way.
+
+    @param p Input byte stream
+    @return 32-bit value
+*/
+static inline uint32_t
+le32tohost(const uint8_t *p)
+{
+    return ((uint32_t)0) | (p[3] << 24) | (p[2] << 16) | (p[1] << 8) | p[0];
+}
+
+/// Wrapper for little-endian version of UTF-32
+static size_t
+in_UTF32LE(void *baton, const uint8_t *begin, const uint8_t *end,
         uint32_t **pout, uint32_t *end_out)
 {
-    // TBD: UTF-32 encodings not implemented yet
-    OOPS;
-    return 0;
+    return common_UTF32(baton, begin, end, pout, end_out, le32tohost);
 }
+
 static const encoding_sig_t sig_UTF32LE[] = {
     ENCODING_SIG(true,  0xFF, 0xFE, 0x00, 0x00), // BOM
     ENCODING_SIG(false, 0x3C, 0x00, 0x00, 0x00), // <
@@ -791,11 +891,33 @@ static const encoding_t enc_UTF32LE = {
     .name = "UTF-32LE",
     .enctype = ENCODING_T_UTF32,
     .endian = ENCODING_E_LE,
+    .baton_sz = sizeof(baton_utf32_t),
     .sigs = sig_UTF32LE,
     .nsigs = sizeofarray(sig_UTF32LE),
-    .in = utf32_in,
+    .in = in_UTF32LE,
+    .in_clean = clean_UTF32,
 };
 ENCODING_REGISTER(enc_UTF32LE);
+
+/**
+    Translate next 4 bytes to 32-bit value; big-endian way.
+
+    @param p Input byte stream
+    @return 32-bit value
+*/
+static inline uint32_t
+be32tohost(const uint8_t *p)
+{
+    return ((uint32_t)0) | (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+}
+
+/// Wrapper for big-endian version of UTF-32
+static size_t
+in_UTF32BE(void *baton, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out)
+{
+    return common_UTF32(baton, begin, end, pout, end_out, be32tohost);
+}
 
 static const encoding_sig_t sig_UTF32BE[] = {
     ENCODING_SIG(true,  0x00, 0x00, 0xFE, 0xFF), // BOM
@@ -809,11 +931,33 @@ static const encoding_t enc_UTF32BE = {
     .name = "UTF-32BE",
     .enctype = ENCODING_T_UTF32,
     .endian = ENCODING_E_BE,
+    .baton_sz = sizeof(baton_utf32_t),
     .sigs = sig_UTF32BE,
     .nsigs = sizeofarray(sig_UTF32BE),
-    .in = utf32_in,
+    .in = in_UTF32BE,
+    .in_clean = clean_UTF32,
 };
 ENCODING_REGISTER(enc_UTF32BE);
+
+/**
+    Translate next 4 bytes to 32-bit value; 2143-endian way.
+
+    @param p Input byte stream
+    @return 32-bit value
+*/
+static inline uint32_t
+x2143_32tohost(const uint8_t *p)
+{
+    return ((uint32_t)0) | (p[1] << 24) | (p[0] << 16) | (p[3] << 8) | p[2];
+}
+
+/// Wrapper for 2143-endian version of UTF-32
+static size_t
+in_UTF32_2143(void *baton, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out)
+{
+    return common_UTF32(baton, begin, end, pout, end_out, x2143_32tohost);
+}
 
 static const encoding_sig_t sig_UTF32_2143[] = {
     ENCODING_SIG(true,  0x00, 0x00, 0xFF, 0xFE), // BOM
@@ -827,11 +971,33 @@ static const encoding_t enc_UTF32_2143 = {
     .name = "UTF-32-2143",
     .enctype = ENCODING_T_UTF32,
     .endian = ENCODING_E_2143,
+    .baton_sz = sizeof(baton_utf32_t),
     .sigs = sig_UTF32_2143,
     .nsigs = sizeofarray(sig_UTF32_2143),
-    .in = utf32_in,
+    .in = in_UTF32_2143,
+    .in_clean = clean_UTF32,
 };
 ENCODING_REGISTER(enc_UTF32_2143);
+
+/**
+    Translate next 4 bytes to 32-bit value; 3412-endian way.
+
+    @param p Input byte stream
+    @return 32-bit value
+*/
+static inline uint32_t
+x3412_32tohost(const uint8_t *p)
+{
+    return ((uint32_t)0) | (p[2] << 24) | (p[3] << 16) | (p[0] << 8) | p[1];
+}
+
+/// Wrapper for 3412-endian version of UTF-32
+static size_t
+in_UTF32_3412(void *baton, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out)
+{
+    return common_UTF32(baton, begin, end, pout, end_out, x3412_32tohost);
+}
 
 static const encoding_sig_t sig_UTF32_3412[] = {
     ENCODING_SIG(true,  0xFE, 0xFF, 0x00, 0x00), // BOM
@@ -845,9 +1011,11 @@ static const encoding_t enc_UTF32_3412 = {
     .name = "UTF-32-3412",
     .enctype = ENCODING_T_UTF32,
     .endian = ENCODING_E_3412,
+    .baton_sz = sizeof(baton_utf32_t),
     .sigs = sig_UTF32_3412,
     .nsigs = sizeofarray(sig_UTF32_3412),
-    .in = utf32_in,
+    .in = in_UTF32_3412,
+    .in_clean = clean_UTF32,
 };
 ENCODING_REGISTER(enc_UTF32_3412);
 
