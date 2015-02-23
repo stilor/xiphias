@@ -20,7 +20,7 @@ static const encoding_sig_t sig_UTF8X[] = {
 };
 
 static size_t
-in_UTF8X(void *baton, const uint8_t *begin, const uint8_t *end,
+in_consumeall(void *baton, const uint8_t *begin, const uint8_t *end,
         uint32_t **pout, uint32_t *end_out)
 {
     return end - begin;
@@ -30,7 +30,7 @@ static const encoding_t enc_UTF8_by_other_name = {
     .name = "UTF-8X",
     .sigs = sig_UTF8X,
     .nsigs = sizeofarray(sig_UTF8X),
-    .in = in_UTF8X, // Must not be meta-encoding
+    .in = in_consumeall, // Must not be meta-encoding
 };
 
 static const encoding_sig_t sig_META[] = {
@@ -48,6 +48,19 @@ static const encoding_t enc_BADSIGS = {
     .sigs = NULL,
     .nsigs = 1,
 };
+
+static size_t
+in_noadvance(void *baton, const uint8_t *begin, const uint8_t *end,
+        uint32_t **pout, uint32_t *end_out)
+{
+    return 0;
+}
+
+static const encoding_t enc_NOADVANCE = {
+    .name = "NOADVANCE",
+    .in = in_noadvance,
+};
+ENCODING_REGISTER(enc_NOADVANCE);
 
 static result_t
 run_tc_api(void)
@@ -90,8 +103,184 @@ run_tc_api(void)
     }
     EXPECT_OOPS_END(rc = FAIL);
 
+    printf("Opening non-existent encoding\n");
+    {
+        encoding_handle_t *eh;
+
+        if ((eh = encoding_open("BAD_ENCODING_NAME")) != NULL) {
+            printf("... unexpectedly succeeded\n");
+            rc = FAIL;
+            encoding_close(eh);
+        }
+    }
+
+    printf("Checking the name of the UTF-8 encoding\n");
+    {
+        encoding_handle_t *eh;
+
+        if ((eh = encoding_open("UTF-8")) == NULL) {
+            printf("... failed to open UTF-8\n");
+            rc = FAIL;
+        }
+        else {
+            if (strcmp(encoding_name(eh), "UTF-8")) {
+                printf("... but has different name reported!\n");
+                rc = FAIL;
+            }
+            encoding_close(eh);
+        }
+    }
+
+    printf("Reading via string buffer\n");
+    {
+        encoding_handle_t *eh;
+        strbuf_t *sbuf;
+        uint32_t outbuf[4], *ptr;
+
+        sbuf = strbuf_new("ABCDEFG", 7);
+        eh = encoding_open("UTF-8");
+        ptr = outbuf;
+        if (4 != encoding_in_from_strbuf(eh, sbuf,
+                    &ptr, outbuf + sizeofarray(outbuf))
+                || ptr != outbuf + 4
+                || outbuf[0] != 'A'
+                || outbuf[1] != 'B'
+                || outbuf[2] != 'C'
+                || outbuf[3] != 'D') {
+            printf("Unexpected conversion result via string buffer\n");
+            rc = FAIL;
+        }
+        ptr = outbuf;
+        if (3 !=  encoding_in_from_strbuf(eh, sbuf,
+                    &ptr, outbuf + sizeofarray(outbuf))
+                || ptr != outbuf + 3
+                || outbuf[0] != 'E'
+                || outbuf[1] != 'F'
+                || outbuf[2] != 'G') {
+            printf("Unexpected conversion result via string buffer\n");
+            rc = FAIL;
+        }
+        encoding_close(eh);
+        strbuf_delete(sbuf);
+    }
+
+    printf("Checking non-advancing encoding implementation is caught\n");
+    {
+        static const uint8_t ibuf[4] = "abcd";
+        encoding_handle_t *eh;
+        uint32_t obuf[4], *ptr;
+
+        if ((eh = encoding_open("NOADVANCE")) == NULL) {
+            printf("Cannot open test encoding\n");
+            rc = FAIL;
+        }
+        else {
+            EXPECT_OOPS_BEGIN();
+            ptr = obuf;
+            (void)encoding_in(eh, ibuf, ibuf + sizeofarray(ibuf),
+                    &ptr, obuf + sizeofarray(obuf));
+            EXPECT_OOPS_END(rc = FAIL);
+            encoding_close(eh);
+        }
+    }
+
     return rc;
 }
+
+/*
+    Special encoding: incompatible with anything else, destruction (closing)
+    updates global counter.
+*/
+static unsigned int XENC_close_counter = 0;
+static void
+destroy_update_ctr(void *arg)
+{
+    XENC_close_counter++;
+}
+
+static const encoding_t enc_XENC1 = {
+    .name = "XENC1",
+    .enctype = ENCODING_T_UNKNOWN,
+    .endian = ENCODING_E_ANY,
+    .in = in_consumeall,
+};
+ENCODING_REGISTER(enc_XENC1);
+
+static const encoding_t enc_XENC2 = {
+    .name = "XENC2",
+    .enctype = ENCODING_T_UTF16,
+    .endian = ENCODING_E_BE,
+    .in = in_consumeall,
+    .destroy = destroy_update_ctr,
+};
+ENCODING_REGISTER(enc_XENC2);
+
+typedef struct testcase_switch_s {
+    const char *from;
+    const char *to;
+    uint8_t input;
+    bool switched;
+    unsigned int ctr_update;
+} testcase_switch_t;
+
+static result_t
+run_tc_switch(const void *arg)
+{
+    const testcase_switch_t *tc = arg;
+    encoding_handle_t *ehf, *eht;
+    uint32_t out, *ptr;
+    bool switched;
+    unsigned int oldctr;
+    result_t rc = PASS;
+
+    // Also implicitly tests closing
+    printf("Testing switching from %s to %s\n", tc->from, tc->to);
+    if ((ehf = encoding_open(tc->from)) == NULL) {
+        printf("Failed to open %s\n", tc->from);
+        rc = FAIL;
+    }
+    else if ((eht = encoding_open(tc->to)) == NULL) {
+        printf("Failed to open %s\n", tc->to);
+        encoding_close(ehf);
+        rc = FAIL;
+    }
+
+    if (tc->input) {
+        ptr = &out;
+        (void)encoding_in(ehf, &tc->input, &tc->input + 1,
+                &ptr, ptr + 1);
+    }
+    oldctr = XENC_close_counter;
+    switched = encoding_switch(&ehf, eht);
+    if (switched != tc->switched) {
+        printf("Expected switch to %s, but it %s\n",
+                tc->switched ? "succeed" : "fail",
+                switched ? "succeeded" : "failed");
+        rc = FAIL;
+    }
+    else if (oldctr + tc->ctr_update != XENC_close_counter) {
+        printf("Expected custom encoding close counter to update by %u\n",
+                tc->ctr_update);
+        rc = FAIL;
+    }
+    encoding_close(ehf);
+    return rc;
+}
+
+static const testcase_switch_t testcase_switch[] = {
+    { .from = "UTF-8", .to = "UTF-8", .input = 0x00, .switched = true, .ctr_update = 0 },
+    { .from = "UTF-8", .to = "UTF-8", .input = 0x33, .switched = true, .ctr_update = 0 },
+    { .from = "UTF-8", .to = "XENC1", .input = 0x00, .switched = false, .ctr_update = 0 },
+    { .from = "XENC1", .to = "UTF-8", .input = 0x00, .switched = false, .ctr_update = 0 },
+    { .from = "UTF-8", .to = "IBM500", .input = 0x00, .switched = false, .ctr_update = 0 }, 
+    { .from = "UTF-8", .to = "KOI8-R", .input = 0x00, .switched = true, .ctr_update = 0 },
+    { .from = "UTF-16", .to = "UTF-16BE", .input = 0x00, .switched = true, .ctr_update = 0 },
+    { .from = "UTF-16BE", .to = "UTF-16", .input = 0x00, .switched = true, .ctr_update = 0 },
+    { .from = "UTF-16BE", .to = "UTF-16LE", .input = 0x00, .switched = false, .ctr_update = 0 },
+    { .from = "UTF-16BE", .to = "XENC2", .input = 0x00, .switched = true, .ctr_update = 0 },
+    { .from = "UTF-16BE", .to = "XENC2", .input = 0x33, .switched = false, .ctr_update = 1 },
+    { .from = "XENC2", .to = "UTF-16BE", .input = 0x00, .switched = true, .ctr_update = 1 },
+};
 
 typedef struct testcase_detect_s {
     const uint8_t *input;
@@ -804,6 +993,7 @@ static const testcase_input_t testcase_inputs_KOI8R[] = {
 static const testset_t testsets[] = {
     TEST_SET_SIMPLE(run_tc_api, "API tests"),
     TEST_SET(run_tc_detect, "Detection of encodings", testcase_detect),
+    TEST_SET(run_tc_switch, "Switching of encodings", testcase_switch),
     TEST_SET(run_tc_utf8store, "UTF-8 storage primitives", testcase_utf8store),
     TEST_SET(run_tc_input, "UTF-8", testcase_inputs_UTF8),
     TEST_SET(run_tc_input, "UTF-16BE", testcase_inputs_UTF16BE),

@@ -164,12 +164,10 @@ encoding_open(const char *name)
     hnd = xmalloc(sizeof(encoding_handle_t));
     hnd->enc = enc;
     hnd->baton = NULL;
-    if (enc->baton_sz) {
-        hnd->baton = xmalloc(enc->baton_sz);
-        memset(hnd->baton, 0, enc->baton_sz);
-        if (enc->init) {
-            enc->init(hnd->baton, enc->data);
-        }
+    hnd->baton = xmalloc(enc->baton_sz);
+    memset(hnd->baton, 0, enc->baton_sz);
+    if (enc->init) {
+        enc->init(hnd->baton, enc->data);
     }
     return hnd;
 }
@@ -268,7 +266,19 @@ size_t
 encoding_in(encoding_handle_t *hnd, const uint8_t *begin, const uint8_t *end,
         uint32_t **pout, uint32_t *end_out)
 {
-    return hnd->enc->in(hnd->baton, begin, end, pout, end_out);
+    uint32_t *out = *pout;
+    size_t len;
+
+    len = hnd->enc->in(hnd->baton, begin, end, pout, end_out);
+
+    /*
+        Make sure we advance in some way: encoding may consume some input
+        (either to produce output, or store it in internal state) and/or
+        produce some output (from input, or from stored internal state) -
+        if we had some input and output space to begin with, of course.
+    */
+    OOPS_ASSERT(len || out != *pout || begin == end || out == end_out);
+    return len;
 }
 
 /**
@@ -287,7 +297,6 @@ encoding_in_from_strbuf(encoding_handle_t *hnd, strbuf_t *buf,
 {
     size_t len, total;
     const void *begin, *end;
-    uint32_t *out = *pout;
 
     total = 0;
     do {
@@ -296,12 +305,6 @@ encoding_in_from_strbuf(encoding_handle_t *hnd, strbuf_t *buf,
         }
         len = encoding_in(hnd, begin, end, pout, end_out);
 
-        /*
-            Make sure we advance in some way: encoding may consume some input
-            (either to produce output, or store it in internal state) and/or
-            produce some output (from input, or from stored internal state).
-        */
-        OOPS_ASSERT(len || out != *pout);
         total += len;
         strbuf_radvance(buf, len);
     } while (*pout < end_out);
