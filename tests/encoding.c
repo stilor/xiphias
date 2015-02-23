@@ -244,26 +244,27 @@ run_tc_switch(const void *arg)
         encoding_close(ehf);
         rc = FAIL;
     }
-
-    if (tc->input) {
-        ptr = &out;
-        (void)encoding_in(ehf, &tc->input, &tc->input + 1,
-                &ptr, ptr + 1);
+    else {
+        if (tc->input) {
+            ptr = &out;
+            (void)encoding_in(ehf, &tc->input, &tc->input + 1,
+                    &ptr, ptr + 1);
+        }
+        oldctr = XENC_close_counter;
+        switched = encoding_switch(&ehf, eht);
+        if (switched != tc->switched) {
+            printf("Expected switch to %s, but it %s\n",
+                    tc->switched ? "succeed" : "fail",
+                    switched ? "succeeded" : "failed");
+            rc = FAIL;
+        }
+        else if (oldctr + tc->ctr_update != XENC_close_counter) {
+            printf("Expected custom encoding close counter to update by %u\n",
+                    tc->ctr_update);
+            rc = FAIL;
+        }
+        encoding_close(ehf);
     }
-    oldctr = XENC_close_counter;
-    switched = encoding_switch(&ehf, eht);
-    if (switched != tc->switched) {
-        printf("Expected switch to %s, but it %s\n",
-                tc->switched ? "succeed" : "fail",
-                switched ? "succeeded" : "failed");
-        rc = FAIL;
-    }
-    else if (oldctr + tc->ctr_update != XENC_close_counter) {
-        printf("Expected custom encoding close counter to update by %u\n",
-                tc->ctr_update);
-        rc = FAIL;
-    }
-    encoding_close(ehf);
     return rc;
 }
 
