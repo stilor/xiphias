@@ -12,7 +12,7 @@
 #include "test/testlib.h"
 
 // TBD get from prog's path? On the command line?
-#define XML_INPUT_DIR "tests/input"
+#define XML_INPUT_DIR "tests/00.local/xmlreader-input"
 
 /// Describes a single test case for XML reader
 typedef struct testcase_s {
@@ -193,7 +193,7 @@ evprint_attrname(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_attrname_t *x = &cbparam->attrname;
 
-    printf("Attr '%.*s' [%zu], parent %p, baton %p\n",
+    printf("Attr '%.*s' [%zu], parent %p, baton %p",
             (int)x->namelen, x->name, x->namelen, x->elem_baton, x->attr_baton);
 }
 
@@ -214,7 +214,7 @@ evprint_attrval(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_attrval_t *x = &cbparam->attrval;
 
-    printf("Value '%.*s' [%zu], baton %p\n",
+    printf("Value '%.*s' [%zu], baton %p",
             (int)x->valuelen, x->value, x->valuelen, x->attr_baton);
 }
 
