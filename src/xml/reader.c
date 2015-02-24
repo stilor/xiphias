@@ -1370,8 +1370,9 @@ xml_elemtype_drop(xml_reader_t *h)
 static void
 xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
 {
-    xml_reader_cbparam_t cbp;
+    xml_reader_cbparam_t cbp, cbpa;
     xml_reader_nesting_t *n;
+    void *attr_baton;
     uint8_t la;
     size_t len;
 
@@ -1413,8 +1414,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
         }
         if (xuchareq(la, '/')) {
             if (!xml_read_string(h, "/>", XMLERR(ERROR, XML, P_STag))) {
-                // Try to recover by reading till end of opening tag
-                xml_read_until_gt(h);
+                goto malformed;
             }
             cbp.cbtype = XML_READER_CB_ETAG;
             cbp.etag.type = (const char *)&h->namestorage[n->offs];
@@ -1434,18 +1434,48 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
             return;
         }
         else if (len && (len = xml_read_Name(h)) != 0) {
-            // Attribute, if any, must be preceded by S (whitespace)
-            // TBD: read attributes - wrap this condition in a loop
-            // TBD: use separate cbparam to preserve cbp->loc for closing bracket callback
+            // Attribute, if any, must be preceded by S (whitespace).
+            // Use a separate structure for passing data to callback:
+            // the data in cbp is preserved for the callback to indicate
+            // the end of the STag/EmptyElemTag production.
+            cbpa.cbtype = XML_READER_CB_ATTRNAME;
+            cbpa.loc = h->tokenloc;
+            cbpa.attrname.name = (const char *)h->tokenbuf; // TBD use xml_char_t?
+            cbpa.attrname.namelen = h->tokenbuf_len;
+            cbpa.attrname.elem_baton = n->baton;
+            cbpa.attrname.attr_baton = NULL;
+            // TBD get attribute value normalization type from callback and
+            // use it for reading attribute value below
+            xml_reader_invoke_callback(h, &cbpa);
+            attr_baton = cbpa.attrname.attr_baton;
+            (void)xml_read_whitespace(h);
+            if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_Attribute)) != 1) {
+                goto malformed;
+            }
+            (void)xml_read_whitespace(h);
+            // TBD need to interpret Reference production inside the attribute value.
+            if (!xml_read_literal(h, XMLERR(ERROR, XML, P_Attribute))) {
+                goto malformed;
+            }
+            cbpa.cbtype = XML_READER_CB_ATTRVAL;
+            cbpa.loc = h->tokenloc;
+            cbpa.attrval.value = (const char *)h->tokenbuf; // TBD use xml_char_t?
+            cbpa.attrval.valuelen = h->tokenbuf_len;
+            cbpa.attrval.attr_baton = attr_baton;
+            xml_reader_invoke_callback(h, &cbpa);
         }
         else {
             // Try to recover by reading till end of opening tag
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
                     "Expect whitespace, or >, or />");
-            xml_read_until_gt(h);
-            return;
+            goto malformed;
         }
     }
+
+malformed:
+    // Try to recover by reading till end of opening tag
+    xml_read_until_gt(h);
+    return;
 }
 
 /**

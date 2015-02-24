@@ -22,12 +22,14 @@ enum xml_reader_cbtype_e {
     XML_READER_CB_NONE,            ///< No message (placeholder/terminator)
     XML_READER_CB_MESSAGE,         ///< Note/warning/error message
     XML_READER_CB_XMLDECL,         ///< XML declaration
+    XML_READER_CB_COMMENT,         ///< Comment
+    XML_READER_CB_PI,              ///< Processing instruction
     XML_READER_CB_DTD_BEGIN,       ///< Beginning of a document type declaration
     XML_READER_CB_DTD_END,         ///< End of a document type declaration
     XML_READER_CB_STAG,            ///< Start of element (STag)
     XML_READER_CB_ETAG,            ///< End of element (ETag)
-    XML_READER_CB_COMMENT,         ///< Comment
-    XML_READER_CB_PI,              ///< Processing instruction
+    XML_READER_CB_ATTRNAME,        ///< Name of an attribute in an element
+    XML_READER_CB_ATTRVAL,         ///< Value of an attribute
 
     XML_READER_CB_MAX
 };
@@ -61,15 +63,33 @@ typedef struct {
     bool is_empty;                           ///< True if EmptyElemTag production was used
 } xml_reader_cbparam_etag_t;
 
+/// Parameter for attribute name callback
+typedef struct {
+    const char *name;                        ///< Element type (may not match STag for malformed docs)
+    size_t namelen;                          ///< Element type length
+    void *elem_baton;                        ///< Baton passed by STag callback for parent element
+    void *attr_baton;                        ///< (in) Attribute baton (to pass to attr value callback)
+    // TBD: (in) normalization type, CDATA (default) or NMTOKENS
+} xml_reader_cbparam_attrname_t;
+
+/// Parameter for attribute name callback
+typedef struct {
+    const char *value;                       ///< Element type (may not match STag for malformed docs)
+    size_t valuelen;                         ///< Element type length
+    void *attr_baton;                        ///< Attribute baton
+} xml_reader_cbparam_attrval_t;
+
 /// Combined callback parameter type
 typedef struct {
     enum xml_reader_cbtype_e cbtype;              ///< Callback type
-    xmlerr_loc_t loc;              ///< Location of the error
+    xmlerr_loc_t loc;                             ///< Location of the event
     union {
         xml_reader_cbparam_message_t message;     ///< Error/warning message
         xml_reader_cbparam_xmldecl_t xmldecl;     ///< XML or text declaration
         xml_reader_cbparam_stag_t stag;           ///< Start of element (STag)
         xml_reader_cbparam_etag_t etag;           ///< End of element (ETag)
+        xml_reader_cbparam_attrname_t attrname;   ///< Attribute name
+        xml_reader_cbparam_attrval_t attrval;     ///< Attribute value
     };
 } xml_reader_cbparam_t;
 

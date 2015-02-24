@@ -188,6 +188,47 @@ evequal_etag(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
             && x1->is_empty == x2->is_empty;
 }
 
+static void
+evprint_attrname(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_attrname_t *x = &cbparam->attrname;
+
+    printf("Attr '%.*s' [%zu], parent %p, baton %p\n",
+            (int)x->namelen, x->name, x->namelen, x->elem_baton, x->attr_baton);
+}
+
+static bool
+evequal_attrname(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    const xml_reader_cbparam_attrname_t *x1 = &e1->attrname;
+    const xml_reader_cbparam_attrname_t *x2 = &e2->attrname;
+
+    return x1->namelen == x2->namelen
+            && !memcmp(x1->name, x2->name, x1->namelen)
+            && x1->elem_baton == x2->elem_baton
+            && x1->attr_baton == x2->attr_baton;
+}
+
+static void
+evprint_attrval(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_attrval_t *x = &cbparam->attrval;
+
+    printf("Value '%.*s' [%zu], baton %p\n",
+            (int)x->valuelen, x->value, x->valuelen, x->attr_baton);
+}
+
+static bool
+evequal_attrval(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    const xml_reader_cbparam_attrval_t *x1 = &e1->attrval;
+    const xml_reader_cbparam_attrval_t *x2 = &e2->attrval;
+
+    return x1->valuelen == x2->valuelen
+            && !memcmp(x1->value, x2->value, x1->valuelen)
+            && x1->attr_baton == x2->attr_baton;
+}
+
 static const event_t events[] = {
     [XML_READER_CB_NONE] = {
         .desc = "NO EVENT",
@@ -223,6 +264,16 @@ static const event_t events[] = {
         .desc = "End tag",
         .print = evprint_etag,
         .equal = evequal_etag,
+    },
+    [XML_READER_CB_ATTRNAME] = {
+        .desc = "Attr name",
+        .print = evprint_attrname,
+        .equal = evequal_attrname,
+    },
+    [XML_READER_CB_ATTRVAL] = {
+        .desc = "Attr value",
+        .print = evprint_attrval,
+        .equal = evequal_attrval,
     },
 };
 
@@ -373,6 +424,8 @@ run_testcase(const void *arg)
 #define FL_XMLDECL      xmldecl
 #define FL_STAG         stag
 #define FL_ETAG         etag
+#define FL_ATTRNAME     attrname
+#define FL_ATTRVAL      attrval
 #define FL(t)           FL_##t
 
 #define E(t, l, ...)    { .cbtype = XML_READER_CB_##t, .loc = l, .FL(t) = { __VA_ARGS__ }, }
