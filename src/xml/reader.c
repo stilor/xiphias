@@ -94,11 +94,11 @@ struct xml_reader_s {
     xml_reader_cb_t func;           ///< Callback function
     void *arg;                      ///< Argument to callback function
 
-    uint8_t *tokenbuf;              ///< Token buffer
-    uint8_t *tokenbuf_end;          ///< End of the token buffer
+    utf8_t *tokenbuf;               ///< Token buffer
+    utf8_t *tokenbuf_end;           ///< End of the token buffer
     size_t tokenbuf_len;            ///< Length of the token in the buffer
 
-    uint8_t *namestorage;           ///< Buffer for storing element types
+    utf8_t *namestorage;            ///< Buffer for storing element types
     size_t namestorage_size;        ///< Size of the name storage buffer
     size_t namestorage_offs;        ///< Current offset into namestorage
 
@@ -110,7 +110,7 @@ struct xml_reader_s {
 };
 
 /// Function for conditional read termination: returns true if the character is rejected
-typedef uint32_t (*xml_condread_func_t)(void *arg, uint32_t cp);
+typedef ucs4_t (*xml_condread_func_t)(void *arg, ucs4_t cp);
 
 /// Convenience macro: report an error at the start of the last token
 #define xml_reader_message_lasttoken(h, ...) \
@@ -130,7 +130,7 @@ typedef uint32_t (*xml_condread_func_t)(void *arg, uint32_t cp);
     @return true if @a cp is a restricted character
 */
 static inline bool
-xml_is_restricted(xml_reader_t *h, uint32_t cp)
+xml_is_restricted(xml_reader_t *h, ucs4_t cp)
 {
     static const bool restricted_chars[] = {
 #define R(x)    [x] = true
@@ -161,11 +161,11 @@ xml_is_restricted(xml_reader_t *h, uint32_t cp)
     @return true if @a cp is whitespace, false otherwise
 */
 static bool
-xml_is_whitespace(uint32_t cp)
+xml_is_whitespace(ucs4_t cp)
 {
     // COV: test for 0xD character requires parsing content and recognition of character refs
-    return xuchareq(cp, 0x20) || xuchareq(cp, 0x9) || xuchareq(cp, 0xA)
-            || xuchareq(cp, 0xD);
+    return ucs4_cheq(cp, 0x20) || ucs4_cheq(cp, 0x9) || ucs4_cheq(cp, 0xA)
+            || ucs4_cheq(cp, 0xD);
 }
 
 /**
@@ -394,7 +394,7 @@ xml_reader_invoke_callback(xml_reader_t *h, xml_reader_cbparam_t *cbparam)
     @return Nothing
 */
 static void
-xml_reader_update_position(xml_reader_t *h, uint32_t cp)
+xml_reader_update_position(xml_reader_t *h, ucs4_t cp)
 {
     if (cp == 0x0A) {
         // Newline and it wasn't rejected - increment line number *after this character*
@@ -442,13 +442,13 @@ xml_reader_message(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
 /// State structure for input ops while parsing the declaration
 typedef struct xml_reader_initial_xcode_s {
     xml_reader_t *h;            ///< Reader handle
-    uint8_t *la_start;          ///< Start of the lookahead buffer
+    utf8_t *la_start;           ///< Start of the lookahead buffer
     size_t la_size;             ///< Size of the lookahead buffer
     size_t la_avail;            ///< Size of data available in buffer
     size_t la_offs;             ///< Current lookahead offset
 
     /// First attempt to have the buffer on the stack
-    uint8_t initial[INITIAL_DECL_LOOKAHEAD_SIZE];
+    utf8_t initial[INITIAL_DECL_LOOKAHEAD_SIZE];
 } xml_reader_initial_xcode_t;
 
 /**
@@ -466,7 +466,7 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
 {
     xml_reader_initial_xcode_t *xc = arg;
     xml_reader_t *h = xc->h;
-    uint32_t *cptr, *bptr;
+    ucs4_t *cptr, *bptr;
 
     OOPS_ASSERT(sz >= 4 && (sz & 3) == 0); // Reading in 32-bit blocks
     bptr = cptr = begin;
@@ -496,7 +496,7 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
     } while (cptr == bptr);
 
     OOPS_ASSERT(cptr == bptr + 1); // Must have 1 character
-    return sizeof(uint32_t);
+    return sizeof(ucs4_t);
 }
 
 /// Operations for transcoding XMLDecl/TextDecl
@@ -514,12 +514,12 @@ static size_t
 xml_reader_transcode_op_more(void *arg, void *begin, size_t sz)
 {
     xml_reader_t *h = arg;
-    uint32_t *bptr, *cptr, *eptr;
+    ucs4_t *bptr, *cptr, *eptr;
 
     bptr = cptr = begin;
-    eptr = bptr + sz / sizeof(uint32_t);
+    eptr = bptr + sz / sizeof(ucs4_t);
     encoding_in_from_strbuf(h->enc, h->buf_raw, &cptr, eptr);
-    return (cptr - bptr) * sizeof(uint32_t);
+    return (cptr - bptr) * sizeof(ucs4_t);
 }
 
 /// Operations for transcoding after parsing the XMLDecl/TextDecl
@@ -539,14 +539,14 @@ static const strbuf_ops_t xml_reader_transcode_ops = {
     @return Number of characters read
 */
 static size_t
-xml_lookahead(xml_reader_t *h, uint8_t *buf, size_t bufsz, bool *peof)
+xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz, bool *peof)
 {
-    uint32_t tmp[MAX_LOOKAHEAD_SIZE];
-    const uint32_t *ptr = tmp;
+    ucs4_t tmp[MAX_LOOKAHEAD_SIZE];
+    const ucs4_t *ptr = tmp;
     size_t i, nread;
 
     OOPS_ASSERT(bufsz <= MAX_LOOKAHEAD_SIZE);
-    nread = strbuf_lookahead(h->buf_proc, tmp, bufsz * sizeof(uint32_t));
+    nread = strbuf_lookahead(h->buf_proc, tmp, bufsz * sizeof(ucs4_t));
     if (peof) {
         *peof = !nread;
     }
@@ -616,17 +616,17 @@ static size_t
 xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 {
     const void *begin, *end;
-    const uint32_t *ptr;
-    uint32_t cp, cp0;
+    const ucs4_t *ptr;
+    ucs4_t cp, cp0;
     size_t clen, offs, bufsz, total;
-    uint8_t *bufptr;
+    utf8_t *bufptr;
     bool stop = false;
 
     bufptr = h->tokenbuf;
     total = 0;
     h->tokenloc = h->curloc;
     while (!stop && strbuf_rptr(h->buf_proc, &begin, &end)) {
-        for (ptr = begin; !stop && ptr < (const uint32_t *)end; ptr++) {
+        for (ptr = begin; !stop && ptr < (const ucs4_t *)end; ptr++) {
             cp0 = *ptr; // codepoint before possible substitution by func
             if ((h->flags & READER_SAW_CR) != 0 && (cp0 == 0x0A || cp0 == 0x85)) {
                 // EOL normalization. This is "continuation" of a previous character - so
@@ -724,8 +724,8 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
     @param cp Codepoint
     @return UCS4_STOPCHAR if @a cp is whitespace, @a cp otherwise
 */
-static uint32_t
-xml_cb_not_whitespace(void *arg, uint32_t cp)
+static ucs4_t
+xml_cb_not_whitespace(void *arg, ucs4_t cp)
 {
     return !xml_is_whitespace(cp) ? UCS4_STOPCHAR : cp;
 }
@@ -740,10 +740,10 @@ xml_cb_not_whitespace(void *arg, uint32_t cp)
     @param cp Codepoint
     @return UCS4_STOPCHAR if @a cp is left angle bracket, @a cp otherwise
 */
-static uint32_t
-xml_cb_lt(void *arg, uint32_t cp)
+static ucs4_t
+xml_cb_lt(void *arg, ucs4_t cp)
 {
-    return xuchareq(cp, '<') ? UCS4_STOPCHAR : cp;
+    return ucs4_cheq(cp, '<') ? UCS4_STOPCHAR : cp;
 }
 
 /// Consume until next opening bracket
@@ -758,10 +758,10 @@ xml_cb_lt(void *arg, uint32_t cp)
     @return UCS4_STOPCHAR if @a cp is next char after a right angle bracket,
         @a cp otherwise
 */
-static uint32_t
-xml_cb_gt(void *arg, uint32_t cp)
+static ucs4_t
+xml_cb_gt(void *arg, ucs4_t cp)
 {
-    return cp | (xuchareq(cp, '>') ? UCS4_LASTCHAR : 0);
+    return cp | (ucs4_cheq(cp, '>') ? UCS4_LASTCHAR : 0);
 }
 
 /**
@@ -787,8 +787,8 @@ xml_cb_gt(void *arg, uint32_t cp)
     @param arg Pointer to a boolean: true if first character.
     @return UCS4_STOPCHAR if the character does not belong to Name production
 */
-static uint32_t
-xml_cb_not_name(void *arg, uint32_t cp)
+static ucs4_t
+xml_cb_not_name(void *arg, ucs4_t cp)
 {
     bool startchar;
 
@@ -797,8 +797,8 @@ xml_cb_not_name(void *arg, uint32_t cp)
 
     // Most XML documents use ASCII for element types. So, check ASCII
     // characters first.
-    if (xucharin(cp, 'A', 'Z') || xucharin(cp, 'a', 'z') || xuchareq(cp, '_') || xuchareq(cp, ':')
-            || (!startchar && (xuchareq(cp, '-') || xuchareq(cp, '.') || xucharin(cp, '0', '9')))) {
+    if (ucs4_chin(cp, 'A', 'Z') || ucs4_chin(cp, 'a', 'z') || ucs4_cheq(cp, '_') || ucs4_cheq(cp, ':')
+            || (!startchar && (ucs4_cheq(cp, '-') || ucs4_cheq(cp, '.') || ucs4_chin(cp, '0', '9')))) {
         return cp; // Good, keep on reading
     }
 
@@ -856,8 +856,8 @@ typedef struct xml_cb_string_state_s {
     @return True if saw the whole string (normal termination) or found a mismatch
         (abnormal termination)
 */
-static uint32_t
-xml_cb_string(void *arg, uint32_t cp)
+static ucs4_t
+xml_cb_string(void *arg, ucs4_t cp)
 {
     xml_cb_string_state_t *state = arg;
     unsigned char tmp;
@@ -897,7 +897,7 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
 /// Callback state for literal reading
 typedef struct xml_cb_literal_state_s {
     /// UCS4_NOCHAR at start, quote seen in progress, or UCS4_STOPCHAR if saw final quote
-    uint32_t quote;
+    ucs4_t quote;
 } xml_cb_literal_state_t;
 
 /**
@@ -908,14 +908,14 @@ typedef struct xml_cb_literal_state_s {
     @param cp Codepoint
     @return true if this character is rejected
 */
-static uint32_t
-xml_cb_literal(void *arg, uint32_t cp)
+static ucs4_t
+xml_cb_literal(void *arg, ucs4_t cp)
 {
     xml_cb_literal_state_t *st = arg;
 
     if (st->quote == UCS4_NOCHAR) {
         // Starting matching
-        if (!xuchareq(cp, '"') && !xuchareq(cp, '\'')) {
+        if (!ucs4_cheq(cp, '"') && !ucs4_cheq(cp, '\'')) {
             return UCS4_STOPCHAR; // Rejected before even started
         }
         st->quote = cp;
@@ -973,25 +973,25 @@ xml_read_literal(xml_reader_t *h, xmlerr_info_t errinfo)
 static void
 check_VersionInfo(xml_reader_t *h)
 {
-    const uint8_t *str = h->tokenbuf;
+    const utf8_t *str = h->tokenbuf;
     size_t sz = h->tokenbuf_len;
     size_t i;
 
     if (sz == 3) {
-        if (xustrneq(str, "1.0", 3)) {
+        if (utf8_eqn(str, "1.0", 3)) {
             h->version = XML_INFO_VERSION_1_0;
             return;
         }
-        else if (xustrneq(str, "1.1", 3)) {
+        else if (utf8_eqn(str, "1.1", 3)) {
             h->version = XML_INFO_VERSION_1_1;
             return;
         }
     }
-    if (sz < 3 || !xustrneq(str, "1.", 2)) {
+    if (sz < 3 || !utf8_eqn(str, "1.", 2)) {
         goto bad_version;
     }
     for (i = 2, str += 2; i < sz; i++, str++) {
-        if (!xucharin(*str, '0', '9')) {
+        if (!ucs4_chin(*str, '0', '9')) {
             goto bad_version;
         }
     }
@@ -1027,27 +1027,27 @@ bad_version:
 static void
 check_EncName(xml_reader_t *h)
 {
-    const uint8_t *str = h->tokenbuf;
-    const uint8_t *s;
+    const utf8_t *str = h->tokenbuf;
+    const utf8_t *s;
     size_t sz = h->tokenbuf_len;
     size_t i;
 
     for (i = 0, s = str; i < sz; i++, s++) {
-        if (xucharin(*s, 'A', 'Z') || xucharin(*s, 'a', 'z')) {
+        if (ucs4_chin(*s, 'A', 'Z') || ucs4_chin(*s, 'a', 'z')) {
             continue;
         }
         if (!i) {
             goto bad_encoding;
         }
-        if (!xucharin(*s, '0', '9')
-                && !xuchareq(*s, '.')
-                && !xuchareq(*s, '_')
-                && !xuchareq(*s, '-')) {
+        if (!ucs4_chin(*s, '0', '9')
+                && !ucs4_cheq(*s, '.')
+                && !ucs4_cheq(*s, '_')
+                && !ucs4_cheq(*s, '-')) {
             goto bad_encoding;
         }
     }
 
-    h->enc_xmldecl = xustrndup(str, sz);
+    h->enc_xmldecl = utf8_ndup(str, sz);
     return; // Normal return
 
 bad_encoding:
@@ -1068,13 +1068,13 @@ bad_encoding:
 static void
 check_SD_YesNo(xml_reader_t *h)
 {
-    const uint8_t *str = h->tokenbuf;
+    const utf8_t *str = h->tokenbuf;
     size_t sz = h->tokenbuf_len;
 
-    if (sz == 2 && xustrneq(str, "no", 2)) {
+    if (sz == 2 && utf8_eqn(str, "no", 2)) {
         h->standalone = XML_INFO_STANDALONE_NO;
     }
-    else if (sz == 3 && xustrneq(str, "yes", 3)) {
+    else if (sz == 3 && utf8_eqn(str, "yes", 3)) {
         h->standalone = XML_INFO_STANDALONE_YES;
     }
     else {
@@ -1130,11 +1130,11 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     const xml_reader_xmldecl_declinfo_t *declinfo = h->declinfo;
     const xml_reader_xmldecl_attrdesc_t *attrlist = declinfo->attrlist;
     xml_reader_cbparam_t cbp;
-    uint8_t labuf[6]; // ['<?xml' + whitespace] or [?>]
+    utf8_t labuf[6]; // ['<?xml' + whitespace] or [?>]
     size_t len;
 
     if (6 != xml_lookahead(h, labuf, 6, NULL)
-            || !xustrneq(labuf, "<?xml", 5)
+            || !utf8_eqn(labuf, "<?xml", 5)
             || !xml_is_whitespace(labuf[5])) {
         return false; // Does not start with a declaration
     }
@@ -1151,7 +1151,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
         // If it was a Name, it is further checked against the expected
         // attribute list and Literal is then verified for begin a valid value
         // for Name.
-        if (1 == xml_lookahead(h, labuf, 1, NULL) && xuchareq(labuf[0], '?')) {
+        if (1 == xml_lookahead(h, labuf, 1, NULL) && ucs4_cheq(labuf[0], '?')) {
             if (!xml_read_string(h, "?>", declinfo->generr)) {
                 goto malformed;
             }
@@ -1166,7 +1166,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
         // (and if we skipped any mandatory attributes while advancing).
         while (attrlist->name) {
             if (h->tokenbuf_len == strlen(attrlist->name)
-                    && xustrneq(h->tokenbuf, attrlist->name, h->tokenbuf_len)) {
+                    && utf8_eqn(h->tokenbuf, attrlist->name, h->tokenbuf_len)) {
                 break; // Yes, that is what we expect
             }
             if (attrlist->mandatory) {
@@ -1282,7 +1282,7 @@ static xml_reader_nesting_t *
 xml_elemtype_push(xml_reader_t *h)
 {
     xml_reader_nesting_t *n;
-    const uint8_t *name = h->tokenbuf;
+    const utf8_t *name = h->tokenbuf;
     size_t len = h->tokenbuf_len;
 
     // Allocate tracking structure
@@ -1318,7 +1318,7 @@ static void *
 xml_elemtype_pop(xml_reader_t *h)
 {
     xml_reader_nesting_t *n;
-    const uint8_t *name = h->tokenbuf;
+    const utf8_t *name = h->tokenbuf;
     size_t len = h->tokenbuf_len;
 
     n = SLIST_FIRST(&h->elem_nested);
@@ -1373,7 +1373,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
     xml_reader_cbparam_t cbp, cbpa;
     xml_reader_nesting_t *n;
     void *attr_baton;
-    uint8_t la;
+    utf8_t la;
     size_t len;
 
     // For recovery, assume the element has no content in case of error return.
@@ -1395,7 +1395,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
 
     // Notify the application that a new element has started
     n = SLIST_FIRST(&h->elem_nested);
-    cbp.stag.type = (const char *)h->tokenbuf; // TBD remove cast, use xml_char_t typedef
+    cbp.stag.type = h->tokenbuf;
     cbp.stag.typelen = len;
     cbp.stag.parent = n ? n->baton : NULL;
     cbp.stag.baton = NULL;
@@ -1412,12 +1412,12 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
                     "Element start tag truncated");
             return;
         }
-        if (xuchareq(la, '/')) {
+        if (ucs4_cheq(la, '/')) {
             if (!xml_read_string(h, "/>", XMLERR(ERROR, XML, P_STag))) {
                 goto malformed;
             }
             cbp.cbtype = XML_READER_CB_ETAG;
-            cbp.etag.type = (const char *)&h->namestorage[n->offs];
+            cbp.etag.type = &h->namestorage[n->offs];
             cbp.etag.typelen = n->len;
             cbp.etag.baton = n->baton;
             cbp.etag.is_empty = true;
@@ -1426,7 +1426,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
             *is_empty = true;
             return;
         }
-        else if (xuchareq(la, '>')) {
+        else if (ucs4_cheq(la, '>')) {
             if (!xml_read_string(h, ">", XMLERR(ERROR, XML, P_STag))) {
                 OOPS; // Cannot fail - we looked ahead
             }
@@ -1440,7 +1440,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
             // the end of the STag/EmptyElemTag production.
             cbpa.cbtype = XML_READER_CB_ATTRNAME;
             cbpa.loc = h->tokenloc;
-            cbpa.attrname.name = (const char *)h->tokenbuf; // TBD use xml_char_t?
+            cbpa.attrname.name = h->tokenbuf;
             cbpa.attrname.namelen = h->tokenbuf_len;
             cbpa.attrname.elem_baton = n->baton;
             cbpa.attrname.attr_baton = NULL;
@@ -1459,7 +1459,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
             }
             cbpa.cbtype = XML_READER_CB_ATTRVAL;
             cbpa.loc = h->tokenloc;
-            cbpa.attrval.value = (const char *)h->tokenbuf; // TBD use xml_char_t?
+            cbpa.attrval.value = h->tokenbuf;
             cbpa.attrval.valuelen = h->tokenbuf_len;
             cbpa.attrval.attr_baton = attr_baton;
             xml_reader_invoke_callback(h, &cbpa);
@@ -1506,7 +1506,7 @@ xml_parse_ETag(xml_reader_t *h)
         xml_read_until_gt(h);
         return;
     }
-    cbp.stag.type = (const char *)h->tokenbuf; // TBD remove cast, use xml_char_t typedef
+    cbp.stag.type = h->tokenbuf;
     cbp.stag.typelen = len;
     cbp.etag.baton = xml_elemtype_pop(h);
     cbp.etag.is_empty = false;
@@ -1550,7 +1550,7 @@ static void
 xml_parse_element(xml_reader_t *h)
 {
     bool is_empty_element;
-    uint8_t labuf[2];
+    utf8_t labuf[2];
 
     xml_parse_STag_EmptyElemTag(h, &is_empty_element);
     if (!is_empty_element) {
@@ -1561,7 +1561,7 @@ xml_parse_element(xml_reader_t *h)
             return;
         }
         // xml_parse_content() should not have returned otherwise
-        OOPS_ASSERT(xuchareq(labuf[0], '<') && xuchareq(labuf[1], '/'));
+        OOPS_ASSERT(ucs4_cheq(labuf[0], '<') && ucs4_cheq(labuf[1], '/'));
         xml_parse_ETag(h);
     }
 }
@@ -1577,7 +1577,7 @@ static void
 xml_reader_start(xml_reader_t *h)
 {
     xml_reader_initial_xcode_t xc;
-    uint8_t adbuf[4];       // 4 bytes for encoding detection, per XML spec suggestion
+    utf8_t adbuf[4];       // 4 bytes for encoding detection, per XML spec suggestion
     size_t bom_len, adsz;
     const char *encname;
     bool rv;
@@ -1617,7 +1617,7 @@ xml_reader_start(xml_reader_t *h)
     xc.la_size = sizeof(xc.initial);
     xc.la_avail = 0;
     xc.la_offs = 0;
-    h->buf_proc = strbuf_new(NULL, 32 * sizeof(uint32_t));
+    h->buf_proc = strbuf_new(NULL, 32 * sizeof(ucs4_t));
     strbuf_setops(h->buf_proc, &xml_reader_initial_ops, &xc);
 
     // Parse the declaration; expect only ASCII
@@ -1649,7 +1649,7 @@ xml_reader_start(xml_reader_t *h)
     // Set up permanent transcoder (we do it always, but the caller probably won't
     // proceed with further decoding if READER_FATAL is reported).
     strbuf_delete(h->buf_proc);
-    h->buf_proc = strbuf_new(NULL, 1024 * sizeof(uint32_t));
+    h->buf_proc = strbuf_new(NULL, 1024 * sizeof(ucs4_t));
     strbuf_setops(h->buf_proc, &xml_reader_transcode_ops, h);
 
     if (h->enc_xmldecl) {
@@ -1706,7 +1706,7 @@ xml_reader_start(xml_reader_t *h)
 void
 xml_reader_process_document_entity(xml_reader_t *h)
 {
-    uint8_t labuf[4]; // Lookahead buffer
+    utf8_t labuf[4]; // Lookahead buffer
     bool seen_dtd = false;
     bool seen_element = false;
     bool eof;

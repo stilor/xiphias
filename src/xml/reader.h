@@ -49,7 +49,7 @@ typedef struct {
 
 /// Parameter for start of the element callback
 typedef struct {
-    const char *type;                        ///< Element type (name)
+    const utf8_t *type;                      ///< Element type (name)
     size_t typelen;                          ///< Element type length
     void *parent;                            ///< Parent element baton
     void *baton;                             ///< (in) baton to use for child nodes and etag
@@ -57,7 +57,7 @@ typedef struct {
 
 /// Parameter for end of the element callback
 typedef struct {
-    const char *type;                        ///< Element type (may not match STag for malformed docs)
+    const utf8_t *type;                      ///< Element type (may not match STag for malformed docs)
     size_t typelen;                          ///< Element type length
     void *baton;                             ///< Baton passed by STag callback
     bool is_empty;                           ///< True if EmptyElemTag production was used
@@ -65,7 +65,7 @@ typedef struct {
 
 /// Parameter for attribute name callback
 typedef struct {
-    const char *name;                        ///< Element type (may not match STag for malformed docs)
+    const utf8_t *name;                      ///< Element type (may not match STag for malformed docs)
     size_t namelen;                          ///< Element type length
     void *elem_baton;                        ///< Baton passed by STag callback for parent element
     void *attr_baton;                        ///< (in) Attribute baton (to pass to attr value callback)
@@ -74,7 +74,7 @@ typedef struct {
 
 /// Parameter for attribute name callback
 typedef struct {
-    const char *value;                       ///< Element type (may not match STag for malformed docs)
+    const utf8_t *value;                     ///< Element type (may not match STag for malformed docs)
     size_t valuelen;                         ///< Element type length
     void *attr_baton;                        ///< Attribute baton
 } xml_reader_cbparam_attrval_t;

@@ -145,7 +145,7 @@ static const encoding_sig_t sig_%s[] = {
         nsigs = "0"
     out.write("""
 // Code page for '%s' code page
-static const uint32_t codepage_table_%s[] = {
+static const ucs4_t codepage_table_%s[] = {
 """ % (name, cname))
     for i in range(0, 256):
         out.write("\t[0x%02X] = 0x%04X, // %s\n" % (i, mt[i][0], mt[i][1]))

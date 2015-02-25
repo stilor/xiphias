@@ -11,6 +11,7 @@
 #include "defs.h"
 #include "queue.h"
 #include "strbuf.h"
+#include "unicode.h"
 
 /// Types of encoding compatibility
 enum encoding_compat_e {
@@ -83,7 +84,7 @@ typedef struct encoding_s {
         @return Number of bytes consumed in input buffer
     */
     size_t (*in)(void *baton, const uint8_t *begin, const uint8_t *end,
-            uint32_t **pout, uint32_t *end_out);
+            ucs4_t **pout, ucs4_t *end_out);
 
     /**
         Check if the current state of baton is "clean" - i.e., contains
@@ -138,6 +139,6 @@ typedef struct encoding_codepage_baton_s {
 
 void encoding_codepage_init(void *baton, const void *data);
 size_t encoding_codepage_in(void *baton, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out);
+        ucs4_t **pout, ucs4_t *end_out);
 
 #endif

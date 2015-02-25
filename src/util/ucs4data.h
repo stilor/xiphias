@@ -2,10 +2,15 @@
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
 /** @file
-    USC-4 character database definitions
+    USC-4 character database definitions. Should not be included directly,
+    only via <unicode.h>.
 */
 #ifndef __util_ucs4data_h_
 #define __util_ucs4data_h_
+
+#ifndef __util_unicode_h_
+#error "This file must be included via <unicode.h>"
+#endif
 
 #include <stdint.h>
 
@@ -64,8 +69,8 @@ enum {
     UCS4_NFC_QC_M,  ///< Characyer may be allowed in NFC (needs full check)
 };
 
-extern const uint32_t ucs4_full_decomp[];
-extern const uint32_t ucs4_composes_with[];
+extern const ucs4_t ucs4_full_decomp[];
+extern const ucs4_t ucs4_composes_with[];
 extern const ucs4data_t ucs4_characters[];
 
 /// Get canonical combining class for a character

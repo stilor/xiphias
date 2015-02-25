@@ -264,9 +264,9 @@ encoding_close(encoding_handle_t *hnd)
 */
 size_t
 encoding_in(encoding_handle_t *hnd, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out)
+        ucs4_t **pout, ucs4_t *end_out)
 {
-    uint32_t *out = *pout;
+    ucs4_t *out = *pout;
     size_t len;
 
     len = hnd->enc->in(hnd->baton, begin, end, pout, end_out);
@@ -293,7 +293,7 @@ encoding_in(encoding_handle_t *hnd, const uint8_t *begin, const uint8_t *end,
 */
 size_t
 encoding_in_from_strbuf(encoding_handle_t *hnd, strbuf_t *buf,
-        uint32_t **pout, uint32_t *end_out)
+        ucs4_t **pout, ucs4_t *end_out)
 {
     size_t len, total;
     const void *begin, *end;
@@ -361,10 +361,10 @@ encoding_codepage_init(void *baton, const void *data)
 */
 size_t
 encoding_codepage_in(void *baton, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out)
+        ucs4_t **pout, ucs4_t *end_out)
 {
     encoding_codepage_baton_t *cpb = baton;
-    uint32_t *out = *pout;
+    ucs4_t *out = *pout;
     const uint8_t *ptr = begin;
 
     while (ptr < end && out < end_out) {
@@ -379,10 +379,10 @@ encoding_codepage_in(void *baton, const uint8_t *begin, const uint8_t *end,
 
 /// Runtime data for UTF-8 encoding
 typedef struct baton_utf8_s {
-    uint32_t val;           ///< Accumulated value
+    ucs4_t val;             ///< Accumulated value
     size_t len;             ///< Number of trailing characters expected
-    uint8_t mintrail;       ///< Minimum expected trailer byte
-    uint8_t maxtrail;       ///< Maximum expected trailer byte
+    utf8_t mintrail;        ///< Minimum expected trailer byte
+    utf8_t maxtrail;        ///< Maximum expected trailer byte
 } baton_utf8_t;
 
 /// Length of the multibyte sequence (0: invalid starting char)
@@ -465,10 +465,10 @@ static const uint8_t utf8_maxtrail[256] = {
 */
 static size_t
 in_UTF8(void *baton, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out)
+        ucs4_t **pout, ucs4_t *end_out)
 {
     baton_utf8_t utf8b; // Local copy to avoid accessing via pointer
-    uint32_t *out = *pout;
+    ucs4_t *out = *pout;
     const uint8_t *ptr = begin;
     uint8_t tmp;
 
@@ -560,8 +560,8 @@ ENCODING_REGISTER(enc_UTF8);
 
 /// Runtime data for UTF-16 encoding
 typedef struct baton_utf16_s {
-    uint32_t val;           ///< Accumulated value
-    uint32_t surrogate;     ///< Surrogate value previously read
+    ucs4_t val;             ///< Accumulated value
+    ucs4_t surrogate;       ///< Surrogate value previously read
     uint8_t tmp[2];         ///< Temporary buffer if a unit straddles block boundary
     bool straddle;          ///< Previous block didn't end on unit boundary
     bool val_valid;         ///< On previous call, .val did not fit into a buffer
@@ -593,9 +593,9 @@ clean_UTF16(void *baton)
     @return Nothing
 */
 static inline void
-nextchar_UTF16(baton_utf16_t *b, uint32_t val, uint32_t **pout, uint32_t *end)
+nextchar_UTF16(baton_utf16_t *b, uint16_t val, ucs4_t **pout, ucs4_t *end)
 {
-    uint32_t surrogate_bits = val & 0xFC00;
+    uint16_t surrogate_bits = val & 0xFC00;
 
     if (b->surrogate) {
         /* Expecting low surrogate */
@@ -643,7 +643,7 @@ nextchar_UTF16(baton_utf16_t *b, uint32_t val, uint32_t **pout, uint32_t *end)
 */
 static inline size_t
 common_UTF16(void *baton, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out, uint16_t (*tohost)(const uint8_t *))
+        ucs4_t **pout, ucs4_t *end_out, uint16_t (*tohost)(const uint8_t *))
 {
     baton_utf16_t utf16b; // Local copy to avoid access via pointer
     const uint8_t *ptr = begin;
@@ -695,7 +695,7 @@ le16tohost(const uint8_t *p)
 /// Wrapper for little-endian version of UTF-16
 static size_t
 in_UTF16LE(void *baton, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out)
+        ucs4_t **pout, ucs4_t *end_out)
 {
     return common_UTF16(baton, begin, end, pout, end_out, le16tohost);
 }
@@ -737,7 +737,7 @@ be16tohost(const uint8_t *p)
 /// Wrapper for big-endian version of UTF-16
 static size_t
 in_UTF16BE(void *baton, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out)
+        ucs4_t **pout, ucs4_t *end_out)
 {
     return common_UTF16(baton, begin, end, pout, end_out, be16tohost);
 }
@@ -798,8 +798,8 @@ clean_UTF32(void *baton)
     @param cp Code point to check
     @return @a cp if valid, or Unicode replacement character otherwise
 */
-static inline uint32_t
-valid_UTF32(uint32_t cp)
+static inline ucs4_t
+valid_UTF32(ucs4_t cp)
 {
     if (cp < UCS4_SURROGATE_MIN) {
         return cp;
@@ -825,11 +825,11 @@ valid_UTF32(uint32_t cp)
 */
 static size_t
 common_UTF32(void *baton, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out, uint32_t (*tohost)(const uint8_t *))
+        ucs4_t **pout, ucs4_t *end_out, ucs4_t (*tohost)(const uint8_t *))
 {
     baton_utf32_t *utf32b = baton;
     const uint8_t *ptr = begin;
-    uint32_t *out = *pout;
+    ucs4_t *out = *pout;
     size_t remains;
 
     // Finish incomplete unit if possible
@@ -874,7 +874,7 @@ le32tohost(const uint8_t *p)
 /// Wrapper for little-endian version of UTF-32
 static size_t
 in_UTF32LE(void *baton, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out)
+        ucs4_t **pout, ucs4_t *end_out)
 {
     return common_UTF32(baton, begin, end, pout, end_out, le32tohost);
 }
@@ -914,7 +914,7 @@ be32tohost(const uint8_t *p)
 /// Wrapper for big-endian version of UTF-32
 static size_t
 in_UTF32BE(void *baton, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out)
+        ucs4_t **pout, ucs4_t *end_out)
 {
     return common_UTF32(baton, begin, end, pout, end_out, be32tohost);
 }
@@ -954,7 +954,7 @@ x2143_32tohost(const uint8_t *p)
 /// Wrapper for 2143-endian version of UTF-32
 static size_t
 in_UTF32_2143(void *baton, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out)
+        ucs4_t **pout, ucs4_t *end_out)
 {
     return common_UTF32(baton, begin, end, pout, end_out, x2143_32tohost);
 }
@@ -994,7 +994,7 @@ x3412_32tohost(const uint8_t *p)
 /// Wrapper for 3412-endian version of UTF-32
 static size_t
 in_UTF32_3412(void *baton, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out)
+        ucs4_t **pout, ucs4_t *end_out)
 {
     return common_UTF32(baton, begin, end, pout, end_out, x3412_32tohost);
 }

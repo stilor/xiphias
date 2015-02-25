@@ -21,7 +21,7 @@ static const encoding_sig_t sig_UTF8X[] = {
 
 static size_t
 in_consumeall(void *baton, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out)
+        ucs4_t **pout, ucs4_t *end_out)
 {
     return end - begin;
 }
@@ -51,7 +51,7 @@ static const encoding_t enc_BADSIGS = {
 
 static size_t
 in_noadvance(void *baton, const uint8_t *begin, const uint8_t *end,
-        uint32_t **pout, uint32_t *end_out)
+        ucs4_t **pout, ucs4_t *end_out)
 {
     return 0;
 }
@@ -135,7 +135,7 @@ run_tc_api(void)
     {
         encoding_handle_t *eh;
         strbuf_t *sbuf;
-        uint32_t outbuf[4], *ptr;
+        ucs4_t outbuf[4], *ptr;
 
         sbuf = strbuf_new("ABCDEFG", 7);
         eh = encoding_open("UTF-8");
@@ -168,7 +168,7 @@ run_tc_api(void)
     {
         static const uint8_t ibuf[4] = "abcd";
         encoding_handle_t *eh;
-        uint32_t obuf[4], *ptr;
+        ucs4_t obuf[4], *ptr;
 
         if ((eh = encoding_open("NOADVANCE")) == NULL) {
             printf("Cannot open test encoding\n");
@@ -228,7 +228,7 @@ run_tc_switch(const void *arg)
 {
     const testcase_switch_t *tc = arg;
     encoding_handle_t *ehf, *eht;
-    uint32_t out, *ptr;
+    ucs4_t out, *ptr;
     bool switched;
     unsigned int oldctr;
     result_t rc = PASS;
@@ -358,8 +358,8 @@ static const testcase_detect_t testcase_detect[] = {
 
 
 typedef struct testcase_utf8store_s {
-    uint32_t codepoint;
-    const uint8_t *utf8;
+    ucs4_t codepoint;
+    const utf8_t *utf8;
     size_t len;
     bool oops;
 } testcase_utf8store_t;
@@ -368,8 +368,8 @@ static result_t
 run_tc_utf8store(const void *arg)
 {
     const testcase_utf8store_t *tc = arg;
-    uint8_t buf[UTF8_LEN_MAX];
-    uint8_t *ptr = buf;
+    utf8_t buf[UTF8_LEN_MAX];
+    utf8_t *ptr = buf;
     result_t rc = PASS;
     size_t len;
 
@@ -409,8 +409,8 @@ run_tc_utf8store(const void *arg)
 #define TC_UTF8(cp, o, ...) \
 { \
     .codepoint = (cp), \
-    .utf8 = (const uint8_t []){ __VA_ARGS__ }, \
-    .len = sizeof((const uint8_t []){ __VA_ARGS__ }), \
+    .utf8 = (const utf8_t []){ __VA_ARGS__ }, \
+    .len = sizeofarray(((const utf8_t []){ __VA_ARGS__ })), \
     .oops = (o), \
 }
 
@@ -467,7 +467,7 @@ typedef struct testcase_input_s {
     size_t inputsz;
 	const size_t *breaks;
 	size_t nbreaks;
-	const uint32_t *output;
+	const ucs4_t *output;
 	const size_t noutputs;
     bool dirty;
     bool one_at_a_time; // empty input, then 1 byte
@@ -479,8 +479,8 @@ run_tc_input(const void *arg)
     const testcase_input_t *tc = arg;
     encoding_handle_t *eh;
     size_t lastbrk, nextbrk, sz, i;
-    uint32_t *out, *ptr, *end, *old;
-    uint32_t tmp;
+    ucs4_t *out, *ptr, *end, *old;
+    ucs4_t tmp;
     result_t rc = PASS;
     int alternator;
 
@@ -490,8 +490,8 @@ run_tc_input(const void *arg)
     // so the encodings will not produce them. This is needed for encodings
     // that need free space to parse their input - but may not produce an
     // output to actually use it.
-    out = xmalloc(tc->noutputs * sizeof(uint32_t));
-    memset(out, 0xFF, tc->noutputs * sizeof(uint32_t));
+    out = xmalloc(tc->noutputs * sizeof(ucs4_t));
+    memset(out, 0xFF, tc->noutputs * sizeof(ucs4_t));
     ptr = out;
     end = out + tc->noutputs;
 
@@ -533,7 +533,7 @@ run_tc_input(const void *arg)
         printf("  Expected clean handle - got dirty\n");
         rc = FAIL;
     }
-    if (memcmp(out, tc->output, tc->noutputs * sizeof(uint32_t))) {
+    if (memcmp(out, tc->output, tc->noutputs * sizeof(ucs4_t))) {
         printf("  Result does not match!\n");
         rc = FAIL;
     }
@@ -565,8 +565,8 @@ run_tc_input(const void *arg)
         .breaks = (const size_t[]){ __VA_ARGS__ }, \
         .nbreaks = sizeofarray(((const size_t[]){ __VA_ARGS__ }))
 #define TC_OUTPUT(...) \
-        .output = (const uint32_t[]){ __VA_ARGS__ }, \
-        .noutputs = sizeofarray(((const uint32_t[]){ __VA_ARGS__ }))
+        .output = (const ucs4_t[]){ __VA_ARGS__ }, \
+        .noutputs = sizeofarray(((const ucs4_t[]){ __VA_ARGS__ }))
 
 static const testcase_input_t testcase_inputs_UTF8[] = {
     {

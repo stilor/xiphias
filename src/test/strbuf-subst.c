@@ -33,9 +33,9 @@ typedef struct subst_state_s {
     strbuf_t *input;                ///< Substituted stream
     enum subst_mode_e mode;         ///< Current mode of substitution
     uint32_t val;                   ///< Value accumulated so far
-    uint8_t utf8_out[UTF8_LEN_MAX]; ///< UTF-8 output not yet flushed
+    utf8_t utf8_out[UTF8_LEN_MAX];  ///< UTF-8 output not yet flushed
     size_t utf8_sz;                 ///< Size of the remaining UTF-8 output
-    uint8_t esc;                    ///< Escape character
+    utf8_t esc;                     ///< Escape character
 } subst_state_t;
 
 /**
@@ -45,7 +45,7 @@ typedef struct subst_state_s {
     @return Digital value
 */
 static uint32_t
-fromhex(uint8_t digit)
+fromhex(utf8_t digit)
 {
     if (digit >= '0' && digit <= '9') {
         return digit - '0';
@@ -62,7 +62,7 @@ fromhex(uint8_t digit)
 }
 
 /**
-    Input generator
+    Input generator. Expects input in UTF-8.
 
     @param arg State structure
     @param begin Start of the destination buffer
@@ -73,11 +73,11 @@ static size_t
 subst_more(void *arg, void *begin, size_t sz)
 {
     subst_state_t *ss = arg;
-    uint8_t *ptr = begin;
-    uint8_t *end = ptr + sz;
-    uint8_t *tmp;
+    utf8_t *ptr = begin;
+    utf8_t *end = ptr + sz;
+    utf8_t *tmp;
     const void *in_tmp0, *in_tmp1;
-    const uint8_t *in_ptr, *in_end;
+    const utf8_t *in_ptr, *in_end;
 
     while (ptr < end && strbuf_rptr(ss->input, &in_tmp0, &in_tmp1)) {
         in_ptr = in_tmp0;
@@ -152,9 +152,9 @@ subst_more(void *arg, void *begin, size_t sz)
             }
             in_ptr++;
         }
-        strbuf_radvance(ss->input, in_ptr - (const uint8_t *)in_tmp0);
+        strbuf_radvance(ss->input, in_ptr - (const utf8_t *)in_tmp0);
     }
-    return ptr - (uint8_t *)begin;
+    return ptr - (utf8_t *)begin;
 }
 
 /**
@@ -187,7 +187,7 @@ static const strbuf_ops_t subst_ops = {
     @return New buffer
 */
 strbuf_t *
-test_strbuf_subst(strbuf_t *input, uint8_t esc, size_t sz)
+test_strbuf_subst(strbuf_t *input, utf8_t esc, size_t sz)
 {
     subst_state_t *ss;
     strbuf_t *buf;

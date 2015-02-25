@@ -67,7 +67,7 @@ static const testcase_t testcases_api[] = {
                     .version = XML_INFO_VERSION_1_0,
             ),
             E(STAG, LOC("simple-utf8.xml", 3, 5),
-                    .type = "a",
+                    .type = U"a",
                     .typelen = 1,
                     .parent = NULL,
                     .baton = NULL
@@ -86,13 +86,13 @@ static const testcase_t testcases_api[] = {
                     .version = XML_INFO_VERSION_1_0,
             ),
             E(STAG, LOC("simple-utf8.xml", 1, 1),
-                    .type = "a",
+                    .type = U"a",
                     .typelen = 1,
                     .parent = NULL,
                     .baton = NULL,
             ),
             E(ETAG, LOC("simple-utf8.xml", 1, 1),
-                    .type = "a",
+                    .type = U"a",
                     .typelen = 1,
                     .baton = NULL,
                     .is_empty = true,
@@ -108,13 +108,13 @@ static const testcase_t testcases_api[] = {
 */
 #define E_XMLDECL_A(s, l, p) \
         E(STAG, LOC(s, l, p), \
-                .type = "a", \
+                .type = U"a", \
                 .typelen = 1, \
                 .parent = NULL, \
                 .baton = NULL, \
         ), \
         E(ETAG, LOC(s, l, p), \
-                .type = "a", \
+                .type = U"a", \
                 .typelen = 1, \
                 .baton = NULL, \
                 .is_empty = true, \
@@ -757,13 +757,13 @@ static const testcase_t testcases_xmldecl[] = {
         .input = "combining-mark.xml",
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("combining-mark.xml", 1, 1),
-                    .type = "a\xCC\x81",
+                    .type = U"a\xCC\x81",
                     .typelen = 3,
                     .parent = NULL,
                     .baton = NULL,
             ),
             E(ETAG, LOC("combining-mark.xml", 1, 4),
-                    .type = "a\xCC\x81",
+                    .type = U"a\xCC\x81",
                     .typelen = 3,
                     .baton = NULL,
                     .is_empty = false,
@@ -863,13 +863,13 @@ static const testcase_t testcases_structure[] = {
                     .version = XML_INFO_VERSION_1_0,
             ),
             E(STAG, LOC("simple-open-close.xml", 2, 1),
-                    .type = "a",
+                    .type = U"a",
                     .typelen = 1,
                     .parent = NULL,
                     .baton = NULL,
             ),
             E(ETAG, LOC("simple-open-close.xml", 2, 4),
-                    .type = "a",
+                    .type = U"a",
                     .typelen = 1,
                     .baton = NULL,
                     .is_empty = false,
@@ -1009,7 +1009,7 @@ static const testcase_t testcases_structure[] = {
         .input = "truncated-stag.xml",
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("truncated-stag.xml", 1, 1),
-                    .type = "a",
+                    .type = U"a",
                     .typelen = 1,
                     .parent = NULL,
                     .baton = NULL
@@ -1026,7 +1026,7 @@ static const testcase_t testcases_structure[] = {
         .input = "stag-badchar1.xml",
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("stag-badchar1.xml", 1, 1),
-                    .type = "element",
+                    .type = U"element",
                     .typelen = 7,
                     .parent = NULL,
                     .baton = NULL
@@ -1043,7 +1043,7 @@ static const testcase_t testcases_structure[] = {
         .input = "stag-badchar2.xml",
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("stag-badchar2.xml", 1, 1),
-                    .type = "element",
+                    .type = U"element",
                     .typelen = 7,
                     .parent = NULL,
                     .baton = NULL
@@ -1060,7 +1060,7 @@ static const testcase_t testcases_structure[] = {
         .input = "etag-noname.xml",
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("etag-noname.xml", 1, 1),
-                    .type = "a",
+                    .type = U"a",
                     .typelen = 1,
                     .parent = NULL,
                     .baton = NULL
@@ -1077,7 +1077,7 @@ static const testcase_t testcases_structure[] = {
         .input = "etag-badname.xml",
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("etag-badname.xml", 1, 1),
-                    .type = "a",
+                    .type = U"a",
                     .typelen = 1,
                     .parent = NULL,
                     .baton = NULL
@@ -1094,7 +1094,7 @@ static const testcase_t testcases_structure[] = {
         .input = "etag-mismatch.xml",
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("etag-mismatch.xml", 1, 1),
-                    .type = "a",
+                    .type = U"a",
                     .typelen = 1,
                     .parent = NULL,
                     .baton = NULL
@@ -1108,7 +1108,7 @@ static const testcase_t testcases_structure[] = {
                     .msg = "Opening element: 'a'",
             ),
             E(ETAG, LOC("etag-mismatch.xml", 1, 4),
-                    .type = "b",
+                    .type = U"b",
                     .typelen = 1,
                     .baton = NULL,
                     .is_empty = false,
@@ -1121,13 +1121,13 @@ static const testcase_t testcases_structure[] = {
         .input = "etag-missing-bracket.xml",
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("etag-missing-bracket.xml", 1, 1),
-                    .type = "a",
+                    .type = U"a",
                     .typelen = 1,
                     .parent = NULL,
                     .baton = NULL
             ),
             E(ETAG, LOC("etag-missing-bracket.xml", 1, 4),
-                    .type = "a",
+                    .type = U"a",
                     .typelen = 1,
                     .baton = NULL,
                     .is_empty = false,
@@ -1150,13 +1150,13 @@ static const testcase_t testcases_structure[] = {
                     .version = XML_INFO_VERSION_1_0,
             ),
             E(STAG, LOC("element-nonutf8-name.xml", 1, 44),
-                    .type = "é",
+                    .type = U"é",
                     .typelen = 2,
                     .parent = NULL,
                     .baton = NULL
             ),
             E(ETAG, LOC("element-nonutf8-name.xml", 1, 47),
-                    .type = "é",
+                    .type = U"é",
                     .typelen = 2,
                     .baton = NULL,
                     .is_empty = false,
@@ -1177,13 +1177,13 @@ static const testcase_t testcases_structure[] = {
         .input = "very-long-token.xml",
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("very-long-token.xml", 1, 1),
-                    .type = VERY_LONG_ELEMENT_NAME,
+                    .type = U VERY_LONG_ELEMENT_NAME,
                     .typelen = sizeof(VERY_LONG_ELEMENT_NAME) - 1,
                     .parent = NULL,
                     .baton = NULL
             ),
             E(ETAG, LOC("very-long-token.xml", 1, 1),
-                    .type = VERY_LONG_ELEMENT_NAME,
+                    .type = U VERY_LONG_ELEMENT_NAME,
                     .typelen = sizeof(VERY_LONG_ELEMENT_NAME) - 1,
                     .baton = NULL,
                     .is_empty = true,
@@ -1196,35 +1196,35 @@ static const testcase_t testcases_structure[] = {
         .input = "attributes.xml",
         .events = (const xml_reader_cbparam_t[]){
             E(STAG, LOC("attributes.xml", 1, 1),
-                    .type = "a",
+                    .type = U"a",
                     .typelen = 1,
                     .parent = NULL,
                     .baton = NULL,
             ),
             E(ATTRNAME, LOC("attributes.xml", 1, 4),
-                    .name = "attr1",
+                    .name = U"attr1",
                     .namelen = 5,
                     .elem_baton = NULL,
                     .attr_baton = NULL,
             ),
             E(ATTRVAL, LOC("attributes.xml", 1, 10),
-                    .value = "foo",
+                    .value = U"foo",
                     .valuelen = 3,
                     .attr_baton = NULL,
             ),
             E(ATTRNAME, LOC("attributes.xml", 1, 16),
-                    .name = "attr2",
+                    .name = U"attr2",
                     .namelen = 5,
                     .elem_baton = NULL,
                     .attr_baton = NULL,
             ),
             E(ATTRVAL, LOC("attributes.xml", 1, 22),
-                    .value = "bar",
+                    .value = U"bar",
                     .valuelen = 3,
                     .attr_baton = NULL,
             ),
             E(ETAG, LOC("attributes.xml", 1, 1),
-                    .type = "a",
+                    .type = U"a",
                     .typelen = 1,
                     .baton = NULL,
                     .is_empty = true,

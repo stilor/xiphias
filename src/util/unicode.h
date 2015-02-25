@@ -7,7 +7,10 @@
 #ifndef __util_unicode_h_
 #define __util_unicode_h_
 
-#include "ucs4data.h"
+#include <stdint.h>
+#include <string.h>
+
+#include "xutil.h"
 
 /// Character indicating an error or unrecognized byte in the stream
 #define UCS4_REPLACEMENT_CHARACTER   0xFFFD
@@ -33,6 +36,14 @@
 /// Maximum number of bytes to encode a character in UTF-8
 #define UTF8_LEN_MAX    4
 
+/// Code point
+typedef uint32_t ucs4_t;
+
+/// UTF-8 unit
+typedef uint8_t utf8_t;
+
+#define U (const utf8_t *)
+
 
 /**
     Helper function for implementing decoders: get UTF-8 encoding
@@ -42,7 +53,7 @@
     @return Length (1 or more bytes)
 */
 static inline size_t
-utf8_len(uint32_t cp)
+utf8_len(ucs4_t cp)
 {
     if (cp < 0x80) {
         return 1;   // ASCII-compatible, single byte
@@ -70,9 +81,9 @@ utf8_len(uint32_t cp)
     @return None
 */
 static inline void
-utf8_store(uint8_t **pp, uint32_t cp)
+utf8_store(utf8_t **pp, ucs4_t cp)
 {
-    uint8_t *p = *pp;
+    utf8_t *p = *pp;
 
     if (cp < 0x80) {
         *p++ = cp;
@@ -97,5 +108,76 @@ utf8_store(uint8_t **pp, uint32_t cp)
     }
     *pp = p;
 }
+
+/**
+    Compare a UTF-8 string to a local-encoded string.
+
+    @param us Unicode string
+    @param ls Local-encoded string
+    @return true if strings match, false otherwise
+*/
+static inline bool
+utf8_eq(const utf8_t *us, const char *ls)
+{
+    return !strcmp((const char *)us, ls);
+}
+
+/**
+    Compare a part of a UTF-8 string to a part of a local-encoded string.
+
+    @param us Unicode string
+    @param ls Local-encoded string
+    @param n Number of bytes (in UTF-8) to compare
+    @return true if strings match, false otherwise
+*/
+static inline bool
+utf8_eqn(const utf8_t *us, const char *ls, size_t n)
+{
+    return !strncmp((const char *)us, ls, n);
+}
+
+/**
+    Wrapper for xstrndup, in case UTF-8 needs to be converted to local
+    encoding.
+
+    @param us Unicode string
+    @param sz Size of the unicode string, in bytes
+    @return Copied string in local encoding
+*/
+static inline char *
+utf8_ndup(const utf8_t *us, size_t sz)
+{
+    return xstrndup((const char *)us, sz);
+}
+
+/**
+    Check if a UCS-4 code point is equal to locally-encoded character.
+
+    @param uc UCS-4 character
+    @param lc Locally-encoded character
+    @return true if characters are equal
+*/
+static inline bool
+ucs4_cheq(ucs4_t uc, char lc)
+{
+    return uc == (unsigned char)lc;
+}
+
+/**
+    Check if a UCS-4 character is in range defined by locally-encoded
+    characters. Note that the range order is in UCS-4 ordering!
+
+    @param uc UCS-4 character
+    @param lb Range start, locally-encoded
+    @param le Range end, locally-encoded
+    @param true if in range
+*/
+static inline bool
+ucs4_chin(ucs4_t uc, char lb, char le)
+{
+    return uc >= (unsigned char)lb && uc <= (unsigned char)le;
+}
+
+#include "ucs4data.h"
 
 #endif
