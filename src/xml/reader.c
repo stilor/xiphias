@@ -42,6 +42,8 @@ enum {
     READER_SAW_CR   = 0x0004,       ///< Converting CRLF: saw 0xD, ignore next 0xA/0x85
     READER_ASCII    = 0x0008,       ///< Only ASCII characters allowed while reading declaration
     READER_LOCTRACK = 0x0010,       ///< Track the current position for error reporting
+    READER_REF      = 0x0020,       ///< Reading next token will expand Reference production
+    READER_PEREF    = 0x0040,       ///< Reading next token will expand PEReference production
 };
 
 /**
@@ -60,17 +62,16 @@ typedef struct xml_reader_xmldecl_attrdesc_s {
 /// Declaration info for XMLDecl/TextDecl:
 typedef struct xml_reader_xmldecl_declinfo_s {
     const char *name;           ///< Declaration name in XML grammar
-    const xmlerr_info_t generr; ///< Generic error in this production
     const xml_reader_xmldecl_attrdesc_t *attrlist; ///< Allowed/required attributes
 } xml_reader_xmldecl_declinfo_t;
 
 /// Tracking of element nesting
 typedef struct xml_reader_nesting_s {
+    // TBD remove we don't need this, should be tracked by higher level
     /// Link for stack of nested elements
     SLIST_ENTRY(xml_reader_nesting_s) link;
     size_t offs;                    ///< Offset into name storage buffer
     size_t len;                     ///< Length of the element type
-    void *baton;                    ///< Callback's baton associated with this element
     xmlerr_loc_t loc;               ///< Location of the element in the document
 } xml_reader_nesting_t;
 
@@ -111,6 +112,15 @@ struct xml_reader_s {
 
 /// Function for conditional read termination: returns true if the character is rejected
 typedef ucs4_t (*xml_condread_func_t)(void *arg, ucs4_t cp);
+
+/// Methods for parsing literals
+typedef struct xml_literal_ops_s {
+    /// Error raised if failed to parse
+    xmlerr_info_t errinfo;
+    
+    /// How to read the literal
+    size_t (*read)(xml_reader_t *, xml_condread_func_t, void *);
+} xml_literal_ops_t;
 
 /// Convenience macro: report an error at the start of the last token
 #define xml_reader_message_lasttoken(h, ...) \
@@ -567,6 +577,12 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz, bool *peof)
     the token being read as necessary. Perform whitespace/EOL handling prescribed
     by the XML spec; check normalization if needed.
 
+    This function is not expanding entities. If entity expansion is requested,
+    it just returns to the caller at the start of the next entity (i.e. prior
+    to the actual termination condition). It is the responsibility of the caller
+    to switch the input, if needed, and parse the entity content - or just skip
+    over the entity and proceed further.
+
     End-of-Line handling:
 
     For XML 1.0: To simplify the tasks of applications, the XML processor MUST
@@ -610,10 +626,12 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz, bool *peof)
     @param h Reader handle
     @param func Function to call to check for the condition
     @param arg Argument to @a func
+    @param ref If reading terminated due to a recognized entity start, this is set
+            to the character triggering the entity ('&' or '%')
     @return Number of bytes read (token length)
 */
-static size_t
-xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
+static inline void
+xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg, ucs4_t *ref)
 {
     const void *begin, *end;
     const ucs4_t *ptr;
@@ -656,6 +674,14 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
                 cp0 = 0x0A;
             }
 
+            // Check if entity expansion is needed
+            if ((ucs4_cheq(cp0, '&') && (h->flags & READER_REF) != 0)
+                    || (ucs4_cheq(cp0, '%') && (h->flags & READER_PEREF) != 0)) {
+                *ref = cp0;
+                stop = true;
+                break;
+            }
+
             // TBD check for whitespace and set a flag in reader for later detection of ignorable
             // (via the argument - when reading chardata, point to a structure that has such flag)
             // TBD if in DTD, and not parsing a literal/comment/PI - recognize parameter entities
@@ -674,7 +700,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
             else if (cp0 >= 0x7F && (h->flags & READER_ASCII) != 0) {
                 // Only complain once
                 h->flags &= ~READER_ASCII;
-                xml_reader_message_current(h, h->declinfo->generr,
+                xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
                         "Non-ASCII characters in %s", h->declinfo->name);
             }
             else if (xml_is_restricted(h, cp0)) {
@@ -714,11 +740,32 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
         strbuf_radvance(h->buf_proc, (const uint8_t *)ptr - (const uint8_t *)begin);
     }
     h->tokenbuf_len = total;
-    return total; // Consumed all input
 }
 
 /**
-    Closure for xml_read_until: read until first non-whitespace.
+    Wrapper around xml_read_until_internal(): do not expand any references,
+    store the parsed input in the token buffer (do not pass it to callback).
+
+    @param h Reader handle
+    @param func Function to call to check for the condition
+    @param arg Argument to @a func
+    @return Number of bytes read (token length)
+*/
+static size_t
+xml_read_until_noref(xml_reader_t *h, xml_condread_func_t func, void *arg)
+{
+    ucs4_t refstart;
+    uint32_t saveflags;
+
+    saveflags = h->flags & (READER_REF | READER_PEREF);
+    h->flags &= ~(READER_REF | READER_PEREF);
+    xml_read_until_internal(h, func, arg, &refstart);
+    h->flags |= saveflags;
+    return h->tokenbuf_len;
+}
+
+/**
+    Read condition: until first non-whitespace.
 
     @param arg Argument (unused)
     @param cp Codepoint
@@ -731,10 +778,10 @@ xml_cb_not_whitespace(void *arg, ucs4_t cp)
 }
 
 /// Consume whitespace
-#define xml_read_whitespace(h) xml_read_until(h, xml_cb_not_whitespace, NULL)
+#define xml_read_whitespace(h) xml_read_until_noref(h, xml_cb_not_whitespace, NULL)
 
 /**
-    Closure for xml_read_until: read until < (left angle bracket)
+    Read condition: until < (left angle bracket)
 
     @param arg Argument (unused)
     @param cp Codepoint
@@ -747,11 +794,10 @@ xml_cb_lt(void *arg, ucs4_t cp)
 }
 
 /// Consume until next opening bracket
-#define xml_read_until_lt(h) xml_read_until(h, xml_cb_lt, NULL)
+#define xml_read_until_lt(h) xml_read_until_noref(h, xml_cb_lt, NULL)
 
 /**
-    Closure for xml_read_until: read until > (right angle bracket); consume the
-    bracket as well.
+    Read condition: until > (right angle bracket); consume the bracket as well.
 
     @param arg Argument (unused)
     @param cp Codepoint
@@ -770,10 +816,10 @@ xml_cb_gt(void *arg, ucs4_t cp)
     @param h Reader handle
     @return Nothing
 */
-#define xml_read_until_gt(h) xml_read_until(h, xml_cb_gt, NULL)
+#define xml_read_until_gt(h) xml_read_until_noref(h, xml_cb_gt, NULL)
 
 /**
-    Closure for xml_read_until: read a Name production.
+    Read condition: matching Name production.
 
     NameStartChar ::= ":" | [A-Z] | "_" | [a-z] | [#xC0-#xD6] | [#xD8-#xF6] |
                        [#xF8-#x2FF] | [#x370-#x37D] | [#x37F-#x1FFF] |
@@ -838,7 +884,7 @@ xml_read_Name(xml_reader_t *h)
 {
     bool startchar = true;
 
-    return xml_read_until(h, xml_cb_not_name, &startchar);
+    return xml_read_until_noref(h, xml_cb_not_name, &startchar);
 }
 
 /// Current state structure for xml_cb_string
@@ -848,8 +894,8 @@ typedef struct xml_cb_string_state_s {
 } xml_cb_string_state_t;
 
 /**
-    Closure for xml_read_until: read and compare to a known string. Matched string
-    must contain only ASCII characters.
+    Read condition: expect a known string. Matched string must contain
+    only ASCII characters.
 
     @param arg Current matching state
     @param cp Codepoint
@@ -886,13 +932,56 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
     len = strlen(s);
     state.cur = s;
     state.end = s + len;
-    if (len != xml_read_until(h, xml_cb_string, &state)) {
+    if (len != xml_read_until_noref(h, xml_cb_string, &state)) {
         xml_reader_message_lasttoken(h, errinfo, "Expected string: '%s'", s);
         return false;
     }
     return true;
 }
 
+
+/**
+    Wrapper around xml_read_until_internal(): if entities are recognized and
+    xml_read_until_internal() returned due to start of an entity, issue
+    a callback to expand that entity and if that callback returned
+    the replacement text, divert the reader's input to that entity.
+    Otherwise, skip over the entity and continue.
+
+    @param h Reader handle
+    @param func Function to call to check for the condition
+    @param arg Argument to @a func
+    @return Number of bytes read (token length)
+*/
+static size_t
+xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
+{
+    ucs4_t refstart;
+    xml_reader_cbparam_t cbp;
+
+    while (true) {
+        refstart = UCS4_NOCHAR;
+        xml_read_until_internal(h, func, arg, &refstart);
+        cbp.cbtype = XML_READER_CB_APPEND;
+        cbp.loc = h->tokenloc;
+        cbp.append.text = h->tokenbuf;
+        cbp.append.textlen = h->tokenbuf_len;
+        xml_reader_invoke_callback(h, &cbp);
+        if (refstart == UCS4_NOCHAR) {
+            break;
+        }
+
+        // TBD make a EXPENT callback
+        // TBD divert the input
+        if (ucs4_cheq(refstart, '&')) {
+        }
+        else if (ucs4_cheq(refstart, '%')) {
+        }
+        else {
+            OOPS;
+        }
+    }
+    return h->tokenbuf_len;
+}
 
 /// Callback state for literal reading
 typedef struct xml_cb_literal_state_s {
@@ -932,34 +1021,44 @@ xml_cb_literal(void *arg, ucs4_t cp)
 }
 
 /**
-    Read one of the literals (EntityValue, AttValue, SystemLiteral,
-    PubidLiteral). Also handles pseudo-literals used in XMLDecl and
-    TextDecl - they use the same quoting mechanism.
+    Read a literal (EntityValue, AttValue, SystemLiteral, PubidLiteral).
+    Also handles "pseudo-literals" (pseudo-attribute values defined
+    in the XMLDecl/TextDecl).
 
-    TBD distinguish between literal types - different entity inclusion
-        rules, different allowed charsets...
     TBD perhaps, normalize attributes here to avoid extra copies
 
     @param h Reader handle
-    @param errinfo Error code to use in case of failure
+    @param ops Literal's "virtual method table".
     @return true if literal was found (found start quote and matching
         end quote).
 */
 static bool
-xml_read_literal(xml_reader_t *h, xmlerr_info_t errinfo)
+xml_read_literal(xml_reader_t *h, const xml_literal_ops_t *ops)
 {
     xml_cb_literal_state_t st = { .quote = UCS4_NOCHAR };
 
     // xml_read_until() may return 0 (empty literal), which is valid
-    (void)xml_read_until(h, xml_cb_literal, &st);
+    (void)ops->read(h, xml_cb_literal, &st);
     if (st.quote != UCS4_STOPCHAR) {
-        xml_reader_message_lasttoken(h, errinfo,
+        xml_reader_message_lasttoken(h, ops->errinfo,
                 st.quote == UCS4_NOCHAR ?
                 "Quoted literal expected" : "Unterminated literal");
         return false;
     }
     return true;
 }
+
+/// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
+static const xml_literal_ops_t literal_ops_pseudo = {
+    .errinfo = XMLERR(ERROR, XML, P_XMLDecl),
+    .read = xml_read_until_noref,
+};
+
+/// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
+static const xml_literal_ops_t literal_ops_AttValue = {
+    .errinfo = XMLERR(ERROR, XML, P_Attribute),
+    .read = xml_read_until,
+};
 
 /**
     Check for VersionInfo production.
@@ -1013,7 +1112,8 @@ check_VersionInfo(xml_reader_t *h)
 
 bad_version:
     // Non-fatal: recover by assuming version was missing
-    xml_reader_message_lasttoken(h, h->declinfo->generr, "Unsupported XML version");
+    xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_XMLDecl),
+            "Unsupported XML version");
     return;
 }
 
@@ -1052,7 +1152,8 @@ check_EncName(xml_reader_t *h)
 
 bad_encoding:
     // Non-fatal: recover by assuming no encoding specification
-    xml_reader_message_lasttoken(h, h->declinfo->generr, "Invalid encoding name");
+    xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_XMLDecl),
+            "Invalid encoding name");
     return;
 }
 
@@ -1079,14 +1180,14 @@ check_SD_YesNo(xml_reader_t *h)
     }
     else {
         // Non-fatal: recover by assuming standalone was not specified
-        xml_reader_message_lasttoken(h, h->declinfo->generr, "Unsupported standalone status");
+        xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_XMLDecl),
+                "Unsupported standalone status");
     }
 }
 
 /// Handle TextDecl ::= '<?xml' VersionInfo? EncodingDecl S? '?>'
 static const struct xml_reader_xmldecl_declinfo_s declinfo_textdecl = {
     .name = "TextDecl",
-    .generr = XMLERR(ERROR, XML, P_TextDecl),
     .attrlist = (const xml_reader_xmldecl_attrdesc_t[]){
         { "version", false, check_VersionInfo },
         { "encoding", true, check_EncName },
@@ -1097,7 +1198,6 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_textdecl = {
 /// Handle XMLDecl  ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
 static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
     .name = "XMLDecl",
-    .generr = XMLERR(ERROR, XML, P_XMLDecl),
     .attrlist = (const struct xml_reader_xmldecl_attrdesc_s[]){
         { "version", true, check_VersionInfo },
         { "encoding", false, check_EncName },
@@ -1140,7 +1240,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     }
 
     // We know it's there, checked above
-    (void)xml_read_string(h, "<?xml", declinfo->generr);
+    (void)xml_read_string(h, "<?xml", XMLERR(ERROR, XML, P_XMLDecl));
     cbp.cbtype = XML_READER_CB_XMLDECL;
     cbp.loc = h->tokenloc;
 
@@ -1152,7 +1252,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
         // attribute list and Literal is then verified for begin a valid value
         // for Name.
         if (1 == xml_lookahead(h, labuf, 1, NULL) && ucs4_cheq(labuf[0], '?')) {
-            if (!xml_read_string(h, "?>", declinfo->generr)) {
+            if (!xml_read_string(h, "?>", XMLERR(ERROR, XML, P_XMLDecl))) {
                 goto malformed;
             }
             break;
@@ -1171,7 +1271,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
             }
             if (attrlist->mandatory) {
                 // Non-fatal: continue with next pseudo-attributes
-                xml_reader_message_lasttoken(h, declinfo->generr,
+                xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_XMLDecl),
                         "Mandatory pseudo-attribute '%s' missing in %s",
                         attrlist->name, declinfo->name);
             }
@@ -1180,17 +1280,17 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
         if (!attrlist->name) {
             // Non-fatal: continue parsing as if matching the following production
             //   Name Eq ('"' (Char - '"')* '"' | "'" (Char - "'")* "'")
-            xml_reader_message_lasttoken(h, declinfo->generr,
+            xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_XMLDecl),
                     "Unexpected pseudo-attribute");
         }
 
         // Parse Eq ::= S* '=' S*
         (void)xml_read_whitespace(h);
-        if (xml_read_string(h, "=", declinfo->generr) != 1) {
+        if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_XMLDecl)) != 1) {
             goto malformed;
         }
         (void)xml_read_whitespace(h);
-        if (!xml_read_literal(h, declinfo->generr)) {
+        if (!xml_read_literal(h, &literal_ops_pseudo)) {
             goto malformed;
         }
 
@@ -1205,7 +1305,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     while (attrlist->name) {
         if (attrlist->mandatory) {
             // Non-fatal: just assume the default
-            xml_reader_message_lasttoken(h, declinfo->generr,
+            xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_XMLDecl),
                     "Mandatory pseudo-attribute '%s' missing in %s",
                     attrlist->name, declinfo->name);
         }
@@ -1227,7 +1327,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
 
 malformed: // Any fatal malformedness: report location where actual error was
     h->flags |= READER_FATAL;
-    xml_reader_message_current(h, declinfo->generr,
+    xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
             "Malformed %s", declinfo->name);
     return false;
 }
@@ -1276,10 +1376,11 @@ xml_parse_doctypedecl(xml_reader_t *h)
     Push a name onto a stack of nested elements.
 
     @param h Reader handle
+    @param loc Location of the element opening tag
     @return Nesting tracker structure for this element
 */
 static xml_reader_nesting_t *
-xml_elemtype_push(xml_reader_t *h)
+xml_elemtype_push(xml_reader_t *h, const xmlerr_loc_t *loc)
 {
     xml_reader_nesting_t *n;
     const utf8_t *name = h->tokenbuf;
@@ -1300,7 +1401,7 @@ xml_elemtype_push(xml_reader_t *h)
     }
     n->offs = h->namestorage_offs;
     n->len = len;
-    n->loc = h->tokenloc; // TBD pass in the location of opening '<'?
+    n->loc = *loc;
     memcpy(&h->namestorage[n->offs], name, len);
     h->namestorage_offs += len;
     SLIST_INSERT_HEAD(&h->elem_nested, n, link);
@@ -1314,7 +1415,7 @@ xml_elemtype_push(xml_reader_t *h)
     @param h Reader handle
     @return Baton from the nesting tracker
 */
-static void *
+static void
 xml_elemtype_pop(xml_reader_t *h)
 {
     xml_reader_nesting_t *n;
@@ -1332,7 +1433,6 @@ xml_elemtype_pop(xml_reader_t *h)
     }
     h->namestorage_offs = n->offs;
     SLIST_INSERT_HEAD(&h->elem_free, n, link);
-    return n->baton;
 }
 
 /**
@@ -1370,9 +1470,8 @@ xml_elemtype_drop(xml_reader_t *h)
 static void
 xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
 {
-    xml_reader_cbparam_t cbp, cbpa;
+    xml_reader_cbparam_t cbp;
     xml_reader_nesting_t *n;
-    void *attr_baton;
     utf8_t la;
     size_t len;
 
@@ -1393,17 +1492,13 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
         return;
     }
 
+    // Remember the element type for wellformedness check in closing tag
+    n = xml_elemtype_push(h, &cbp.loc);
+
     // Notify the application that a new element has started
-    n = SLIST_FIRST(&h->elem_nested);
     cbp.stag.type = h->tokenbuf;
     cbp.stag.typelen = len;
-    cbp.stag.parent = n ? n->baton : NULL;
-    cbp.stag.baton = NULL;
     xml_reader_invoke_callback(h, &cbp);
-
-    // Remember the element type for wellformedness check in closing tag; save baton from callback
-    n = xml_elemtype_push(h);
-    n->baton = cbp.stag.baton;
 
     while (true) {
         len = xml_read_whitespace(h);
@@ -1417,9 +1512,9 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
                 goto malformed;
             }
             cbp.cbtype = XML_READER_CB_ETAG;
+            cbp.loc = n->loc;
             cbp.etag.type = &h->namestorage[n->offs];
             cbp.etag.typelen = n->len;
-            cbp.etag.baton = n->baton;
             cbp.etag.is_empty = true;
             xml_reader_invoke_callback(h, &cbp);
             xml_elemtype_drop(h);
@@ -1435,34 +1530,22 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
         }
         else if (len && (len = xml_read_Name(h)) != 0) {
             // Attribute, if any, must be preceded by S (whitespace).
-            // Use a separate structure for passing data to callback:
-            // the data in cbp is preserved for the callback to indicate
-            // the end of the STag/EmptyElemTag production.
-            cbpa.cbtype = XML_READER_CB_ATTRNAME;
-            cbpa.loc = h->tokenloc;
-            cbpa.attrname.name = h->tokenbuf;
-            cbpa.attrname.namelen = h->tokenbuf_len;
-            cbpa.attrname.elem_baton = n->baton;
-            cbpa.attrname.attr_baton = NULL;
+            cbp.cbtype = XML_READER_CB_ATTR;
+            cbp.loc = h->tokenloc;
+            cbp.attr.name = h->tokenbuf;
+            cbp.attr.namelen = h->tokenbuf_len;
             // TBD get attribute value normalization type from callback and
             // use it for reading attribute value below
-            xml_reader_invoke_callback(h, &cbpa);
-            attr_baton = cbpa.attrname.attr_baton;
+            xml_reader_invoke_callback(h, &cbp);
             (void)xml_read_whitespace(h);
             if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_Attribute)) != 1) {
                 goto malformed;
             }
             (void)xml_read_whitespace(h);
             // TBD need to interpret Reference production inside the attribute value.
-            if (!xml_read_literal(h, XMLERR(ERROR, XML, P_Attribute))) {
+            if (!xml_read_literal(h, &literal_ops_AttValue)) {
                 goto malformed;
             }
-            cbpa.cbtype = XML_READER_CB_ATTRVAL;
-            cbpa.loc = h->tokenloc;
-            cbpa.attrval.value = h->tokenbuf;
-            cbpa.attrval.valuelen = h->tokenbuf_len;
-            cbpa.attrval.attr_baton = attr_baton;
-            xml_reader_invoke_callback(h, &cbpa);
         }
         else {
             // Try to recover by reading till end of opening tag
@@ -1506,9 +1589,10 @@ xml_parse_ETag(xml_reader_t *h)
         xml_read_until_gt(h);
         return;
     }
+    xml_elemtype_pop(h);
+
     cbp.stag.type = h->tokenbuf;
     cbp.stag.typelen = len;
-    cbp.etag.baton = xml_elemtype_pop(h);
     cbp.etag.is_empty = false;
     xml_reader_invoke_callback(h, &cbp);
 

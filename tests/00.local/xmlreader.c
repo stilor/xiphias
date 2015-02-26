@@ -121,6 +121,24 @@ evequal_xmldecl(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 }
 
 static void
+evprint_append(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_append_t *x = &cbparam->append;
+
+    printf("'%.*s' [%zu]", (int)x->textlen, x->text, x->textlen);
+}
+
+static bool
+evequal_append(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    const xml_reader_cbparam_append_t *x1 = &e1->append;
+    const xml_reader_cbparam_append_t *x2 = &e2->append;
+
+    return x1->textlen == x2->textlen
+            && !memcmp(x1->text, x2->text, x1->textlen);
+}
+
+static void
 evprint_dtd_begin(const xml_reader_cbparam_t *cbparam)
 {
     // TBD
@@ -149,9 +167,7 @@ evprint_stag(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_stag_t *x = &cbparam->stag;
 
-    printf("Element '%.*s' [%zu], parent %p, baton %p",
-            (int)x->typelen, x->type, x->typelen,
-            x->parent, x->baton);
+    printf("Element '%.*s' [%zu]", (int)x->typelen, x->type, x->typelen);
 }
 
 static bool
@@ -161,9 +177,7 @@ evequal_stag(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     const xml_reader_cbparam_stag_t *x2 = &e2->stag;
 
     return x1->typelen == x2->typelen
-            && !memcmp(x1->type, x2->type, x1->typelen)
-            && x1->parent == x2->parent
-            && x1->baton == x2->baton;
+            && !memcmp(x1->type, x2->type, x1->typelen);
 }
 
 static void
@@ -171,9 +185,9 @@ evprint_etag(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_etag_t *x = &cbparam->etag;
 
-    printf("Element '%.*s' [%zu], baton %p, used %s",
+    printf("Element '%.*s' [%zu], used %s",
             (int)x->typelen, x->type, x->typelen,
-            x->baton, x->is_empty ? "EmptyElemTag" : "STag");
+            x->is_empty ? "EmptyElemTag" : "STag");
 }
 
 static bool
@@ -183,50 +197,26 @@ evequal_etag(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     const xml_reader_cbparam_etag_t *x2 = &e2->etag;
 
     return x1->typelen == x2->typelen
-            && !memcmp(x1->type, x2->type, x1->typelen)
-            && x1->baton == x2->baton
-            && x1->is_empty == x2->is_empty;
+            && !memcmp(x1->type, x2->type, x1->typelen);
 }
 
 static void
-evprint_attrname(const xml_reader_cbparam_t *cbparam)
+evprint_attr(const xml_reader_cbparam_t *cbparam)
 {
-    const xml_reader_cbparam_attrname_t *x = &cbparam->attrname;
+    const xml_reader_cbparam_attr_t *x = &cbparam->attr;
 
-    printf("Attr '%.*s' [%zu], parent %p, baton %p",
-            (int)x->namelen, x->name, x->namelen, x->elem_baton, x->attr_baton);
+    printf("Attr '%.*s' [%zu]",
+            (int)x->namelen, x->name, x->namelen);
 }
 
 static bool
-evequal_attrname(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+evequal_attr(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 {
-    const xml_reader_cbparam_attrname_t *x1 = &e1->attrname;
-    const xml_reader_cbparam_attrname_t *x2 = &e2->attrname;
+    const xml_reader_cbparam_attr_t *x1 = &e1->attr;
+    const xml_reader_cbparam_attr_t *x2 = &e2->attr;
 
     return x1->namelen == x2->namelen
-            && !memcmp(x1->name, x2->name, x1->namelen)
-            && x1->elem_baton == x2->elem_baton
-            && x1->attr_baton == x2->attr_baton;
-}
-
-static void
-evprint_attrval(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_attrval_t *x = &cbparam->attrval;
-
-    printf("Value '%.*s' [%zu], baton %p",
-            (int)x->valuelen, x->value, x->valuelen, x->attr_baton);
-}
-
-static bool
-evequal_attrval(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_attrval_t *x1 = &e1->attrval;
-    const xml_reader_cbparam_attrval_t *x2 = &e2->attrval;
-
-    return x1->valuelen == x2->valuelen
-            && !memcmp(x1->value, x2->value, x1->valuelen)
-            && x1->attr_baton == x2->attr_baton;
+            && !memcmp(x1->name, x2->name, x1->namelen);
 }
 
 static const event_t events[] = {
@@ -239,6 +229,11 @@ static const event_t events[] = {
         .desc = "Message",
         .print = evprint_message,
         .equal = evequal_message,
+    },
+    [XML_READER_CB_APPEND] = {
+        .desc = "Append text",
+        .print = evprint_append,
+        .equal = evequal_append,
     },
     [XML_READER_CB_XMLDECL] = {
         .desc = "XML declaration",
@@ -265,15 +260,10 @@ static const event_t events[] = {
         .print = evprint_etag,
         .equal = evequal_etag,
     },
-    [XML_READER_CB_ATTRNAME] = {
-        .desc = "Attr name",
-        .print = evprint_attrname,
-        .equal = evequal_attrname,
-    },
-    [XML_READER_CB_ATTRVAL] = {
-        .desc = "Attr value",
-        .print = evprint_attrval,
-        .equal = evequal_attrval,
+    [XML_READER_CB_ATTR] = {
+        .desc = "Attribute",
+        .print = evprint_attr,
+        .equal = evequal_attr,
     },
 };
 
@@ -422,10 +412,10 @@ run_testcase(const void *arg)
 // Some macro magic for declaring event (which is a disciminated union)
 #define FL_MESSAGE      message
 #define FL_XMLDECL      xmldecl
+#define FL_APPEND       append
 #define FL_STAG         stag
 #define FL_ETAG         etag
-#define FL_ATTRNAME     attrname
-#define FL_ATTRVAL      attrval
+#define FL_ATTR         attr
 #define FL(t)           FL_##t
 
 #define E(t, l, ...)    { .cbtype = XML_READER_CB_##t, .loc = l, .FL(t) = { __VA_ARGS__ }, }

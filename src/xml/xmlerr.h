@@ -37,8 +37,7 @@ enum {
     // Production mismatches
     XMLERR_XML_P_BASE              = 0x0000,
     XMLERR_XML_P_Char,
-    XMLERR_XML_P_XMLDecl,
-    XMLERR_XML_P_TextDecl,
+    XMLERR_XML_P_XMLDecl,          // XMLDecl or TextDecl
     XMLERR_XML_P_document,
     XMLERR_XML_P_element,
     XMLERR_XML_P_STag,             // STag or EmptyElemTag
