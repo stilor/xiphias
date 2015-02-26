@@ -35,6 +35,18 @@ enum xml_reader_cbtype_e {
     XML_READER_CB_MAX
 };
 
+/// Types of entities
+enum xml_reader_entity_e {
+    XML_READER_ENT_PARAMETER,      ///< Parameter entity
+    XML_READER_ENT_INTERNAL,       ///< Internal parsed entity
+    XML_READER_ENT_EXTERNAL,       ///< External parsed entity
+    XML_READER_ENT_UNPARSED,       ///< Unparsed entity
+    XML_READER_ENT__CHARREF,       ///< Internal value: not an entity, character reference
+    XML_READER_ENT__MAX,           ///< Internal value: array size for per-type handlers
+    XML_READER_ENT_GENERAL,        ///< Any general entity (internal/external/unparsed)
+    XML_READER_ENT__UNKNOWN,       ///< Internal value: character or entity (not yet determined)
+};
+
 /// Parameter for message callback
 typedef struct {
     xmlerr_info_t info;            ///< Error info
@@ -43,7 +55,7 @@ typedef struct {
 
 /// Request for an expansion of an entity
 typedef struct {
-    bool param;                    ///< If true, this is a parameter entity
+    enum xml_reader_entity_e type; ///< (in, out) Entity type
     const utf8_t *name;            ///< Entity name
     size_t namelen;                ///< Length of the entity name
     ucs4_t *rplc;                  ///< Replacement text
@@ -89,7 +101,7 @@ typedef struct {
     xmlerr_loc_t loc;                             ///< Location of the event
     union {
         xml_reader_cbparam_message_t message;     ///< Error/warning message
-        xml_reader_cbparam_message_t entexp;      ///< Entity expansion
+        xml_reader_cbparam_entexp_t entexp;       ///< Entity expansion
         xml_reader_cbparam_append_t append;       ///< Attribute value
         xml_reader_cbparam_xmldecl_t xmldecl;     ///< XML or text declaration
         xml_reader_cbparam_stag_t stag;           ///< Start of element (STag)

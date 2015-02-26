@@ -42,3 +42,8 @@ an XML processor strip the leading/trailing spaces from its value in
 XML Schema does not count as a "validation processor" - which seems kind of redundant
 given that constraints on logical structure of the documents can be expressed
 via XML Schema just as well.
+- Description of 'Not Recognized' rule for entities: "Similarly, the names of unparsed
+entities are not recognized except when they appear in the value of an appropriately
+declared attribute." - but the rules for unparsed entities are "Forbidden" rather
+than "Not Recognized". Unparsed entities are already mentioned under "Forbidden"
+rule, so no change is needed there.

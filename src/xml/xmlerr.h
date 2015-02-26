@@ -43,6 +43,7 @@ enum {
     XMLERR_XML_P_STag,             // STag or EmptyElemTag
     XMLERR_XML_P_ETag,
     XMLERR_XML_P_Attribute,
+    XMLERR_XML_P_EntityRef,
 
     // Other errors and recommendations (spelled in text of the spec)
     XMLERR_XML_OTHER_BASE          = 0x0100,

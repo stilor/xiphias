@@ -42,8 +42,12 @@ enum {
     READER_SAW_CR   = 0x0004,       ///< Converting CRLF: saw 0xD, ignore next 0xA/0x85
     READER_ASCII    = 0x0008,       ///< Only ASCII characters allowed while reading declaration
     READER_LOCTRACK = 0x0010,       ///< Track the current position for error reporting
-    READER_REF      = 0x0020,       ///< Reading next token will expand Reference production
-    READER_PEREF    = 0x0040,       ///< Reading next token will expand PEReference production
+};
+
+/// Reference recognition
+enum {
+    RECOGNIZE_REF   = 0x0001,       ///< Reading next token will expand Reference production
+    RECOGNIZE_PEREF = 0x0002,       ///< Reading next token will expand PEReference production
 };
 
 /**
@@ -113,14 +117,23 @@ struct xml_reader_s {
 /// Function for conditional read termination: returns true if the character is rejected
 typedef ucs4_t (*xml_condread_func_t)(void *arg, ucs4_t cp);
 
-/// Methods for parsing literals
-typedef struct xml_literal_ops_s {
+/// Handler for a reference
+typedef void (*xml_refhandler_t)(xml_reader_t *, enum xml_reader_entity_e);
+
+/// Methods for handling references (PEReference, EntityRef, CharRef)
+typedef struct xml_reference_ops_s {
     /// Error raised if failed to parse
     xmlerr_info_t errinfo;
+
+    /// Flags for entity recognition
+    uint32_t flags;
+
+    /// How text blocks are handled
+    void (*textblock)(xml_reader_t *h);
     
-    /// How to read the literal
-    size_t (*read)(xml_reader_t *, xml_condread_func_t, void *);
-} xml_literal_ops_t;
+    /// How different types of entities are handled
+    xml_refhandler_t hnd[XML_READER_ENT__MAX];
+} xml_reference_ops_t;
 
 /// Convenience macro: report an error at the start of the last token
 #define xml_reader_message_lasttoken(h, ...) \
@@ -628,10 +641,12 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz, bool *peof)
     @param arg Argument to @a func
     @param ref If reading terminated due to a recognized entity start, this is set
             to the character triggering the entity ('&' or '%')
+    @param recognize Bitmask of reference types recognized while parsing
     @return Number of bytes read (token length)
 */
 static inline void
-xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg, ucs4_t *ref)
+xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
+        ucs4_t *ref, uint32_t recognize)
 {
     const void *begin, *end;
     const ucs4_t *ptr;
@@ -675,8 +690,8 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg, uc
             }
 
             // Check if entity expansion is needed
-            if ((ucs4_cheq(cp0, '&') && (h->flags & READER_REF) != 0)
-                    || (ucs4_cheq(cp0, '%') && (h->flags & READER_PEREF) != 0)) {
+            if ((ucs4_cheq(cp0, '&') && (recognize & RECOGNIZE_REF) != 0)
+                    || (ucs4_cheq(cp0, '%') && (recognize & RECOGNIZE_PEREF) != 0)) {
                 *ref = cp0;
                 stop = true;
                 break;
@@ -754,13 +769,7 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg, uc
 static size_t
 xml_read_until_noref(xml_reader_t *h, xml_condread_func_t func, void *arg)
 {
-    ucs4_t refstart;
-    uint32_t saveflags;
-
-    saveflags = h->flags & (READER_REF | READER_PEREF);
-    h->flags &= ~(READER_REF | READER_PEREF);
-    xml_read_until_internal(h, func, arg, &refstart);
-    h->flags |= saveflags;
+    xml_read_until_internal(h, func, arg, NULL, 0);
     return h->tokenbuf_len;
 }
 
@@ -939,6 +948,76 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
     return true;
 }
 
+/**
+    Read entity name or (for character references) the code point.
+
+    @param h Reader handle
+    @param refstart Starting code point of the Reference production ('&' or '%')
+    @param enttype Entity type determined by parsing
+    @return true if parsed successfully, false otherwise
+*/
+static bool
+xml_read_entity(xml_reader_t *h, ucs4_t refstart, enum xml_reader_entity_e *enttype)
+{
+    return false; // TBD
+}
+
+/**
+    Entity handler: 'Included'
+
+    @param h Reader handle
+    @param enttype Entity type
+    @return Nothing
+*/
+static void
+entity_included(xml_reader_t *h, enum xml_reader_entity_e enttype)
+{
+    OOPS; // TBD
+}
+
+/**
+    Entity handler: 'Forbidden'
+
+    @param h Reader handle
+    @param enttype Entity type
+    @return Nothing
+*/
+static void
+entity_forbidden(xml_reader_t *h, enum xml_reader_entity_e enttype)
+{
+    OOPS; // TBD
+}
+
+/**
+    Entity handler: 'Inclded in literal'
+
+    @param h Reader handle
+    @param enttype Entity type
+    @return Nothing
+*/
+static void
+entity_included_in_literal(xml_reader_t *h, enum xml_reader_entity_e enttype)
+{
+    OOPS; // TBD
+}
+
+/**
+    Handler for text block in literals or content: invoke callback.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+textblock_callback(xml_reader_t *h)
+{
+    xml_reader_cbparam_t cbp;
+
+    cbp.cbtype = XML_READER_CB_APPEND;
+    cbp.loc = h->tokenloc;
+    cbp.append.text = h->tokenbuf;
+    cbp.append.textlen = h->tokenbuf_len;
+    xml_reader_invoke_callback(h, &cbp);
+}
 
 /**
     Wrapper around xml_read_until_internal(): if entities are recognized and
@@ -953,30 +1032,51 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
     @return Number of bytes read (token length)
 */
 static size_t
-xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
+xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
+        const xml_reference_ops_t *refops)
 {
     ucs4_t refstart;
     xml_reader_cbparam_t cbp;
+    enum xml_reader_entity_e enttype;
 
     while (true) {
         refstart = UCS4_NOCHAR;
-        xml_read_until_internal(h, func, arg, &refstart);
-        cbp.cbtype = XML_READER_CB_APPEND;
-        cbp.loc = h->tokenloc;
-        cbp.append.text = h->tokenbuf;
-        cbp.append.textlen = h->tokenbuf_len;
-        xml_reader_invoke_callback(h, &cbp);
+        xml_read_until_internal(h, func, arg, &refstart, refops->flags);
+        if (refops->textblock) {
+            refops->textblock(h);
+        }
         if (refstart == UCS4_NOCHAR) {
             break;
         }
 
-        // TBD make a EXPENT callback
-        // TBD divert the input
-        if (ucs4_cheq(refstart, '&')) {
+        // We have some kind of entity, read its name or code point
+        if (!xml_read_entity(h, refstart, &enttype)) {
+            // no recovery - interpret anything after error as plain text
+            continue;
         }
-        else if (ucs4_cheq(refstart, '%')) {
+
+        // Get exact entity type (for general entities) and replacement text
+        if (enttype != XML_READER_ENT__CHARREF) {
+            cbp.cbtype = XML_READER_CB_ENTEXP;
+            cbp.loc = h->tokenloc;
+            cbp.entexp.type = enttype;
+            cbp.entexp.name = h->tokenbuf;
+            cbp.entexp.namelen = h->tokenbuf_len;
+            cbp.entexp.rplc = NULL;
+            cbp.entexp.rplclen = 0;
+            xml_reader_invoke_callback(h, &cbp);
+            enttype = cbp.entexp.type;
+        }
+
+        if (enttype >= XML_READER_ENT__MAX) {
+            xml_reader_message_lasttoken(h, XMLERR(WARN, XML, P_EntityRef),
+                    "Cannot determine entity type, ignoring");
+        }
+        else if (refops->hnd[enttype]) {
+            refops->hnd[enttype](h, enttype);
         }
         else {
+            // Flags setting in refops should've prevented us from recognizing this reference
             OOPS;
         }
     }
@@ -1028,19 +1128,19 @@ xml_cb_literal(void *arg, ucs4_t cp)
     TBD perhaps, normalize attributes here to avoid extra copies
 
     @param h Reader handle
-    @param ops Literal's "virtual method table".
+    @param refops Literal's "virtual method table" for handling references
     @return true if literal was found (found start quote and matching
         end quote).
 */
 static bool
-xml_read_literal(xml_reader_t *h, const xml_literal_ops_t *ops)
+xml_read_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
 {
     xml_cb_literal_state_t st = { .quote = UCS4_NOCHAR };
 
     // xml_read_until() may return 0 (empty literal), which is valid
-    (void)ops->read(h, xml_cb_literal, &st);
+    xml_read_until_ref(h, xml_cb_literal, &st, refops);
     if (st.quote != UCS4_STOPCHAR) {
-        xml_reader_message_lasttoken(h, ops->errinfo,
+        xml_reader_message_lasttoken(h, refops->errinfo,
                 st.quote == UCS4_NOCHAR ?
                 "Quoted literal expected" : "Unterminated literal");
         return false;
@@ -1049,15 +1149,23 @@ xml_read_literal(xml_reader_t *h, const xml_literal_ops_t *ops)
 }
 
 /// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
-static const xml_literal_ops_t literal_ops_pseudo = {
+static const xml_reference_ops_t reference_ops_pseudo = {
     .errinfo = XMLERR(ERROR, XML, P_XMLDecl),
-    .read = xml_read_until_noref,
+    .flags = 0,
+    .hnd = { /* No entities expected */ },
 };
 
 /// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
-static const xml_literal_ops_t literal_ops_AttValue = {
+static const xml_reference_ops_t reference_ops_AttValue = {
     .errinfo = XMLERR(ERROR, XML, P_Attribute),
-    .read = xml_read_until,
+    .flags = RECOGNIZE_REF,
+    .textblock = textblock_callback,
+    .hnd = {
+        [XML_READER_ENT_INTERNAL] = entity_included_in_literal,
+        [XML_READER_ENT_EXTERNAL] = entity_forbidden,
+        [XML_READER_ENT_UNPARSED] = entity_forbidden,
+        [XML_READER_ENT__CHARREF] = entity_included,
+    }
 };
 
 /**
@@ -1290,7 +1398,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
             goto malformed;
         }
         (void)xml_read_whitespace(h);
-        if (!xml_read_literal(h, &literal_ops_pseudo)) {
+        if (!xml_read_literal(h, &reference_ops_pseudo)) {
             goto malformed;
         }
 
@@ -1543,7 +1651,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
             }
             (void)xml_read_whitespace(h);
             // TBD need to interpret Reference production inside the attribute value.
-            if (!xml_read_literal(h, &literal_ops_AttValue)) {
+            if (!xml_read_literal(h, &reference_ops_AttValue)) {
                 goto malformed;
             }
         }
