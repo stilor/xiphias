@@ -84,9 +84,8 @@ typedef struct {
 
 /// Parameter for end of the element callback
 typedef struct {
-    const utf8_t *type;                      ///< Element type (may not match STag for malformed docs)
+    const utf8_t *type;                      ///< Element type (NULL if saw EmptyElemTag)
     size_t typelen;                          ///< Element type length
-    bool is_empty;                           ///< True if EmptyElemTag production was used
 } xml_reader_cbparam_etag_t;
 
 /// Parameter for attribute name callback

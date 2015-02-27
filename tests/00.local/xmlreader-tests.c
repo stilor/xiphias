@@ -88,9 +88,8 @@ static const testcase_t testcases_api[] = {
                     .typelen = 1,
             ),
             E(ETAG, LOC("simple-utf8.xml", 1, 1),
-                    .type = U"a",
-                    .typelen = 1,
-                    .is_empty = true,
+                    .type = NULL,
+                    .typelen = 0,
             ),
             END,
         },
@@ -107,9 +106,8 @@ static const testcase_t testcases_api[] = {
                 .typelen = 1, \
         ), \
         E(ETAG, LOC(s, l, p), \
-                .type = U"a", \
-                .typelen = 1, \
-                .is_empty = true, \
+                .type = NULL, \
+                .typelen = 0, \
         )
 
 struct test_set_transport_encoding_s {
@@ -755,7 +753,6 @@ static const testcase_t testcases_xmldecl[] = {
             E(ETAG, LOC("combining-mark.xml", 1, 4),
                     .type = U"a\xCC\x81",
                     .typelen = 3,
-                    .is_empty = false,
             ),
             END,
         },
@@ -858,7 +855,6 @@ static const testcase_t testcases_structure[] = {
             E(ETAG, LOC("simple-open-close.xml", 2, 4),
                     .type = U"a",
                     .typelen = 1,
-                    .is_empty = false,
             ),
             END,
         },
@@ -1073,18 +1069,9 @@ static const testcase_t testcases_structure[] = {
                     .type = U"a",
                     .typelen = 1,
             ),
-            E(MESSAGE, LOC("etag-mismatch.xml", 1, 6),
-                    .info = XMLERR(ERROR, XML, WFC_ELEMENT_TYPE_MATCH),
-                    .msg = "Closing element type mismatch: 'b'"
-            ),
-            E(MESSAGE, LOC("etag-mismatch.xml", 1, 1),
-                    .info = XMLERR_NOTE,
-                    .msg = "Opening element: 'a'",
-            ),
             E(ETAG, LOC("etag-mismatch.xml", 1, 4),
                     .type = U"b",
                     .typelen = 1,
-                    .is_empty = false,
             ),
             END,
         },
@@ -1100,7 +1087,6 @@ static const testcase_t testcases_structure[] = {
             E(ETAG, LOC("etag-missing-bracket.xml", 1, 4),
                     .type = U"a",
                     .typelen = 1,
-                    .is_empty = false,
             ),
             E(MESSAGE, LOC("etag-missing-bracket.xml", 2, 1),
                     .info = XMLERR(ERROR, XML, P_ETag),
@@ -1126,7 +1112,6 @@ static const testcase_t testcases_structure[] = {
             E(ETAG, LOC("element-nonutf8-name.xml", 1, 47),
                     .type = U"é",
                     .typelen = 2,
-                    .is_empty = false,
             ),
             END,
         },
@@ -1148,9 +1133,8 @@ static const testcase_t testcases_structure[] = {
                     .typelen = sizeof(VERY_LONG_ELEMENT_NAME) - 1,
             ),
             E(ETAG, LOC("very-long-token.xml", 1, 1),
-                    .type = U VERY_LONG_ELEMENT_NAME,
-                    .typelen = sizeof(VERY_LONG_ELEMENT_NAME) - 1,
-                    .is_empty = true,
+                    .type = NULL,
+                    .typelen = 0,
             ),
             END,
         },
@@ -1180,9 +1164,8 @@ static const testcase_t testcases_structure[] = {
                     .textlen = 3,
             ),
             E(ETAG, LOC("attributes.xml", 1, 1),
-                    .type = U"a",
-                    .typelen = 1,
-                    .is_empty = true,
+                    .type = NULL,
+                    .typelen = 0,
             ),
             END,
         },

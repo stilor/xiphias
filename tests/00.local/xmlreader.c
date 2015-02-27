@@ -220,9 +220,13 @@ evprint_etag(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_etag_t *x = &cbparam->etag;
 
-    printf("Element '%.*s' [%zu], used %s",
-            (int)x->typelen, x->type, x->typelen,
-            x->is_empty ? "EmptyElemTag" : "STag");
+    if (x->type) {
+        printf("EmptyElemTag: closing the declaration");
+    }
+    else {
+        printf("Element '%.*s' [%zu]",
+                (int)x->typelen, x->type, x->typelen);
+    }
 }
 
 static bool
