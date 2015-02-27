@@ -21,7 +21,7 @@ struct strbuf_s;
 enum xml_reader_cbtype_e {
     XML_READER_CB_NONE,            ///< No message (placeholder/terminator)
     XML_READER_CB_MESSAGE,         ///< Note/warning/error message
-    XML_READER_CB_ENTEXP,          ///< Request expansion of an entity
+    XML_READER_CB_REFEXP,          ///< Request expansion of an entity
     XML_READER_CB_APPEND,          ///< Append text to current node (text/attribute)
     XML_READER_CB_XMLDECL,         ///< XML declaration
     XML_READER_CB_COMMENT,         ///< Comment
@@ -35,16 +35,17 @@ enum xml_reader_cbtype_e {
     XML_READER_CB_MAX
 };
 
-/// Types of entities
-enum xml_reader_entity_e {
-    XML_READER_ENT_PARAMETER,      ///< Parameter entity
-    XML_READER_ENT_INTERNAL,       ///< Internal parsed entity
-    XML_READER_ENT_EXTERNAL,       ///< External parsed entity
-    XML_READER_ENT_UNPARSED,       ///< Unparsed entity
-    XML_READER_ENT__CHARREF,       ///< Internal value: not an entity, character reference
-    XML_READER_ENT__MAX,           ///< Internal value: array size for per-type handlers
-    XML_READER_ENT_GENERAL,        ///< Any general entity (internal/external/unparsed)
-    XML_READER_ENT__UNKNOWN,       ///< Internal value: character or entity (not yet determined)
+/// Types of references
+enum xml_reader_reference_e {
+    XML_READER_REF_PARAMETER,      ///< Parameter entity reference
+    XML_READER_REF_INTERNAL,       ///< Internal parsed entity reference
+    XML_READER_REF_EXTERNAL,       ///< External parsed entity reference
+    XML_READER_REF_UNPARSED,       ///< Unparsed entity reference
+    XML_READER_REF__CHAR,          ///< Internal value: not an entity, character reference
+    XML_READER_REF__MAX,           ///< Internal value: array size for per-type handlers
+    XML_READER_REF_GENERAL,        ///< Any general entity reference (internal/external/unparsed)
+    XML_READER_REF_IGNORE,         ///< On return from callback: do not expand this reference
+    XML_READER_REF__UNKNOWN,       ///< Internal value: character or general (not yet determined)
 };
 
 /// Parameter for message callback
@@ -55,12 +56,12 @@ typedef struct {
 
 /// Request for an expansion of an entity
 typedef struct {
-    enum xml_reader_entity_e type; ///< (in, out) Entity type
-    const utf8_t *name;            ///< Entity name
-    size_t namelen;                ///< Length of the entity name
-    ucs4_t *rplc;                  ///< Replacement text
-    size_t rplclen;                ///< Length (number of characters) in the replacement text
-} xml_reader_cbparam_entexp_t;
+    enum xml_reader_reference_e type;   ///< (in, out) Entity type
+    const utf8_t *name;                 ///< Entity name
+    size_t namelen;                     ///< Length of the entity name
+    ucs4_t *rplc;                       ///< Replacement text
+    size_t rplclen;                     ///< Length (number of characters) in the replacement text
+} xml_reader_cbparam_refexp_t;
 
 /// Parameter for "adding text to a node" callback
 typedef struct {
@@ -101,7 +102,7 @@ typedef struct {
     xmlerr_loc_t loc;                             ///< Location of the event
     union {
         xml_reader_cbparam_message_t message;     ///< Error/warning message
-        xml_reader_cbparam_entexp_t entexp;       ///< Entity expansion
+        xml_reader_cbparam_refexp_t refexp;       ///< Reference expansion
         xml_reader_cbparam_append_t append;       ///< Attribute value
         xml_reader_cbparam_xmldecl_t xmldecl;     ///< XML or text declaration
         xml_reader_cbparam_stag_t stag;           ///< Start of element (STag)

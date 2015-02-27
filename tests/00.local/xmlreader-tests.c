@@ -1187,6 +1187,15 @@ static const testcase_t testcases_structure[] = {
             END,
         },
     },
+#if 0 // TBD
+    {
+        .desc = "Attributes with entity references",
+        .input = "attribute-with-entity.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            END,
+        },
+    },
+#endif
 };
 
 static const testset_t testsets[] = {

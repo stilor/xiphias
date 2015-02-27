@@ -89,6 +89,41 @@ evequal_message(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 }
 
 static void
+evprint_refexp(const xml_reader_cbparam_t *cbparam)
+{
+    static const char * const reftypename[] = {
+        [XML_READER_REF_PARAMETER] = "Parameter",
+        [XML_READER_REF_INTERNAL] = "Internal general",
+        [XML_READER_REF_EXTERNAL] = "External parsed general",
+        [XML_READER_REF_UNPARSED] = "External unparsed general",
+        [XML_READER_REF__CHAR] = "Bad value (CHAR)",
+        [XML_READER_REF__MAX] = "Bad value (MAX)",
+        [XML_READER_REF_GENERAL] = "Undetermined general entity",
+        [XML_READER_REF_IGNORE] = "Bad value (IGNORE)",
+        [XML_READER_REF__UNKNOWN] = "Bad value (UNKNOWN)",
+    };
+    const xml_reader_cbparam_refexp_t *x = &cbparam->refexp;
+
+    printf("%s '%.*s' [%zu], replacement %p [%zu]",
+            x->type < sizeofarray(reftypename) ? reftypename[x->type] : "<unknown",
+            (int)x->namelen, x->name, x->namelen,
+            x->rplc, x->rplclen);
+}
+
+static bool
+evequal_refexp(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    const xml_reader_cbparam_refexp_t *x1 = &e1->refexp;
+    const xml_reader_cbparam_refexp_t *x2 = &e2->refexp;
+
+    return x1->type == x2->type
+            && x1->namelen == x2->namelen
+            && !memcmp(x1->name, x2->name, x1->namelen)
+            && x1->rplclen == x2->rplclen
+            && x1->rplc == x2->rplc;
+}
+
+static void
 evprint_xmldecl(const xml_reader_cbparam_t *cbparam)
 {
     static const char * const stdalone[] = {
@@ -229,6 +264,11 @@ static const event_t events[] = {
         .desc = "Message",
         .print = evprint_message,
         .equal = evequal_message,
+    },
+    [XML_READER_CB_REFEXP] = {
+        .desc = "Expand reference",
+        .print = evprint_refexp,
+        .equal = evequal_refexp,
     },
     [XML_READER_CB_APPEND] = {
         .desc = "Append text",

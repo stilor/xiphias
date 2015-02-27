@@ -118,7 +118,7 @@ struct xml_reader_s {
 typedef ucs4_t (*xml_condread_func_t)(void *arg, ucs4_t cp);
 
 /// Handler for a reference
-typedef void (*xml_refhandler_t)(xml_reader_t *, enum xml_reader_entity_e);
+typedef void (*xml_refhandler_t)(xml_reader_t *, enum xml_reader_reference_e);
 
 /// Methods for handling references (PEReference, EntityRef, CharRef)
 typedef struct xml_reference_ops_s {
@@ -132,7 +132,7 @@ typedef struct xml_reference_ops_s {
     void (*textblock)(xml_reader_t *h);
     
     /// How different types of entities are handled
-    xml_refhandler_t hnd[XML_READER_ENT__MAX];
+    xml_refhandler_t hnd[XML_READER_REF__MAX];
 } xml_reference_ops_t;
 
 /// Convenience macro: report an error at the start of the last token
@@ -189,6 +189,50 @@ xml_is_whitespace(ucs4_t cp)
     // COV: test for 0xD character requires parsing content and recognition of character refs
     return ucs4_cheq(cp, 0x20) || ucs4_cheq(cp, 0x9) || ucs4_cheq(cp, 0xA)
             || ucs4_cheq(cp, 0xD);
+}
+
+/**
+    Check if a given Unicode code point is NameStartChar per XML spec.
+
+    @param cp Code point to check
+    @return true if @a cp matches NameStartChar, false otherwise
+*/
+static bool
+xml_is_NameStartChar(ucs4_t cp)
+{
+    // TBD: replace the check in the BMP with a bitmap
+    return ucs4_chin(cp, 'A', 'Z')
+            || ucs4_chin(cp, 'a', 'z')
+            || ucs4_cheq(cp, '_')
+            || ucs4_cheq(cp, ':')
+            || (cp >= 0xC0 && cp <= 0x2FF && cp != 0xD7 && cp != 0xF7)
+            || (cp >= 0x370 && cp <= 0x1FFF && cp != 0x37E)
+            || (cp >= 0x200C && cp <= 0x200D)
+            || (cp >= 0x2070 && cp <= 0x218F)
+            || (cp >= 0x2C00 && cp <= 0x2FEF)
+            || (cp >= 0x3001 && cp <= 0xD7FF)
+            || (cp >= 0xF900 && cp <= 0xFDCF)
+            || (cp >= 0xFDF0 && cp <= 0xFFFD)
+            || (cp >= 0x10000 && cp <= 0xEFFFF);
+}
+
+/**
+    Check if a given Unicode code point is NameChar per XML spec.
+
+    @param cp Code point to check
+    @return true if @a cp matches NameChar, false otherwise
+*/
+static bool
+xml_is_NameChar(ucs4_t cp)
+{
+    return xml_is_NameStartChar(cp)
+            || ucs4_cheq(cp, '-')
+            || ucs4_cheq(cp, '.')
+            || ucs4_chin(cp, '0', '9')
+            || cp == 0xB7
+            || (cp >= 0x0300 && cp <= 0x36F)
+            || cp == 0x203F
+            || cp == 0x2040;
 }
 
 /**
@@ -845,41 +889,13 @@ xml_cb_gt(void *arg, ucs4_t cp)
 static ucs4_t
 xml_cb_not_name(void *arg, ucs4_t cp)
 {
-    bool startchar;
+    bool *isstartchar = arg;
+    ucs4_t rv;
 
-    startchar = *(bool *)arg;
-    *(bool *)arg = false; // Next character will not be starting
-
-    // Most XML documents use ASCII for element types. So, check ASCII
-    // characters first.
-    if (ucs4_chin(cp, 'A', 'Z') || ucs4_chin(cp, 'a', 'z') || ucs4_cheq(cp, '_') || ucs4_cheq(cp, ':')
-            || (!startchar && (ucs4_cheq(cp, '-') || ucs4_cheq(cp, '.') || ucs4_chin(cp, '0', '9')))) {
-        return cp; // Good, keep on reading
-    }
-
-    // TBD: replace the check in the BMP with a bitmap?
-    // The rest of valid start characters
-    if ((cp >= 0xC0 && cp <= 0x2FF && cp != 0xD7 && cp != 0xF7)
-            || (cp >= 0x370 && cp <= 0x1FFF && cp != 0x37E)
-            || (cp >= 0x200C && cp <= 0x200D)
-            || (cp >= 0x2070 && cp <= 0x218F)
-            || (cp >= 0x2C00 && cp <= 0x2FEF)
-            || (cp >= 0x3001 && cp <= 0xD7FF)
-            || (cp >= 0xF900 && cp <= 0xFDCF)
-            || (cp >= 0xFDF0 && cp <= 0xFFFD)
-            || (cp >= 0x10000 && cp <= 0xEFFFF)) {
-        return cp; // Keep on
-    }
-    if (startchar) {
-        return UCS4_STOPCHAR; // Stop: this is not a valid start character
-    }
-    if (cp == 0xB7
-            || (cp >= 0x0300 && cp <= 0x36F)
-            || cp == 0x203F
-            || cp == 0x2040) {
-        return cp; // Keep on, this is valid continuation char
-    }
-    return UCS4_STOPCHAR; // Stop: not valid even as continuation
+    rv = (*isstartchar ? xml_is_NameStartChar(cp) : xml_is_NameChar(cp)) ?
+            cp : UCS4_STOPCHAR;
+    *isstartchar = false;
+    return rv;
 }
 
 /**
@@ -948,29 +964,107 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
     return true;
 }
 
+/// Current state structure for xml_cb_reference
+typedef struct {
+    enum xml_reader_reference_e reftype;    ///< Type of the reference determined
+    bool startchar;                         ///< When reading entity name: if it is 1st char
+    bool hex;                               ///< Char reference: value is hexadecimal
+    ucs4_t refstart;                        ///< Starter character in reference production
+} xml_cb_reference_state_t;
+
+
+/**
+    Read condition: CharRef/EntityRef/PEReference productions.
+
+    CharRef     ::= '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';'
+    EntityRef   ::= '&' Name ';'
+    PEReference ::= '%' Name ';'
+
+    @param arg Matching state
+    @param cp Next codepoint
+    @return codepoint to insert, possibly OR'ed with UCS4_LASTCHAR or UCS4_NOCHAR
+*/
+static ucs4_t
+xml_cb_reference(void *arg, ucs4_t cp)
+{
+    xml_cb_reference_state_t *st = arg;
+    bool startchar;
+
+    if (st->refstart == cp) {
+        // Consume the reference starting character
+        st->refstart = UCS4_NOCHAR;
+        return UCS4_NOCHAR;
+    }
+    if (st->reftype == XML_READER_REF__UNKNOWN) {
+        if (ucs4_cheq(cp, '#')) {
+            // Character reference; consume the '#'
+            st->reftype = XML_READER_REF__CHAR;
+            return UCS4_NOCHAR;
+        }
+        else {
+            // General entity; fall through to start reading the name
+            st->reftype = XML_READER_REF_GENERAL;
+        }
+    }
+    // Semicolon terminates all references
+    if (ucs4_cheq(cp, ';')) {
+        // Consume and stop
+        return UCS4_NOCHAR | UCS4_LASTCHAR;
+    }
+    // Whatever character we read, next one will not be starting
+    startchar = st->startchar;
+    st->startchar = false;
+    if (st->reftype == XML_READER_REF__CHAR) {
+        if (ucs4_chin(cp, '0', '9')
+                || (st->hex && (ucs4_chin(cp, 'a', 'f') || ucs4_chin(cp, 'A', 'F')))) {
+            return cp;
+        }
+        if (ucs4_cheq(cp, 'x') && startchar) {
+            st->hex = true;
+            return cp;
+        }
+        return UCS4_STOPCHAR;
+    }
+
+    // Any other reference: expect a Name production
+    return (startchar ? xml_is_NameStartChar(cp) : xml_is_NameChar(cp)) ?
+            cp : UCS4_STOPCHAR;
+}
+
 /**
     Read entity name or (for character references) the code point.
 
     @param h Reader handle
     @param refstart Starting code point of the Reference production ('&' or '%')
-    @param enttype Entity type determined by parsing
+    @param reftype Entity type determined by parsing
     @return true if parsed successfully, false otherwise
 */
 static bool
-xml_read_entity(xml_reader_t *h, ucs4_t refstart, enum xml_reader_entity_e *enttype)
+xml_read_reference(xml_reader_t *h, ucs4_t refstart, enum xml_reader_reference_e *reftype)
 {
-    return false; // TBD
+    xml_cb_reference_state_t st;
+
+    st.refstart = refstart;
+    st.reftype = ucs4_cheq(refstart, '&') ?
+            XML_READER_REF__UNKNOWN : XML_READER_REF_PARAMETER;
+    st.startchar = true;
+    st.hex = false;
+    (void)xml_read_until_noref(h, xml_cb_reference, &st);
+    *reftype = st.reftype;
+
+    // If it is hexadecimal character reference, must have at least one digit besides leading 'x'
+    return h->tokenbuf_len > (st.reftype == XML_READER_REF__CHAR && st.hex ? 1 : 0);
 }
 
 /**
     Entity handler: 'Included'
 
     @param h Reader handle
-    @param enttype Entity type
+    @param reftype Entity type
     @return Nothing
 */
 static void
-entity_included(xml_reader_t *h, enum xml_reader_entity_e enttype)
+reference_included(xml_reader_t *h, enum xml_reader_reference_e reftype)
 {
     OOPS; // TBD
 }
@@ -979,11 +1073,11 @@ entity_included(xml_reader_t *h, enum xml_reader_entity_e enttype)
     Entity handler: 'Forbidden'
 
     @param h Reader handle
-    @param enttype Entity type
+    @param reftype Entity type
     @return Nothing
 */
 static void
-entity_forbidden(xml_reader_t *h, enum xml_reader_entity_e enttype)
+reference_forbidden(xml_reader_t *h, enum xml_reader_reference_e reftype)
 {
     OOPS; // TBD
 }
@@ -992,11 +1086,11 @@ entity_forbidden(xml_reader_t *h, enum xml_reader_entity_e enttype)
     Entity handler: 'Inclded in literal'
 
     @param h Reader handle
-    @param enttype Entity type
+    @param reftype Entity type
     @return Nothing
 */
 static void
-entity_included_in_literal(xml_reader_t *h, enum xml_reader_entity_e enttype)
+reference_included_in_literal(xml_reader_t *h, enum xml_reader_reference_e reftype)
 {
     OOPS; // TBD
 }
@@ -1037,7 +1131,7 @@ xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
 {
     ucs4_t refstart;
     xml_reader_cbparam_t cbp;
-    enum xml_reader_entity_e enttype;
+    enum xml_reader_reference_e reftype;
 
     while (true) {
         refstart = UCS4_NOCHAR;
@@ -1050,30 +1144,33 @@ xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
         }
 
         // We have some kind of entity, read its name or code point
-        if (!xml_read_entity(h, refstart, &enttype)) {
+        if (!xml_read_reference(h, refstart, &reftype)) {
             // no recovery - interpret anything after error as plain text
             continue;
         }
 
         // Get exact entity type (for general entities) and replacement text
-        if (enttype != XML_READER_ENT__CHARREF) {
-            cbp.cbtype = XML_READER_CB_ENTEXP;
+        if (reftype != XML_READER_REF__CHAR) {
+            cbp.cbtype = XML_READER_CB_REFEXP;
             cbp.loc = h->tokenloc;
-            cbp.entexp.type = enttype;
-            cbp.entexp.name = h->tokenbuf;
-            cbp.entexp.namelen = h->tokenbuf_len;
-            cbp.entexp.rplc = NULL;
-            cbp.entexp.rplclen = 0;
+            cbp.refexp.type = reftype;
+            cbp.refexp.name = h->tokenbuf;
+            cbp.refexp.namelen = h->tokenbuf_len;
+            cbp.refexp.rplc = NULL;
+            cbp.refexp.rplclen = 0;
             xml_reader_invoke_callback(h, &cbp);
-            enttype = cbp.entexp.type;
+            reftype = cbp.refexp.type;
         }
 
-        if (enttype >= XML_READER_ENT__MAX) {
+        if (reftype == XML_READER_REF_IGNORE) {
+            // Special value: do nothing, just read on
+        }
+        else if (reftype >= XML_READER_REF__MAX) {
             xml_reader_message_lasttoken(h, XMLERR(WARN, XML, P_EntityRef),
                     "Cannot determine entity type, ignoring");
         }
-        else if (refops->hnd[enttype]) {
-            refops->hnd[enttype](h, enttype);
+        else if (refops->hnd[reftype]) {
+            refops->hnd[reftype](h, reftype);
         }
         else {
             // Flags setting in refops should've prevented us from recognizing this reference
@@ -1161,10 +1258,11 @@ static const xml_reference_ops_t reference_ops_AttValue = {
     .flags = RECOGNIZE_REF,
     .textblock = textblock_callback,
     .hnd = {
-        [XML_READER_ENT_INTERNAL] = entity_included_in_literal,
-        [XML_READER_ENT_EXTERNAL] = entity_forbidden,
-        [XML_READER_ENT_UNPARSED] = entity_forbidden,
-        [XML_READER_ENT__CHARREF] = entity_included,
+        /* Default: 'Not recognized' */
+        [XML_READER_REF_INTERNAL] = reference_included_in_literal,
+        [XML_READER_REF_EXTERNAL] = reference_forbidden,
+        [XML_READER_REF_UNPARSED] = reference_forbidden,
+        [XML_READER_REF__CHAR] = reference_included,
     }
 };
 
