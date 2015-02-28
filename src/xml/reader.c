@@ -69,22 +69,37 @@ typedef struct xml_reader_xmldecl_declinfo_s {
     const xml_reader_xmldecl_attrdesc_t *attrlist; ///< Allowed/required attributes
 } xml_reader_xmldecl_declinfo_t;
 
+/// Input method: either strbuf for the main document, or diversion from a ucs4_t buffer in memory
+typedef struct xml_reader_input_s {
+    SLIST_ENTRY(xml_reader_input_s) link;   ///< Stack of diversions
+    strbuf_t *buf;                  ///< String buffer to use
+
+    void (*complete)(void *);       ///< Notification when this input is consumed
+    void *complete_arg;             ///< Argument to completion notification
+
+    // Other fields
+    uint32_t srcid;                 ///< Source ID to check for proper nesting
+    bool inc_in_literal;            ///<'included in literal' - special handling of quotes
+} xml_reader_input_t;
+
 /// XML reader structure
 struct xml_reader_s {
     const char *enc_transport;      ///< Encoding reported by transport protocol
     const char *enc_detected;       ///< Encoding detected by BOM or start characters
     const char *enc_xmldecl;        ///< Encoding declared in <?xml ... ?>
+
     encoding_handle_t *enc;         ///< Encoding used to transcode input
     strbuf_t *buf_raw;              ///< Raw input buffer (in document's encoding)
     strbuf_t *buf_proc;             ///< Processed input buffer (transcoded + translated)
+
     uint32_t flags;                 ///< Reader flags
     xmlerr_loc_t curloc;            ///< Current reader's position
-    xmlerr_loc_t tokenloc;          ///< Reader's position at the beginning of last token
+    size_t tabsize;
+
     const xml_reader_xmldecl_declinfo_t *declinfo;  ///< Expected declaration
     enum xml_info_version_e version;                ///< Version assumed when parsing
     enum xml_info_standalone_e standalone;          ///< Document's standalone status
     enum xml_reader_normalization_e normalization;  ///< Desired normalization behavior
-    size_t tabsize;
 
     xml_reader_cb_t func;           ///< Callback function
     void *arg;                      ///< Argument to callback function
@@ -92,6 +107,11 @@ struct xml_reader_s {
     utf8_t *tokenbuf;               ///< Token buffer
     utf8_t *tokenbuf_end;           ///< End of the token buffer
     size_t tokenbuf_len;            ///< Length of the token in the buffer
+    xmlerr_loc_t tokenloc;          ///< Reader's position at the beginning of last token
+
+    uint32_t srcid;                 ///< Source ID, incremented for each new input
+    SLIST_HEAD(,xml_reader_input_s) active_input;   ///< Currently active inputs
+    SLIST_HEAD(,xml_reader_input_s) free_input;     ///< Free list of input structures
 };
 
 /// Function for conditional read termination: returns true if the character is rejected
@@ -256,6 +276,125 @@ xml_reader_set_encoding(xml_reader_t *h, const char *encname)
 }
 
 /**
+    Look ahead in the parsed stream without advancing the current read location.
+    Stops on a non-ASCII character; all mark-up (that requires look-ahead) is
+    using ASCII characters.
+
+    @param h Reader handle
+    @param buf Buffer to read into
+    @param bufsz Buffer size
+    @param peof Set to true if EOF is detected
+    @return Number of characters read
+*/
+static size_t
+xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz, bool *peof)
+{
+    xml_reader_input_t *inp;
+    ucs4_t tmp[MAX_LOOKAHEAD_SIZE];
+    ucs4_t *ptr = tmp;
+    size_t i, nread;
+
+    OOPS_ASSERT(bufsz <= MAX_LOOKAHEAD_SIZE);
+
+    if (peof) {
+        *peof = true;
+    }
+    SLIST_FOREACH(inp, &h->active_input, link) {
+        nread = strbuf_lookahead(inp->buf, ptr, bufsz * sizeof(ucs4_t));
+        if (peof && nread) {
+            *peof = false;
+        }
+        OOPS_ASSERT((nread & 3) == 0); // input buf must have an integral number of characters
+        nread /= 4;
+        for (i = 0; i < nread; i++) {
+            if (*ptr >= 0x7F) {
+                break; // Non-ASCII
+            }
+            *buf++ = *ptr++;
+            bufsz--;
+        }
+        if (!bufsz) {
+            break; // No need to look at the next input
+        }
+    }
+
+    return ptr - tmp;
+}
+
+/**
+    Get read pointers, either from a strbuf or from an input diversion.
+
+    @param h Reader handle
+    @param begin Pointer set to the beginning of the readable area
+    @param end Pointer set to the end of the readable area
+    @return Number of bytes that can be read
+*/
+static size_t
+xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
+{
+    xml_reader_input_t *inp;
+    size_t rv;
+
+    while ((inp = SLIST_FIRST(&h->active_input)) != NULL) {
+        OOPS_ASSERT(inp->buf);
+        if ((rv = strbuf_rptr(inp->buf, begin, end)) != 0) {
+            return rv;
+        }
+        // This input is done with: dequeue, notify and try next
+        SLIST_REMOVE_HEAD(&h->active_input, link);
+        if (inp->complete) {
+            inp->complete(inp->complete_arg);
+        }
+        SLIST_INSERT_HEAD(&h->free_input, inp, link);
+    }
+    return 0; // All inputs consumed, EOF
+}
+
+/**
+    Advance read pointer, either in strbuf or in diversion.
+
+    @param h Reader handle
+    @param sz Amount to advance
+    @return Nothing
+*/
+static void
+xml_reader_input_radvance(xml_reader_t *h, size_t sz)
+{
+    xml_reader_input_t *inp;
+
+    inp = SLIST_FIRST(&h->active_input);
+    OOPS_ASSERT(inp && inp->buf);
+    strbuf_radvance(inp->buf, sz);
+}
+
+/**
+    Allocate a new input structure for reader.
+
+    @param h Reader handle
+    @return Allocated input structure
+*/
+static xml_reader_input_t *
+xml_reader_input_new(xml_reader_t *h)
+{
+    xml_reader_input_t *inp;
+
+    if ((inp = SLIST_FIRST(&h->free_input)) != NULL) {
+        SLIST_REMOVE_HEAD(&h->free_input, link);
+    }
+    else {
+        inp = xmalloc(sizeof(xml_reader_input_t));
+    }
+
+    memset(inp, 0, sizeof(xml_reader_input_t));
+    inp->srcid = h->srcid++;
+
+    // To catch if this is used without initialization
+    SLIST_INSERT_HEAD(&h->active_input, inp, link);
+
+    return inp;
+}
+
+/**
     Create an XML reading handle.
 
     @param buf String buffer to read the input from; will be destroyed along with
@@ -269,26 +408,27 @@ xml_reader_new(strbuf_t *buf, const char *location)
     xml_reader_t *h;
 
     h = xmalloc(sizeof(*h));
-    h->enc_transport = NULL;
-    h->enc_detected = NULL;
-    h->enc_xmldecl = NULL;
-    h->enc = NULL;
+    memset(h, 0, sizeof(xml_reader_t));
     h->buf_raw = buf;
-    h->buf_proc = NULL;
-    h->func = NULL;
-    h->arg = NULL;
+
     h->flags = READER_LOCTRACK;
     h->curloc.src = xstrdup(location);
     h->curloc.line = 1;
     h->curloc.pos = 1;
+    h->tabsize = 8;
+
+    h->version = XML_INFO_VERSION_NO_VALUE;
+    h->standalone = XML_INFO_STANDALONE_NO_VALUE;
+    h->normalization = XML_READER_NORM_DEFAULT;
+
     h->tokenloc = h->curloc; // Shares reference to copy of location
     h->tokenbuf = xmalloc(INITIAL_TOKENBUF_SIZE);
     h->tokenbuf_end = h->tokenbuf + INITIAL_TOKENBUF_SIZE;
     h->tokenbuf_len = 0;
-    h->version = XML_INFO_VERSION_NO_VALUE;
-    h->standalone = XML_INFO_STANDALONE_NO_VALUE;
-    h->normalization = XML_READER_NORM_DEFAULT;
-    h->tabsize = 8;
+
+    SLIST_INIT(&h->active_input);
+    SLIST_INIT(&h->free_input);
+
     return h;
 }
 
@@ -301,6 +441,19 @@ xml_reader_new(strbuf_t *buf, const char *location)
 void
 xml_reader_delete(xml_reader_t *h)
 {
+    xml_reader_input_t *inp;
+
+    while ((inp = SLIST_FIRST(&h->active_input)) != NULL) {
+        SLIST_REMOVE_HEAD(&h->active_input, link);
+        if (inp->complete) {
+            inp->complete(inp->complete_arg);
+        }
+        xfree(inp);
+    }
+    while ((inp = SLIST_FIRST(&h->free_input)) != NULL) {
+        SLIST_REMOVE_HEAD(&h->free_input, link);
+        xfree(inp);
+    }
     (void)xml_reader_set_encoding(h, NULL);
     strbuf_delete(h->buf_raw);
     if (h->buf_proc) {
@@ -559,41 +712,6 @@ static const strbuf_ops_t xml_reader_transcode_ops = {
 };
 
 /**
-    Look ahead in the parsed stream without advancing the current read location.
-    Stops on a non-ASCII character; all mark-up (that requires look-ahead) is
-    using ASCII characters.
-
-    @param h Reader handle
-    @param buf Buffer to read into
-    @param bufsz Buffer size
-    @param peof Set to true if EOF is detected
-    @return Number of characters read
-*/
-static size_t
-xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz, bool *peof)
-{
-    ucs4_t tmp[MAX_LOOKAHEAD_SIZE];
-    const ucs4_t *ptr = tmp;
-    size_t i, nread;
-
-    OOPS_ASSERT(bufsz <= MAX_LOOKAHEAD_SIZE);
-    nread = strbuf_lookahead(h->buf_proc, tmp, bufsz * sizeof(ucs4_t));
-    if (peof) {
-        *peof = !nread;
-    }
-    OOPS_ASSERT((nread & 3) == 0); // h->buf_proc must have an integral number of characters
-    nread /= 4;
-    for (i = 0; i < nread; i++) {
-        if (*ptr >= 0x7F) {
-            break; // Non-ASCII
-        }
-        *buf++ = *ptr++;
-    }
-
-    return i;
-}
-
-/**
     Read until the specified condition; reallocate the buffer to accommodate
     the token being read as necessary. Perform whitespace/EOL handling prescribed
     by the XML spec; check normalization if needed.
@@ -662,17 +780,18 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
     size_t clen, offs, bufsz, total;
     utf8_t *bufptr;
     bool stop = false;
+    bool saw_cr = false;
 
     bufptr = h->tokenbuf;
     total = 0;
     h->tokenloc = h->curloc;
-    while (!stop && strbuf_rptr(h->buf_proc, &begin, &end)) {
+    while (!stop && xml_reader_input_rptr(h, &begin, &end)) {
         for (ptr = begin; !stop && ptr < (const ucs4_t *)end; ptr++) {
             cp0 = *ptr; // codepoint before possible substitution by func
-            if ((h->flags & READER_SAW_CR) != 0 && (cp0 == 0x0A || cp0 == 0x85)) {
+            if (saw_cr && (cp0 == 0x0A || cp0 == 0x85)) {
                 // EOL normalization. This is "continuation" of a previous character - so
                 // is treated before positioning update.
-                h->flags &= ~READER_SAW_CR;
+                saw_cr = false;
                 continue;
             }
             // TBD substitute character references if requested - need to happen before normcheck
@@ -690,7 +809,7 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
             // (we do slightly different but equivalent: translate #xD to #xA immediately
             // and skipping the next character if it is #xA or #x85)
             if (cp0 == 0x0D) {
-                h->flags |= READER_SAW_CR;
+                saw_cr = true;
                 cp0 = 0x0A;
             }
             else if (cp0 == 0x85 || cp0 == 0x2028) {
@@ -760,7 +879,7 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
             }
         }
         // Consumed this block
-        strbuf_radvance(h->buf_proc, (const uint8_t *)ptr - (const uint8_t *)begin);
+        xml_reader_input_radvance(h, (const uint8_t *)ptr - (const uint8_t *)begin);
     }
     h->tokenbuf_len = total;
 }
@@ -1122,6 +1241,8 @@ xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
             cbp.refexp.namelen = h->tokenbuf_len;
             cbp.refexp.rplc = NULL;
             cbp.refexp.rplclen = 0;
+            cbp.refexp.complete = NULL;
+            cbp.refexp.complete_arg = NULL;
             xml_reader_invoke_callback(h, &cbp);
             reftype = cbp.refexp.type;
         }
@@ -1134,6 +1255,10 @@ xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
                     "Cannot determine entity type, ignoring");
         }
         else if (refops->hnd[reftype]) {
+            // TBD need to pass replacement text pointers to callback, not just reftype. Pass cbp?
+            // TBD input block should contain:
+            // - whether it is a main document/entity reference/character reference
+            // - somehow track whether it is first character entity included in att value - affects the whitespace processing
             refops->hnd[reftype](h, reftype);
         }
         else {
@@ -1743,6 +1868,7 @@ xml_parse_element(xml_reader_t *h)
 static void
 xml_reader_start(xml_reader_t *h)
 {
+    xml_reader_input_t *inp;
     xml_reader_initial_xcode_t xc;
     utf8_t adbuf[4];       // 4 bytes for encoding detection, per XML spec suggestion
     size_t bom_len, adsz;
@@ -1784,8 +1910,12 @@ xml_reader_start(xml_reader_t *h)
     xc.la_size = sizeof(xc.initial);
     xc.la_avail = 0;
     xc.la_offs = 0;
-    h->buf_proc = strbuf_new(NULL, 32 * sizeof(ucs4_t));
+    h->buf_proc = strbuf_new(NULL, 1024 * sizeof(ucs4_t));
     strbuf_setops(h->buf_proc, &xml_reader_initial_ops, &xc);
+
+    // Main document input: using the input strbuf
+    inp = xml_reader_input_new(h);
+    inp->buf = h->buf_proc;
 
     // Parse the declaration; expect only ASCII
     h->flags |= READER_ASCII;
@@ -1813,12 +1943,6 @@ xml_reader_start(xml_reader_t *h)
         xfree(xc.la_start);
     }
 
-    // Set up permanent transcoder (we do it always, but the caller probably won't
-    // proceed with further decoding if READER_FATAL is reported).
-    strbuf_delete(h->buf_proc);
-    h->buf_proc = strbuf_new(NULL, 1024 * sizeof(ucs4_t));
-    strbuf_setops(h->buf_proc, &xml_reader_transcode_ops, h);
-
     if (h->enc_xmldecl) {
         // Encoding should be in clean state - if not, need to fix encoding to not consume
         // excess data. If this fails, the error is already reported - try to recover by
@@ -1827,6 +1951,13 @@ xml_reader_start(xml_reader_t *h)
             xml_reader_message_lasttoken(h, XMLERR_NOTE, "(encoding from XML declaration)");
         }
     }
+
+    // Set up permanent transcoder (we do it always, but the caller probably won't
+    // proceed with further decoding if READER_FATAL is reported). Clear any cached
+    // content as new transcoding ops will re-parse the input at the offset right past
+    // the XML declaration
+    strbuf_clear(inp->buf);
+    strbuf_setops(inp->buf, &xml_reader_transcode_ops, h);
 
     // Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
     // begin with the Byte Order Mark described in ISO/IEC 10646 [ISO/IEC

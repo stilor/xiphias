@@ -61,6 +61,34 @@ strbuf_new(const void *mem, size_t sz)
 }
 
 /**
+    Resize the internal buffer. Currently, can only grow the buffer.
+
+    @param buf String buffer
+    @param sz New size of the internal storage.
+    @return Nothing
+*/
+void
+strbuf_realloc(strbuf_t *buf, size_t newsz)
+{
+    size_t shift;
+
+    OOPS_ASSERT((buf->flags & BUF_STATIC) == 0);
+    OOPS_ASSERT(newsz >= buf->memsz);
+
+    buf->mem = xrealloc(buf->mem, newsz);
+
+    // If the old content wrapped around the end, move that chunk
+    if (buf->roffs + buf->rsize > buf->memsz) {
+        shift = newsz - buf->memsz; // Moving by that amount
+        memmove(buf->mem + buf->roffs + shift, buf->mem + buf->roffs,
+                buf->memsz - buf->roffs);
+        buf->roffs += shift;
+    }
+
+    buf->memsz = newsz;
+}
+
+/**
     Destroy a string buffer along with associated blocks.
 
     @param buf String buffer to destroy
@@ -76,6 +104,20 @@ strbuf_delete(strbuf_t *buf)
         xfree(buf->mem);
     }
     xfree(buf);
+}
+
+/**
+    Clear a buffer of any contents.
+
+    @param buf Buffer to clear
+    @return Nothing
+*/
+void
+strbuf_clear(strbuf_t *buf)
+{
+    buf->roffs = 0;
+    buf->rsize = 0;
+    buf->flags &= ~BUF_NO_INPUT;
 }
 
 /**
@@ -254,8 +296,7 @@ strbuf_lookahead(strbuf_t *buf, void *dest, size_t nbytes)
     // Reallocate to double the size of the request, so that we don't
     // have to reallocate often.
     if (buf->memsz < nbytes && (buf->flags & BUF_STATIC) == 0) {
-        buf->memsz = 2 * nbytes;
-        buf->mem = xrealloc(buf->mem, buf->memsz);
+        strbuf_realloc(buf, 2 * nbytes);
     }
 
     // Then, pull the data from input method until either requested

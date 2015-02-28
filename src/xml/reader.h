@@ -59,8 +59,10 @@ typedef struct {
     enum xml_reader_reference_e type;   ///< (in, out) Entity type
     const utf8_t *name;                 ///< Entity name
     size_t namelen;                     ///< Length of the entity name
-    ucs4_t *rplc;                       ///< Replacement text
-    size_t rplclen;                     ///< Length (number of characters) in the replacement text
+    ucs4_t *rplc;                       ///< (in) Replacement text
+    size_t rplclen;                     ///< (in) Number of characters in the replacement text
+    void (*complete)(void *);           ///< (in) Function to call when replacement text is done with
+    void *complete_arg;                 ///< (in) Argument to completion function
 } xml_reader_cbparam_refexp_t;
 
 /// Parameter for "adding text to a node" callback

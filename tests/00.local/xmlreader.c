@@ -220,7 +220,7 @@ evprint_etag(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_etag_t *x = &cbparam->etag;
 
-    if (x->type) {
+    if (x->type == NULL) {
         printf("EmptyElemTag: closing the declaration");
     }
     else {
