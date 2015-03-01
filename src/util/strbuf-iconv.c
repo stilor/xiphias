@@ -107,7 +107,7 @@ strbuf_iconv_read(strbuf_t *input, const char *from, const char *to, size_t sz)
         OOPS;
     }
     ia->buf = input;
-    buf = strbuf_new(NULL, sz);
+    buf = strbuf_new(sz);
     strbuf_setops(buf, &iconv_ops, ia);
     return buf;
 }

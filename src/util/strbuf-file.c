@@ -66,7 +66,7 @@ strbuf_file_read(const char *path, size_t sz)
     if ((f = fopen(path, "r")) == NULL) {
         OOPS;
     }
-    buf = strbuf_new(NULL, sz);
+    buf = strbuf_new(sz);
     strbuf_setops(buf, &file_ops, f);
     return buf;
 }

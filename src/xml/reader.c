@@ -1910,7 +1910,7 @@ xml_reader_start(xml_reader_t *h)
     xc.la_size = sizeof(xc.initial);
     xc.la_avail = 0;
     xc.la_offs = 0;
-    h->buf_proc = strbuf_new(NULL, 1024 * sizeof(ucs4_t));
+    h->buf_proc = strbuf_new(1024 * sizeof(ucs4_t));
     strbuf_setops(h->buf_proc, &xml_reader_initial_ops, &xc);
 
     // Main document input: using the input strbuf

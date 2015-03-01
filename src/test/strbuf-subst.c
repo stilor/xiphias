@@ -198,7 +198,7 @@ test_strbuf_subst(strbuf_t *input, utf8_t esc, size_t sz)
     ss->esc = esc;
     ss->mode = SUBST_NONE;
     ss->utf8_sz = 0;
-    buf = strbuf_new(NULL, sz);
+    buf = strbuf_new(sz);
     strbuf_setops(buf, &subst_ops, ss);
     return buf;
 }

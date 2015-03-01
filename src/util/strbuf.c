@@ -33,31 +33,40 @@ struct strbuf_s {
 /**
     Allocate a new empty string buffer.
 
-    @param mem Memory to read, or NULL if a new storage is to be allocated.
-        No copy of this memory is made, so the caller must not modify it
-        while it's being read.
     @param sz Size of the buffer storage
     @return Allocated buffer.
 */
 strbuf_t *
-strbuf_new(const void *mem, size_t sz)
+strbuf_new(size_t sz)
 {
     strbuf_t *buf;
 
     buf = xmalloc(sizeof(strbuf_t));
     memset(buf, 0, sizeof(strbuf_t));
     buf->memsz = sz;
-    if (mem) {
-        // Use provided memory area, no input so it is not overwritten
-        buf->mem = DECONST(mem); // We'll treat it as const by virtue of BUF_NO_INPUT
-        buf->rsize = sz;
-        buf->flags |= BUF_NO_INPUT | BUF_STATIC;
-    }
-    else {
-        // Allocate a new area, empty initially
-        buf->mem = xmalloc(sz);
-    }
+    buf->mem = xmalloc(sz);
     return buf;
+}
+
+/**
+    Set buffer to point to a statically allocated memory region
+
+    @param buf Buffer
+    @param mem Memory region start
+    @param sz Size of the memory region
+    @return Nothing
+*/
+void
+strbuf_set_input(strbuf_t *buf, const void *mem, size_t sz)
+{
+    if ((buf->flags & BUF_STATIC) == 0) {
+        xfree(buf->mem);
+    }
+    buf->mem = DECONST(mem);
+    buf->roffs = 0;
+    buf->rsize = sz;
+    buf->memsz = sz;
+    buf->flags = BUF_NO_INPUT | BUF_STATIC;
 }
 
 /**

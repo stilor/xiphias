@@ -137,7 +137,8 @@ run_tc_api(void)
         strbuf_t *sbuf;
         ucs4_t outbuf[4], *ptr;
 
-        sbuf = strbuf_new("ABCDEFG", 7);
+        sbuf = strbuf_new(0);
+        strbuf_set_input(sbuf, "ABCDEFG", 7);
         eh = encoding_open("UTF-8");
         ptr = outbuf;
         if (4 != encoding_in_from_strbuf(eh, sbuf,

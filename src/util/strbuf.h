@@ -40,7 +40,8 @@ typedef struct strbuf_ops_s {
 } strbuf_ops_t;
 
 // Creation/destruction
-strbuf_t *strbuf_new(const void *mem, size_t sz);
+strbuf_t *strbuf_new(size_t sz);
+void strbuf_set_input(strbuf_t *buf, const void *mem, size_t sz);
 void strbuf_realloc(strbuf_t *buf, size_t sz);
 void strbuf_delete(strbuf_t *buf);
 void strbuf_clear(strbuf_t *buf);

@@ -25,10 +25,12 @@
 void *
 xmalloc(size_t sz)
 {
-    void *rv;
+    void *rv = NULL;
 
-    rv = malloc(sz);
-    OOPS_ASSERT(rv);
+    if (sz) {
+        rv = malloc(sz);
+        OOPS_ASSERT(rv);
+    }
     return rv;
 }
 
@@ -44,8 +46,14 @@ xrealloc(const void *ptr, size_t sz)
 {
     void *rv;
 
-    rv = realloc(DECONST(ptr), sz);
-    OOPS_ASSERT(rv);
+    if (sz) {
+        rv = realloc(DECONST(ptr), sz);
+        OOPS_ASSERT(rv);
+    }
+    else {
+        free(DECONST(ptr));
+        rv = NULL;
+    }
     return rv;
 }
 
