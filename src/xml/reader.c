@@ -89,8 +89,7 @@ struct xml_reader_s {
     const char *enc_xmldecl;        ///< Encoding declared in <?xml ... ?>
 
     encoding_handle_t *enc;         ///< Encoding used to transcode input
-    strbuf_t *buf_raw;              ///< Raw input buffer (in document's encoding)
-    strbuf_t *buf_proc;             ///< Processed input buffer (transcoded + translated)
+    strbuf_t *buf;                  ///< Raw input buffer (in document's encoding)
 
     uint32_t flags;                 ///< Reader flags
     xmlerr_loc_t curloc;            ///< Current reader's position
@@ -387,6 +386,7 @@ xml_reader_input_new(xml_reader_t *h)
 
     memset(inp, 0, sizeof(xml_reader_input_t));
     inp->srcid = h->srcid++;
+    inp->buf = strbuf_new(0); // Most of these buffers will use static strings
 
     // To catch if this is used without initialization
     SLIST_INSERT_HEAD(&h->active_input, inp, link);
@@ -409,7 +409,7 @@ xml_reader_new(strbuf_t *buf, const char *location)
 
     h = xmalloc(sizeof(*h));
     memset(h, 0, sizeof(xml_reader_t));
-    h->buf_raw = buf;
+    h->buf = buf;
 
     h->flags = READER_LOCTRACK;
     h->curloc.src = xstrdup(location);
@@ -448,17 +448,16 @@ xml_reader_delete(xml_reader_t *h)
         if (inp->complete) {
             inp->complete(inp->complete_arg);
         }
+        strbuf_delete(inp->buf);
         xfree(inp);
     }
     while ((inp = SLIST_FIRST(&h->free_input)) != NULL) {
         SLIST_REMOVE_HEAD(&h->free_input, link);
+        strbuf_delete(inp->buf);
         xfree(inp);
     }
     (void)xml_reader_set_encoding(h, NULL);
-    strbuf_delete(h->buf_raw);
-    if (h->buf_proc) {
-        strbuf_delete(h->buf_proc);
-    }
+    strbuf_delete(h->buf);
     xfree(h->enc_transport);
     xfree(h->enc_detected);
     xfree(h->enc_xmldecl);
@@ -666,7 +665,7 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
                 xc->la_size *= 2;
                 xc->la_start = xmalloc(xc->la_size);
             }
-            xc->la_avail = strbuf_lookahead(h->buf_raw, xc->la_start, xc->la_size);
+            xc->la_avail = strbuf_lookahead(h->buf, xc->la_start, xc->la_size);
             if (xc->la_offs == xc->la_avail) {
                 return 0; // Despite our best efforts... got no new data
             }
@@ -702,7 +701,7 @@ xml_reader_transcode_op_more(void *arg, void *begin, size_t sz)
 
     bptr = cptr = begin;
     eptr = bptr + sz / sizeof(ucs4_t);
-    encoding_in_from_strbuf(h->enc, h->buf_raw, &cptr, eptr);
+    encoding_in_from_strbuf(h->enc, h->buf, &cptr, eptr);
     return (cptr - bptr) * sizeof(ucs4_t);
 }
 
@@ -1880,7 +1879,7 @@ xml_reader_start(xml_reader_t *h)
 
     // Try to get the encoding from stream and check for BOM
     memset(adbuf, 0, sizeof(adbuf));
-    adsz = strbuf_lookahead(h->buf_raw, adbuf, sizeof(adbuf));
+    adsz = strbuf_lookahead(h->buf, adbuf, sizeof(adbuf));
     if ((encname = encoding_detect(adbuf, adsz, &bom_len)) != NULL) {
         if (!xml_reader_set_encoding(h, encname)) {
             xml_reader_message_current(h, XMLERR_NOTE, "(autodetected from %s)",
@@ -1894,7 +1893,7 @@ xml_reader_start(xml_reader_t *h)
 
     // If byte order mark (BOM) was detected, consume it
     if (bom_len) {
-        strbuf_radvance(h->buf_raw, bom_len);
+        strbuf_radvance(h->buf, bom_len);
     }
 
     // If no encoding passed from the transport layer, and autodetect didn't help,
@@ -1904,25 +1903,24 @@ xml_reader_start(xml_reader_t *h)
         OOPS_ASSERT(rv);
     }
 
-    // Create a temporary reader buffer
+    // Temporary reader state
     xc.h = h;
     xc.la_start = xc.initial;
     xc.la_size = sizeof(xc.initial);
     xc.la_avail = 0;
     xc.la_offs = 0;
-    h->buf_proc = strbuf_new(1024 * sizeof(ucs4_t));
-    strbuf_setops(h->buf_proc, &xml_reader_initial_ops, &xc);
 
     // Main document input: using the input strbuf
     inp = xml_reader_input_new(h);
-    inp->buf = h->buf_proc;
+    strbuf_realloc(inp->buf, 1024 * sizeof(ucs4_t));
+    strbuf_setops(inp->buf, &xml_reader_initial_ops, &xc);
 
     // Parse the declaration; expect only ASCII
     h->flags |= READER_ASCII;
     if (xml_parse_XMLDecl_TextDecl(h)) {
         // Consumed declaration from the raw buffer; advance before setting
         // permanent transcoding operations
-        strbuf_radvance(h->buf_raw, xc.la_offs);
+        strbuf_radvance(h->buf, xc.la_offs);
     }
     h->flags &= ~READER_ASCII;
 
