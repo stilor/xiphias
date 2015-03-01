@@ -178,6 +178,18 @@ ucs4_chin(ucs4_t uc, char lb, char le)
     return uc >= (unsigned char)lb && uc <= (unsigned char)le;
 }
 
+/**
+    Get a UCS-4 representation of a locally encoded character.
+
+    @param lc Locally encoded character
+    @return UCS-4 codepoint for @a lc
+*/
+static inline uint32_t
+ucs4_fromlocal(char lc)
+{
+    return lc;
+}
+
 #include "ucs4data.h"
 
 #endif

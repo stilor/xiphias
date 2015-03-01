@@ -117,7 +117,7 @@ struct xml_reader_s {
 typedef ucs4_t (*xml_condread_func_t)(void *arg, ucs4_t cp);
 
 /// Handler for a reference
-typedef void (*xml_refhandler_t)(xml_reader_t *, enum xml_reader_reference_e);
+typedef void (*xml_refhandler_t)(xml_reader_t *, xml_reader_cbparam_t *);
 
 /// Methods for handling references (PEReference, EntityRef, CharRef)
 typedef struct xml_reference_ops_s {
@@ -1139,16 +1139,88 @@ xml_read_reference(xml_reader_t *h, ucs4_t refstart, enum xml_reader_reference_e
 }
 
 /**
-    Entity handler: 'Included'
+    Parse the specification for a character reference in handle's token buffer
+    and return the UCS-4 codepoint.
+
+    @param h Reader handle (with character reference in the token buffer)
+    @return UCS-4 codepoint
+*/
+static uint32_t
+xml_parse_charref(xml_reader_t *h)
+{
+    uint32_t val = 0;
+    uint8_t *ptr, *end;
+    uint8_t cp;
+
+    ptr = h->tokenbuf;
+    end = ptr + h->tokenbuf_len;
+
+    if (*ptr == 'x') {
+        for (ptr++; ptr < end; ptr++) {
+            val *= 16;
+            cp = *ptr;
+            if (ucs4_chin(cp, '0', '9')) {
+                val += *ptr - ucs4_fromlocal('0');
+            }
+            else if (ucs4_chin(cp, 'a', 'f')) {
+                val += *ptr - ucs4_fromlocal('a') + 10;
+            }
+            else if (ucs4_chin(cp, 'A', 'F')) {
+                val += *ptr - ucs4_fromlocal('A') + 10;
+            }
+            else {
+                OOPS; // should've been caught by xml_read_reference
+            }
+            if (val > UCS4_MAX) {
+                return UCS4_NOCHAR;
+            }
+        }
+    }
+    else {
+        for (; ptr < end; ptr++) {
+            val *= 10;
+            cp = *ptr;
+            if (ucs4_chin(cp, '0', '9')) {
+                val += *ptr - ucs4_fromlocal('0');
+            }
+            else {
+                OOPS; // should've been caught by xml_read_reference
+            }
+            if (val > UCS4_MAX) {
+                return UCS4_NOCHAR;
+            }
+        }
+    }
+
+    return val;
+}
+
+/**
+    Determine if a character reference to the specified code point is allowed by
+    this XML version.
 
     @param h Reader handle
-    @param reftype Entity type
-    @return Nothing
+    @param cp Code point
+    @return true if the character is allowed, false otherwise
 */
-static void
-reference_included(xml_reader_t *h, enum xml_reader_reference_e reftype)
+static bool
+xml_valid_char_reference(xml_reader_t *h, ucs4_t cp)
 {
-    OOPS; // TBD
+    // First check if it is disallowed in any version
+    if (!cp
+            || (cp >= UCS4_SURROGATE_MIN && cp <= UCS4_SURROGATE_MAX)
+            || cp == 0xFFFE
+            || cp == 0xFFFF) {
+        return false;
+    }
+
+    // The rest is allowed in XML 1.1
+    if (h->version == XML_INFO_VERSION_1_1) {
+        return true;
+    }
+
+    // In XML 1.0, restricted characters are prohibited even via character references
+    return !xml_is_restricted(h, cp);
 }
 
 /**
@@ -1159,7 +1231,7 @@ reference_included(xml_reader_t *h, enum xml_reader_reference_e reftype)
     @return Nothing
 */
 static void
-reference_forbidden(xml_reader_t *h, enum xml_reader_reference_e reftype)
+reference_forbidden(xml_reader_t *h, xml_reader_cbparam_t *cbp)
 {
     OOPS; // TBD
 }
@@ -1172,7 +1244,7 @@ reference_forbidden(xml_reader_t *h, enum xml_reader_reference_e reftype)
     @return Nothing
 */
 static void
-reference_included_in_literal(xml_reader_t *h, enum xml_reader_reference_e reftype)
+reference_included_in_literal(xml_reader_t *h, xml_reader_cbparam_t *cbp)
 {
     OOPS; // TBD
 }
@@ -1211,9 +1283,8 @@ static size_t
 xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
         const xml_reference_ops_t *refops)
 {
-    ucs4_t refstart;
+    ucs4_t refstart, charrplc;
     xml_reader_cbparam_t cbp;
-    enum xml_reader_reference_e reftype;
 
     while (true) {
         refstart = UCS4_NOCHAR;
@@ -1226,16 +1297,15 @@ xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
         }
 
         // We have some kind of entity, read its name or code point
-        if (!xml_read_reference(h, refstart, &reftype)) {
+        if (!xml_read_reference(h, refstart, &cbp.refexp.type)) {
             // no recovery - interpret anything after error as plain text
             continue;
         }
 
         // Get exact entity type (for general entities) and replacement text
-        if (reftype != XML_READER_REF__CHAR) {
+        if (cbp.refexp.type != XML_READER_REF__CHAR) {
             cbp.cbtype = XML_READER_CB_REFEXP;
             cbp.loc = h->tokenloc;
-            cbp.refexp.type = reftype;
             cbp.refexp.name = h->tokenbuf;
             cbp.refexp.namelen = h->tokenbuf_len;
             cbp.refexp.rplc = NULL;
@@ -1243,22 +1313,38 @@ xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
             cbp.refexp.complete = NULL;
             cbp.refexp.complete_arg = NULL;
             xml_reader_invoke_callback(h, &cbp);
-            reftype = cbp.refexp.type;
+        }
+        else {
+            /* Parse the character referenced */
+            if ((charrplc = xml_parse_charref(h)) == UCS4_NOCHAR) {
+                // Did not evaluate to a character; skip.
+                xml_reader_message_lasttoken(h, XMLERR(WARN, XML, P_CharRef),
+                        "Character reference did not evaluate to a valid "
+                        "UCS-4 code point");
+                continue;
+            }
+            if (!xml_valid_char_reference(h, charrplc)) {
+                // Recover by still using the referenced character
+                xml_reader_message_lasttoken(h, XMLERR(WARN, XML, P_CharRef),
+                        "Referenced character does not match Char production");
+            }
+            cbp.refexp.rplclen = 1;
+            cbp.refexp.rplc = &charrplc;
         }
 
-        if (reftype == XML_READER_REF_IGNORE) {
+        if (cbp.refexp.type == XML_READER_REF_IGNORE) {
             // Special value: do nothing, just read on
         }
-        else if (reftype >= XML_READER_REF__MAX) {
+        else if (cbp.refexp.type >= XML_READER_REF__MAX) {
             xml_reader_message_lasttoken(h, XMLERR(WARN, XML, P_EntityRef),
                     "Cannot determine entity type, ignoring");
         }
-        else if (refops->hnd[reftype]) {
+        else if (refops->hnd[cbp.refexp.type]) {
             // TBD need to pass replacement text pointers to callback, not just reftype. Pass cbp?
             // TBD input block should contain:
             // - whether it is a main document/entity reference/character reference
             // - somehow track whether it is first character entity included in att value - affects the whitespace processing
-            refops->hnd[reftype](h, reftype);
+            refops->hnd[cbp.refexp.type](h, &cbp);
         }
         else {
             // Flags setting in refops should've prevented us from recognizing this reference
@@ -1350,7 +1436,13 @@ static const xml_reference_ops_t reference_ops_AttValue = {
         [XML_READER_REF_INTERNAL] = reference_included_in_literal,
         [XML_READER_REF_EXTERNAL] = reference_forbidden,
         [XML_READER_REF_UNPARSED] = reference_forbidden,
-        [XML_READER_REF__CHAR] = reference_included,
+        /*
+            Character reference: XML spec describes them as 'included', but for
+            inclusion into literals, the behavior is in line with 'included in
+            literal' - as the quote encoded as a char reference is not terminating
+            the literal.
+        */
+        [XML_READER_REF__CHAR] = reference_included_in_literal,
     }
 };
 
