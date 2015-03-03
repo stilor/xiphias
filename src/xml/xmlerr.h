@@ -10,6 +10,9 @@
 
 #include <stdint.h>
 
+/// Marker used in line/pos fields to indicate "error at end of input"
+#define XMLERR_EOF       ((uint32_t)-1)
+
 /// Description of the error location
 typedef struct {
     const char *src;     ///< Input source (URL/file/whatever)

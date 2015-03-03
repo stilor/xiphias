@@ -314,17 +314,20 @@ static const event_t events[] = {
 static void
 print_event(const xml_reader_cbparam_t *cbparam)
 {
+    printf("  [%s:", cbparam->loc.src ? cbparam->loc.src : "<undef>");
+    if (cbparam->loc.line == XMLERR_EOF && cbparam->loc.pos == XMLERR_EOF) {
+        printf("<EOF>]");
+    }
+    else {
+        printf("%u:%u]", cbparam->loc.line, cbparam->loc.pos);
+    }
     if (cbparam->cbtype < sizeofarray(events) && events[cbparam->cbtype].desc) {
-        printf("  [%s:%u:%u] %s: ",
-                cbparam->loc.src ? cbparam->loc.src : "<undef>",
-                cbparam->loc.line,
-                cbparam->loc.pos,
-                events[cbparam->cbtype].desc);
+        printf(" %s: ", events[cbparam->cbtype].desc);
         events[cbparam->cbtype].print(cbparam);
         printf("\n");
     }
     else {
-        printf("  UNKNOWN EVENT TYPE %u\n", cbparam->cbtype);
+        printf(" UNKNOWN EVENT TYPE %u\n", cbparam->cbtype);
     }
 }
 

@@ -73,6 +73,7 @@ typedef struct xml_reader_xmldecl_declinfo_s {
 typedef struct xml_reader_input_s {
     SLIST_ENTRY(xml_reader_input_s) link;   ///< Stack of diversions
     strbuf_t *buf;                  ///< String buffer to use
+    xmlerr_loc_t saveloc;           ///< Saved location when this input is added
 
     void (*complete)(void *);       ///< Notification when this input is consumed
     void *complete_arg;             ///< Argument to completion notification
@@ -344,6 +345,7 @@ xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
         if (inp->complete) {
             inp->complete(inp->complete_arg);
         }
+        h->curloc = inp->saveloc;
         SLIST_INSERT_HEAD(&h->free_input, inp, link);
     }
     return 0; // All inputs consumed, EOF
@@ -370,10 +372,11 @@ xml_reader_input_radvance(xml_reader_t *h, size_t sz)
     Allocate a new input structure for reader.
 
     @param h Reader handle
+    @param location Location string for this input
     @return Allocated input structure
 */
 static xml_reader_input_t *
-xml_reader_input_new(xml_reader_t *h)
+xml_reader_input_new(xml_reader_t *h, const char *location)
 {
     xml_reader_input_t *inp;
 
@@ -387,6 +390,10 @@ xml_reader_input_new(xml_reader_t *h)
     memset(inp, 0, sizeof(xml_reader_input_t));
     inp->srcid = h->srcid++;
     inp->buf = strbuf_new(0); // Most of these buffers will use static strings
+    inp->saveloc = h->curloc;
+    h->curloc.src = location;
+    h->curloc.line = 1;
+    h->curloc.pos = 1;
 
     // To catch if this is used without initialization
     SLIST_INSERT_HEAD(&h->active_input, inp, link);
@@ -2002,8 +2009,12 @@ xml_reader_start(xml_reader_t *h)
     xc.la_avail = 0;
     xc.la_offs = 0;
 
-    // Main document input: using the input strbuf
-    inp = xml_reader_input_new(h);
+    // Main document input: using the input strbuf. It shares the location string;
+    // also, set the position to EOF - once the created input is exhausted, we're at
+    // the end of the document.
+    h->curloc.line = XMLERR_EOF;
+    h->curloc.pos = XMLERR_EOF;
+    inp = xml_reader_input_new(h, h->curloc.src);
     strbuf_realloc(inp->buf, 1024 * sizeof(ucs4_t));
     strbuf_setops(inp->buf, &xml_reader_initial_ops, &xc);
 
