@@ -27,10 +27,12 @@ CFLAGS_common			:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wmissing-field-initializers -Wnested-externs \
 						   -g $(OPTIMIZE) -fno-common -iquote src $(CFLAGS_extra)
 
+CFLAGS_app				:= $(CFLAGS_common)
 CFLAGS_lib				:= $(CFLAGS_common) -fPIC
 CFLAGS_test				:= $(CFLAGS_common)
 
 LDFLAGS_common			:= -L build/lib $(LDFLAGS_extra)
+LDFLAGS_app				:= $(LDFLAGS_common) -Wl,-rpath=build/lib
 LDFLAGS_lib				:= $(LDFLAGS_common) -fPIC -shared
 LDFLAGS_test			:= $(LDFLAGS_common) -Wl,-rpath=build/lib
 

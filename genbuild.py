@@ -13,7 +13,7 @@ class Output(object):
     '''Single output binary of the build process'''
     def __init__(self, cp, section):
         self.outtype, self.name = section.split(':', 1)
-	if self.name in outputs:
+	if section in outputs:
 	    raise KeyError('Duplicate definition of [%s]' % self.name)
         self.subdir = cp.get(section, 'subdir')
         self.sources = cp.get(section, 'sources').split()
@@ -23,6 +23,9 @@ class Output(object):
 	    self.extraldflags = "-Wl,-soname=lib%s_%s.so" % (general['prefix'], self.name)
 	elif self.outtype == 'test':
 	    self.outpath = "build/tests/%s" % self.name
+	    self.extraldflags = ""
+        elif self.outtype == 'app':
+            self.outpath = "build/bin/%s" % self.name
 	    self.extraldflags = ""
 	else:
 	    raise ValueError('Unknown output type [%s]' % self.outtype)
@@ -38,7 +41,7 @@ class Output(object):
             builddirs[os.path.dirname(obj)] = 1
 	    self.objs.append(obj)
 	    self.deps.append(dep)
-	outputs[self.name] = self
+	outputs[section] = self
 
     def write_makefile(self, f):
 	f.write('''
@@ -57,7 +60,7 @@ all: build-dirs %(outpath)s
 		'outpath' : self.outpath,
 		'extraldflags' : self.extraldflags,
 		'outtype' : self.outtype,
-		'localdeps' : ' '.join([outputs[x].outpath for x in self.localdep]),
+                'localdeps' : ' '.join([outputs['lib:' + x].outpath for x in self.localdep]),
 		'locallibs' : ' '.join(["-l%s_%s" % (general['prefix'], x) for x in self.localdep]),
 		})
         # Additional rules

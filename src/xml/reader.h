@@ -11,6 +11,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "util/unicode.h"
+
 #include "infoset.h"
 #include "xmlerr.h"
 

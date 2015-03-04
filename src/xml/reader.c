@@ -1522,6 +1522,7 @@ xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
             goto query_callback;
 
         query_callback:
+            cbp.cbtype = XML_READER_CB_REFEXP;
             cbp.loc = h->tokenloc;
             cbp.refexp.name = h->tokenbuf;
             cbp.refexp.namelen = h->tokenbuf_len;
