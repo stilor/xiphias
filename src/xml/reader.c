@@ -9,6 +9,7 @@
 #include "util/defs.h"
 #include "util/xutil.h"
 #include "util/strbuf.h"
+#include "util/strhash.h"
 #include "util/encoding.h"
 #include "util/unicode.h"
 
@@ -31,6 +32,9 @@
     insufficient, it is doubled.
 */
 #define INITIAL_DECL_LOOKAHEAD_SIZE 64
+
+/// Order (log2) of the hashes for entities
+#define ENTITY_HASH_ORDER           5
 
 /// Maximum number of characters to look ahead
 #define MAX_LOOKAHEAD_SIZE          16
@@ -83,6 +87,22 @@ typedef struct xml_reader_input_s {
     bool inc_in_literal;            ///<'included in literal' - special handling of quotes
 } xml_reader_input_t;
 
+/// Entity information
+typedef struct xml_reader_entity_s {
+    bool being_parsed;              ///< Recursion detection: this entity is being parsed
+    const char *system_id;          ///< System ID of the entity (NULL for internal entities)
+    union {
+        struct {
+            const ucs4_t *rplc;             ///< Replacement text
+            size_t rplclen;                 ///< Length of the replacement text
+        };
+        struct {
+            const char *public_id;          ///< Public ID of the entity
+            const char *notation;           ///< Notation name (unparsed entity)
+        };
+    };
+} xml_reader_entity_t;
+
 /// Structure shared between master and subordinate documents
 typedef struct xml_reader_shared_s {
     int refcnt;                     ///< Number of xml_reader_t handles referencing this
@@ -90,6 +110,8 @@ typedef struct xml_reader_shared_s {
     xml_reader_cb_t func;           ///< Callback function
     void *arg;                      ///< Argument to callback function
 
+    strhash_t *entities_param;      ///< Parameter entities
+    strhash_t *entities_gen;        ///< General entities
 } xml_reader_shared_t;
 
 /// XML reader structure
@@ -414,6 +436,96 @@ xml_reader_input_new(xml_reader_t *h, const char *location)
 }
 
 /**
+    Free an entity information structure.
+
+    @param arg Pointer to entity information structure
+    @return Nothing
+*/
+static void
+xml_entity_destroy(void *arg)
+{
+    xml_reader_entity_t *e = arg;
+
+    if (e->system_id) {
+        // external entity
+        xfree(e->notation);
+        xfree(e->public_id);
+        xfree(e->system_id);
+    }
+    else {
+        // internal entity
+        xfree(e->rplc);
+    }
+    xfree(e);
+}
+
+/// Information on a pre-defined entity.
+typedef struct {
+    const char *name;       ///< Entity name
+    const char *rplc[4];    ///< Replacement text; 1st is default.
+} xml_predefined_entity_t;
+
+/**
+    Pre-defined entities.
+    
+    If the entities lt or amp are declared, they MUST be declared as internal entities
+    whose replacement text is a character reference to the respective character
+    (less-than sign or ampersand) being escaped; the double escaping is REQUIRED for
+    these entities so that references to them produce a well-formed result. If the
+    entities gt, apos, or quot are declared, they MUST be declared as internal
+    entities whose replacement text is the single character being escaped (or
+    a character reference to that character; the double escaping here is OPTIONAL
+    but harmless). For example:
+
+    <!ENTITY lt     "&#38;#60;">
+    <!ENTITY gt     "&#62;">
+    <!ENTITY amp    "&#38;#38;">
+    <!ENTITY apos   "&#39;">
+    <!ENTITY quot   "&#34;">
+
+    The table below specifies replacement text of these entities, not literal value -
+    so one level of escaping is removed.  Up to 4 replacement texts may be allowed:
+    without double escaping, and 3 with double-escaping: using hex/decimal reference
+    and with upper/lower case in hex character reference.
+*/
+static const xml_predefined_entity_t predefined_entities[] = {
+    { .name = "lt",     .rplc = { "&#60;",  "&#x3C;",   "&#x3c;",   NULL,       }, },
+    { .name = "gt",     .rplc = { ">",      "&#62;",    "&#x3E;",   "&#x3e;",   }, },
+    { .name = "amp",    .rplc = { "&#38;",  "&#x26;",   NULL,       NULL,       }, },
+    { .name = "apos",   .rplc = { "'",      "&#39;",    "&#x27;",   NULL,       }, },
+    { .name = "quot",   .rplc = { "\"",     "&#34;",    "&#x22;",   NULL,       }, },
+};
+
+/**
+    Set the replacement text for pre-defined entities
+
+    @param ehash Entity hash
+    @return Nothing
+*/
+static void
+xml_entity_populate(strhash_t *ehash)
+{
+    const xml_predefined_entity_t *predef;
+    const char *s;
+    xml_reader_entity_t *e;
+    ucs4_t *rplc;
+    size_t i, j;
+
+    for (i = 0, predef = predefined_entities; i < sizeofarray(predefined_entities);
+            i++, predef++) {
+        s = predef->rplc[0];
+        e = xmalloc(sizeof(xml_reader_entity_t));
+        e->system_id = NULL;    // internal entity
+        e->rplclen = strlen(s);
+        rplc = xmalloc(sizeof(ucs4_t) * e->rplclen);
+        for (j = 0; j < e->rplclen; j++) {
+            rplc[j] = ucs4_fromlocal(s[j]);
+        }
+        e->rplc = rplc;
+    }
+}
+
+/**
     Create an XML reading handle.
 
     @param h Master handle (NULL if master document is created)
@@ -462,7 +574,9 @@ xml_reader_new_internal(xml_reader_t *master, strbuf_t *buf, const char *locatio
         h->share = xmalloc(sizeof(xml_reader_shared_t));
         memset(h->share, 0, sizeof(xml_reader_shared_t));
         h->share->refcnt = 1;
-        // TBD entity storage initialization
+        h->share->entities_param = strhash_create(ENTITY_HASH_ORDER, xml_entity_destroy);
+        h->share->entities_gen = strhash_create(ENTITY_HASH_ORDER, xml_entity_destroy);
+        xml_entity_populate(h->share->entities_gen);
     }
 
     return h;
@@ -496,6 +610,8 @@ xml_reader_delete(xml_reader_t *h)
 
     if (h->share->refcnt-- == 1) {
         // This is the last close
+        strhash_destroy(h->share->entities_param);
+        strhash_destroy(h->share->entities_gen);
         xfree(h->share);
     }
     if (h->master) {
@@ -857,7 +973,6 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 saw_cr = false;
                 continue;
             }
-            // TBD substitute character references if requested - need to happen before normcheck
             // TBD normalization check
 
             // XML processor MUST behave as if it normalized all line breaks
@@ -921,7 +1036,7 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
             }
 
             if (cp != UCS4_NOCHAR) {
-                clen = utf8_len(cp);
+                clen = utf8_clen(cp);
                 if (bufptr + clen > h->tokenbuf_end) {
                     // Double token storage
                     offs = bufptr - h->tokenbuf;
@@ -1349,6 +1464,7 @@ xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
 {
     ucs4_t refstart, charrplc;
     xml_reader_cbparam_t cbp;
+    xml_reader_entity_t *e;
 
     while (true) {
         refstart = UCS4_NOCHAR;
@@ -1366,19 +1482,8 @@ xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
             continue;
         }
 
-        // Get exact entity type (for general entities) and replacement text
-        if (cbp.refexp.type != XML_READER_REF__CHAR) {
-            cbp.cbtype = XML_READER_CB_REFEXP;
-            cbp.loc = h->tokenloc;
-            cbp.refexp.name = h->tokenbuf;
-            cbp.refexp.namelen = h->tokenbuf_len;
-            cbp.refexp.rplc = NULL;
-            cbp.refexp.rplclen = 0;
-            cbp.refexp.complete = NULL;
-            cbp.refexp.complete_arg = NULL;
-            xml_reader_invoke_callback(h, &cbp);
-        }
-        else {
+        switch (cbp.refexp.type) {
+        case XML_READER_REF__CHAR:
             /* Parse the character referenced */
             if ((charrplc = xml_parse_charref(h)) == UCS4_NOCHAR) {
                 // Did not evaluate to a character; skip.
@@ -1394,10 +1499,63 @@ xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
             }
             cbp.refexp.rplclen = 1;
             cbp.refexp.rplc = &charrplc;
+            break;
+
+        case XML_READER_REF_GENERAL:
+            // Clarify the type
+            e = strhash_getn(h->share->entities_gen, h->tokenbuf, h->tokenbuf_len);
+            if (e) {
+                if (!e->system_id) {
+                    cbp.refexp.type = XML_READER_REF_INTERNAL;
+                }
+                else if (!e->notation) {
+                    cbp.refexp.type = XML_READER_REF_EXTERNAL;
+                }
+                else {
+                    cbp.refexp.type = XML_READER_REF_UNPARSED;
+                }
+            }
+            goto query_callback;
+
+        case XML_READER_REF_PARAMETER:
+            e = strhash_getn(h->share->entities_param, h->tokenbuf, h->tokenbuf_len);
+            goto query_callback;
+
+        query_callback:
+            cbp.loc = h->tokenloc;
+            cbp.refexp.name = h->tokenbuf;
+            cbp.refexp.namelen = h->tokenbuf_len;
+            if (!e) {
+                // Unknown entity
+                cbp.refexp.system_id = NULL;
+                cbp.refexp.public_id = NULL;
+                cbp.refexp.rplc = NULL;
+                cbp.refexp.rplclen = 0;
+                // TBD error message
+            }
+            else if (!e->system_id) {
+                // Known internal entity
+                cbp.refexp.system_id = NULL;
+                cbp.refexp.public_id = NULL;
+                cbp.refexp.rplc = e->rplc;
+                cbp.refexp.rplclen = e->rplclen;
+            }
+            else {
+                // Known external entity
+                cbp.refexp.system_id = e->system_id;
+                cbp.refexp.public_id = e->public_id;
+                cbp.refexp.rplc = NULL;
+                cbp.refexp.rplclen = 0;
+            }
+            xml_reader_invoke_callback(h, &cbp); // May change replacement
+            break;
+
+        default:
+            OOPS;
         }
 
-        if (cbp.refexp.type == XML_READER_REF_IGNORE) {
-            // Special value: do nothing, just read on
+        if (cbp.refexp.rplclen == 0) {
+            // Callback requested no expansion, or entity was not known
         }
         else if (cbp.refexp.type >= XML_READER_REF__MAX) {
             xml_reader_message_lasttoken(h, XMLERR(WARN, XML, P_EntityRef),
@@ -2072,7 +2230,7 @@ xml_reader_start(xml_reader_t *h)
     h->curloc.line = XMLERR_EOF;
     h->curloc.pos = XMLERR_EOF;
     inp = xml_reader_input_new(h, h->curloc.src);
-    strbuf_realloc(inp->buf, 1024 * sizeof(ucs4_t));
+    strbuf_realloc(inp->buf, INITIAL_TOKENBUF_SIZE * sizeof(ucs4_t));
     strbuf_setops(inp->buf, &xml_reader_initial_ops, &xc);
 
     // Parse the declaration; expect only ASCII

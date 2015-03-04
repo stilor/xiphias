@@ -20,7 +20,7 @@ typedef struct item_s {
     size_t len;                 ///< Length of the string
     uint32_t hval;              ///< Hash value of the string
     void *payload;              ///< Actual structure stored
-    char key[];                 ///< String used as a key
+    utf8_t key[];               ///< String used as a key
 } item_t;
 
 /// Bucket in a storage
@@ -98,7 +98,7 @@ strhash_destroy(strhash_t *hash)
     @return Stored copy of the string. Always NUL terminated at @a len.
 */
 void
-strhash_setn(strhash_t *hash, const char *key, size_t len, void *payload)
+strhash_setn(strhash_t *hash, const utf8_t *key, size_t len, void *payload)
 {
     uint32_t hval = murmurhash32(key, len);
     bucket_t *bucket = &hash->buckets[hval & hash->bucket_mask];
@@ -148,7 +148,7 @@ strhash_setn(strhash_t *hash, const char *key, size_t len, void *payload)
     @return Nothing.
 */
 void *
-strhash_getn(strhash_t *hash, const char *key, size_t len)
+strhash_getn(strhash_t *hash, const utf8_t *key, size_t len)
 {
     uint32_t hval = murmurhash32(key, len);
     bucket_t *bucket = &hash->buckets[hval & hash->bucket_mask];

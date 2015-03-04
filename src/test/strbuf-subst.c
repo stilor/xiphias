@@ -124,7 +124,7 @@ subst_more(void *arg, void *begin, size_t sz)
                 if (*in_ptr == '/') {
                     // End of a code point. Store from the end of the out
                     // buffer
-                    ss->utf8_sz = utf8_len(ss->val);
+                    ss->utf8_sz = utf8_clen(ss->val);
                     tmp = ss->utf8_out + UTF8_LEN_MAX - ss->utf8_sz;
                     utf8_store(&tmp, ss->val);
                     ss->mode = SUBST_NONE;

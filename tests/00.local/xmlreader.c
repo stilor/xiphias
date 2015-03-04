@@ -99,7 +99,6 @@ evprint_refexp(const xml_reader_cbparam_t *cbparam)
         [XML_READER_REF__CHAR] = "Bad value (CHAR)",
         [XML_READER_REF__MAX] = "Bad value (MAX)",
         [XML_READER_REF_GENERAL] = "Undetermined general entity",
-        [XML_READER_REF_IGNORE] = "Bad value (IGNORE)",
         [XML_READER_REF__UNKNOWN] = "Bad value (UNKNOWN)",
     };
     const xml_reader_cbparam_refexp_t *x = &cbparam->refexp;

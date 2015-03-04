@@ -377,7 +377,7 @@ run_tc_utf8store(const void *arg)
     if (tc->oops) {
         printf("Codepoint U+%04X: expect OOPS on len/store\n", tc->codepoint);
         EXPECT_OOPS_BEGIN();
-        (void)utf8_len(tc->codepoint);
+        (void)utf8_clen(tc->codepoint);
         EXPECT_OOPS_END(rc = FAIL);
         EXPECT_OOPS_BEGIN();
         utf8_store(&ptr, tc->codepoint);
@@ -387,7 +387,7 @@ run_tc_utf8store(const void *arg)
         printf("Codepoint U+%04X: expect %zu byte sequence\n",
                 tc->codepoint, tc->len);
         OOPS_ASSERT(tc->len <= UTF8_LEN_MAX);
-        if (tc->len != (len = utf8_len(tc->codepoint))) {
+        if (tc->len != (len = utf8_clen(tc->codepoint))) {
             printf("But got %zu bytes as length!\n", len);
             rc = FAIL;
         }

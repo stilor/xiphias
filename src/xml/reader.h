@@ -44,7 +44,6 @@ enum xml_reader_reference_e {
     XML_READER_REF__CHAR,          ///< Internal value: not an entity, character reference
     XML_READER_REF__MAX,           ///< Internal value: array size for per-type handlers
     XML_READER_REF_GENERAL,        ///< Any general entity reference (internal/external/unparsed)
-    XML_READER_REF_IGNORE,         ///< On return from callback: do not expand this reference
     XML_READER_REF__UNKNOWN,       ///< Internal value: character or general (not yet determined)
 };
 
@@ -59,10 +58,10 @@ typedef struct {
     enum xml_reader_reference_e type;   ///< (in, out) Entity type
     const utf8_t *name;                 ///< Entity name
     size_t namelen;                     ///< Length of the entity name
-    ucs4_t *rplc;                       ///< (in) Replacement text
-    size_t rplclen;                     ///< (in) Number of characters in the replacement text
-    void (*complete)(void *);           ///< (in) Function to call when replacement text is done with
-    void *complete_arg;                 ///< (in) Argument to completion function
+    const char *system_id;              ///< System ID for external entities
+    const char *public_id;              ///< Public ID for external entities
+    const ucs4_t *rplc;                 ///< (in) Replacement text, or NULL to skip entity
+    size_t rplclen;                     ///< (in) Number of characters in the replacement text (0 to skip)
 } xml_reader_cbparam_refexp_t;
 
 /// Parameter for "adding text to a node" callback

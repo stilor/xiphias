@@ -22,12 +22,12 @@ test_cb(void *payload)
 static bool
 check_expected(strhash_t *hash, const char *msg)
 {
-    char buf[10];
+    utf8_t buf[10];
     obj_t *o;
     size_t i;
 
     for (i = 0; i < sizeofarray(objects); i++) {
-        snprintf(buf, sizeof(buf), "obj%zu", i);
+        snprintf((char *)buf, sizeof(buf), "obj%zu", i);
         o = strhash_get(hash, buf);
         if (o != expected_ptr[i]) {
             printf("[%s] Expect handle %p for '%s', got %p\n", msg, expected_ptr[i], buf, o);
@@ -46,12 +46,12 @@ static result_t
 test_hash(void)
 {
     strhash_t *hash;
-    char buf[10];
+    utf8_t buf[10];
     size_t i;
 
     hash = strhash_create(3, test_cb);
     for (i = 0; i < sizeofarray(objects); i++) {
-        snprintf(buf, sizeof(buf), "obj%zu", i);
+        snprintf((char *)buf, sizeof(buf), "obj%zu", i);
         strhash_set(hash, buf, &objects[i]);
         expected_ptr[i] = &objects[i];
     }
@@ -60,14 +60,14 @@ test_hash(void)
     }
 
     memset(objects, 0, sizeof(objects));
-    strhash_set(hash, "obj4", &objects[7]);
+    strhash_set(hash, U"obj4", &objects[7]);
     expected_ptr[4] = &objects[7];
     expected_val[4] = 1;
     if (!check_expected(hash, "4 <- 7")) {
         return FAIL;
     }
 
-    strhash_set(hash, "obj9", NULL);
+    strhash_set(hash, U"obj9", NULL);
     expected_ptr[9] = NULL;
     expected_val[9] = 1;
     if (!check_expected(hash, "9 <- NULL")) {

@@ -53,7 +53,7 @@ typedef uint8_t utf8_t;
     @return Length (1 or more bytes)
 */
 static inline size_t
-utf8_len(ucs4_t cp)
+utf8_clen(ucs4_t cp)
 {
     if (cp < 0x80) {
         return 1;   // ASCII-compatible, single byte
@@ -148,6 +148,18 @@ static inline char *
 utf8_ndup(const utf8_t *us, size_t sz)
 {
     return xstrndup((const char *)us, sz);
+}
+
+/**
+    Wrapper for strlen.
+
+    @param us Unicode string
+    @return Length of the string
+*/
+static inline size_t
+utf8_len(const utf8_t *us)
+{
+    return strlen((const char *)us);
 }
 
 /**
