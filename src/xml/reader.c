@@ -461,7 +461,7 @@ xml_entity_destroy(void *arg)
 
 /// Information on a pre-defined entity.
 typedef struct {
-    const char *name;       ///< Entity name
+    const utf8_t *name;     ///< Entity name
     const char *rplc[4];    ///< Replacement text; 1st is default.
 } xml_predefined_entity_t;
 
@@ -489,11 +489,11 @@ typedef struct {
     and with upper/lower case in hex character reference.
 */
 static const xml_predefined_entity_t predefined_entities[] = {
-    { .name = "lt",     .rplc = { "&#60;",  "&#x3C;",   "&#x3c;",   NULL,       }, },
-    { .name = "gt",     .rplc = { ">",      "&#62;",    "&#x3E;",   "&#x3e;",   }, },
-    { .name = "amp",    .rplc = { "&#38;",  "&#x26;",   NULL,       NULL,       }, },
-    { .name = "apos",   .rplc = { "'",      "&#39;",    "&#x27;",   NULL,       }, },
-    { .name = "quot",   .rplc = { "\"",     "&#34;",    "&#x22;",   NULL,       }, },
+    { .name = U"lt",    .rplc = { "&#60;",  "&#x3C;",   "&#x3c;",   NULL,       }, },
+    { .name = U"gt",    .rplc = { ">",      "&#62;",    "&#x3E;",   "&#x3e;",   }, },
+    { .name = U"amp",   .rplc = { "&#38;",  "&#x26;",   NULL,       NULL,       }, },
+    { .name = U"apos",  .rplc = { "'",      "&#39;",    "&#x27;",   NULL,       }, },
+    { .name = U"quot",  .rplc = { "\"",     "&#34;",    "&#x22;",   NULL,       }, },
 };
 
 /**
@@ -522,6 +522,7 @@ xml_entity_populate(strhash_t *ehash)
             rplc[j] = ucs4_fromlocal(s[j]);
         }
         e->rplc = rplc;
+        strhash_set(ehash, predef->name, e);
     }
 }
 
