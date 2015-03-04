@@ -83,8 +83,19 @@ typedef struct xml_reader_input_s {
     bool inc_in_literal;            ///<'included in literal' - special handling of quotes
 } xml_reader_input_t;
 
+/// Structure shared between master and subordinate documents
+typedef struct xml_reader_shared_s {
+    int refcnt;                     ///< Number of xml_reader_t handles referencing this
+
+    xml_reader_cb_t func;           ///< Callback function
+    void *arg;                      ///< Argument to callback function
+
+} xml_reader_shared_t;
+
 /// XML reader structure
 struct xml_reader_s {
+    xml_reader_shared_t *share;     ///< Structure shared with subordinate documents
+
     const char *enc_transport;      ///< Encoding reported by transport protocol
     const char *enc_detected;       ///< Encoding detected by BOM or start characters
     const char *enc_xmldecl;        ///< Encoding declared in <?xml ... ?>
@@ -101,9 +112,6 @@ struct xml_reader_s {
     enum xml_info_standalone_e standalone;          ///< Document's standalone status
     enum xml_reader_normalization_e normalization;  ///< Desired normalization behavior
 
-    xml_reader_cb_t func;           ///< Callback function
-    void *arg;                      ///< Argument to callback function
-
     utf8_t *tokenbuf;               ///< Token buffer
     utf8_t *tokenbuf_end;           ///< End of the token buffer
     size_t tokenbuf_len;            ///< Length of the token in the buffer
@@ -112,6 +120,10 @@ struct xml_reader_s {
     uint32_t srcid;                 ///< Source ID, incremented for each new input
     SLIST_HEAD(,xml_reader_input_s) active_input;   ///< Currently active inputs
     SLIST_HEAD(,xml_reader_input_s) free_input;     ///< Free list of input structures
+
+    xml_reader_t *master;           ///< Master document, if any
+    SLIST_HEAD(,xml_reader_s) sub;  ///< Subordinate document list
+    SLIST_ENTRY(xml_reader_s) link; ///< Link in subordinate list
 };
 
 /// Function for conditional read termination: returns true if the character is rejected
@@ -404,17 +416,18 @@ xml_reader_input_new(xml_reader_t *h, const char *location)
 /**
     Create an XML reading handle.
 
+    @param h Master handle (NULL if master document is created)
     @param buf String buffer to read the input from; will be destroyed along with
           the handle returned by this function.
     @param location Location that will be used for reporting errors
     @return Handle
 */
-xml_reader_t *
-xml_reader_new(strbuf_t *buf, const char *location)
+static xml_reader_t *
+xml_reader_new_internal(xml_reader_t *master, strbuf_t *buf, const char *location)
 {
     xml_reader_t *h;
 
-    h = xmalloc(sizeof(*h));
+    h = xmalloc(sizeof(xml_reader_t));
     memset(h, 0, sizeof(xml_reader_t));
     h->buf = buf;
 
@@ -436,7 +449,37 @@ xml_reader_new(strbuf_t *buf, const char *location)
     SLIST_INIT(&h->active_input);
     SLIST_INIT(&h->free_input);
 
+    SLIST_INIT(&h->sub);
+
+    // Subordinate document inherits callback info, entity storage
+    if (master) {
+        h->share = master->share;
+        master->share->refcnt++;
+        SLIST_INSERT_HEAD(&master->sub, h, link);
+        h->master = master;
+    }
+    else {
+        h->share = xmalloc(sizeof(xml_reader_shared_t));
+        memset(h->share, 0, sizeof(xml_reader_shared_t));
+        h->share->refcnt = 1;
+        // TBD entity storage initialization
+    }
+
     return h;
+}
+
+/**
+    Create an XML reading handle.
+
+    @param buf String buffer to read the input from; will be destroyed along with
+          the handle returned by this function.
+    @param location Location that will be used for reporting errors
+    @return Handle
+*/
+xml_reader_t *
+xml_reader_new(strbuf_t *buf, const char *location)
+{
+    return xml_reader_new_internal(NULL, buf, location);
 }
 
 /**
@@ -449,7 +492,19 @@ void
 xml_reader_delete(xml_reader_t *h)
 {
     xml_reader_input_t *inp;
+    xml_reader_t *hs;
 
+    if (h->share->refcnt-- == 1) {
+        // This is the last close
+        xfree(h->share);
+    }
+    if (h->master) {
+        SLIST_REMOVE(&h->master->sub, h, xml_reader_s, link);
+    }
+    while ((hs = SLIST_FIRST(&h->sub)) != NULL) {
+        // Destroy subordinates
+        xml_reader_delete(hs);
+    }
     while ((inp = SLIST_FIRST(&h->active_input)) != NULL) {
         SLIST_REMOVE_HEAD(&h->active_input, link);
         if (inp->complete) {
@@ -557,8 +612,8 @@ xml_reader_set_location_tracking(xml_reader_t *h, bool onoff, size_t tabsz)
 void
 xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg)
 {
-    h->func = func;
-    h->arg = arg;
+    h->share->func = func;
+    h->share->arg = arg;
 }
 
 /**
@@ -571,8 +626,10 @@ xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg)
 static void
 xml_reader_invoke_callback(xml_reader_t *h, xml_reader_cbparam_t *cbparam)
 {
-    if (h->func) {
-        h->func(h->arg, cbparam);
+    xml_reader_cb_t func;
+
+    if ((func = h->share->func) != NULL) {
+        func(h->share->arg, cbparam);
     }
 }
 
