@@ -23,7 +23,7 @@ struct strbuf_s;
 enum xml_reader_cbtype_e {
     XML_READER_CB_NONE,            ///< No message (placeholder/terminator)
     XML_READER_CB_MESSAGE,         ///< Note/warning/error message
-    XML_READER_CB_REFEXP,          ///< Request expansion of an entity
+    XML_READER_CB_UNKNOWN_ENTITY,  ///< Encountered unknown entity name
     XML_READER_CB_APPEND,          ///< Append text to current node (text/attribute)
     XML_READER_CB_XMLDECL,         ///< XML declaration
     XML_READER_CB_COMMENT,         ///< Comment
@@ -55,16 +55,14 @@ typedef struct {
     const char *msg;               ///< Error message
 } xml_reader_cbparam_message_t;
 
-/// Request for an expansion of an entity
+/// Unexpanded entity, either unknown or external
 typedef struct {
-    enum xml_reader_reference_e type;   ///< (in, out) Entity type
+    enum xml_reader_reference_e type;   ///< Entity type
     const utf8_t *name;                 ///< Entity name
     size_t namelen;                     ///< Length of the entity name
     const char *system_id;              ///< System ID for external entities
     const char *public_id;              ///< Public ID for external entities
-    const ucs4_t *rplc;                 ///< (in) Replacement text, or NULL to skip entity
-    size_t rplclen;                     ///< (in) Number of characters in the replacement text (0 to skip)
-} xml_reader_cbparam_refexp_t;
+} xml_reader_cbparam_entity_t;
 
 /// Parameter for "adding text to a node" callback
 typedef struct {
@@ -104,7 +102,7 @@ typedef struct {
     xmlerr_loc_t loc;                             ///< Location of the event
     union {
         xml_reader_cbparam_message_t message;     ///< Error/warning message
-        xml_reader_cbparam_refexp_t refexp;       ///< Reference expansion
+        xml_reader_cbparam_entity_t entity;       ///< Reference to an entity
         xml_reader_cbparam_append_t append;       ///< Attribute value
         xml_reader_cbparam_xmldecl_t xmldecl;     ///< XML or text declaration
         xml_reader_cbparam_stag_t stag;           ///< Start of element (STag)

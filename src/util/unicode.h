@@ -202,6 +202,30 @@ ucs4_fromlocal(char lc)
     return lc;
 }
 
+/**
+    Get a temporary locally-encoded string from a UTF-8 string.
+
+    @param us UTF-8 string
+    @return locally encoded string
+*/
+static inline const char *
+utf8_strtolocal(const utf8_t *us)
+{
+    return (const char *)us;
+}
+
+/**
+    Free any allocations made by utf8_strtolocal().
+
+    @param ls Local temporary string
+    @return Nothing
+*/
+static inline void
+utf8_strfreelocal(const char *ls)
+{
+    // No-op
+}
+
 #include "ucs4data.h"
 
 #endif

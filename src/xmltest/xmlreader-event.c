@@ -89,38 +89,44 @@ evequal_message(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
             && x1->info == x2->info;
 }
 
-static void
-evprint_refexp(const xml_reader_cbparam_t *cbparam)
-{
-    static const char * const reftypename[] = {
-        [XML_READER_REF_PARAMETER] = "Parameter",
-        [XML_READER_REF_INTERNAL] = "Internal general",
-        [XML_READER_REF_EXTERNAL] = "External parsed general",
-        [XML_READER_REF_UNPARSED] = "External unparsed general",
-        [XML_READER_REF__CHAR] = "Bad value (CHAR)",
-        [XML_READER_REF__MAX] = "Bad value (MAX)",
-        [XML_READER_REF_GENERAL] = "Undetermined general entity",
-        [XML_READER_REF__UNKNOWN] = "Bad value (UNKNOWN)",
-    };
-    const xml_reader_cbparam_refexp_t *x = &cbparam->refexp;
+static const char * const reftypename[] = {
+    [XML_READER_REF_PARAMETER] = "Parameter",
+    [XML_READER_REF_INTERNAL] = "Internal general",
+    [XML_READER_REF_EXTERNAL] = "External parsed general",
+    [XML_READER_REF_UNPARSED] = "External unparsed general",
+    [XML_READER_REF__CHAR] = "Bad value (CHAR)",
+    [XML_READER_REF__MAX] = "Bad value (MAX)",
+    [XML_READER_REF_GENERAL] = "Undetermined general entity",
+    [XML_READER_REF__UNKNOWN] = "Bad value (UNKNOWN)",
+};
 
-    printf("%s '%.*s' [%zu], replacement %p [%zu]",
+static void
+evprint_entity(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_entity_t *x = &cbparam->entity;
+
+    printf("%s '%.*s' [%zu]",
             x->type < sizeofarray(reftypename) ? reftypename[x->type] : "<unknown",
-            (int)x->namelen, x->name, x->namelen,
-            x->rplc, x->rplclen);
+            (int)x->namelen, x->name, x->namelen);
+    if (x->system_id) {
+        printf(" system ID '%s'", x->system_id);
+    }
+    if (x->public_id) {
+        printf(" public ID '%s'", x->public_id);
+    }
 }
 
 static bool
-evequal_refexp(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+evequal_entity(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 {
-    const xml_reader_cbparam_refexp_t *x1 = &e1->refexp;
-    const xml_reader_cbparam_refexp_t *x2 = &e2->refexp;
+    const xml_reader_cbparam_entity_t *x1 = &e1->entity;
+    const xml_reader_cbparam_entity_t *x2 = &e2->entity;
 
     return x1->type == x2->type
             && x1->namelen == x2->namelen
             && !memcmp(x1->name, x2->name, x1->namelen)
-            && x1->rplclen == x2->rplclen
-            && x1->rplc == x2->rplc;
+            && str_null_or_equal(x1->system_id, x2->system_id)
+            && str_null_or_equal(x1->public_id, x2->public_id);
 }
 
 static void
@@ -269,10 +275,10 @@ static const event_t events[] = {
         .print = evprint_message,
         .equal = evequal_message,
     },
-    [XML_READER_CB_REFEXP] = {
-        .desc = "Expand reference",
-        .print = evprint_refexp,
-        .equal = evequal_refexp,
+    [XML_READER_CB_UNKNOWN_ENTITY] = {
+        .desc = "Unknown entity",
+        .print = evprint_entity,
+        .equal = evequal_entity,
     },
     [XML_READER_CB_APPEND] = {
         .desc = "Append text",
