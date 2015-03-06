@@ -975,6 +975,7 @@ static inline void
 xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
         ucs4_t *ref, uint32_t recognize)
 {
+    xml_reader_input_t *inp;
     const void *begin, *end;
     const ucs4_t *ptr;
     ucs4_t cp, cp0;
@@ -987,6 +988,7 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
     total = 0;
     h->tokenloc = h->curloc;
     while (!stop && xml_reader_input_rptr(h, &begin, &end)) {
+        inp = SLIST_FIRST(&h->active_input);
         for (ptr = begin; !stop && ptr < (const ucs4_t *)end; ptr++) {
             cp0 = *ptr; // codepoint before possible substitution by func
             if (saw_cr && (cp0 == 0x0A || cp0 == 0x85)) {
@@ -1019,7 +1021,7 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
             // Check if entity expansion is needed
             if (((ucs4_cheq(cp0, '&') && (recognize & RECOGNIZE_REF) != 0)
                         || (ucs4_cheq(cp0, '%') && (recognize & RECOGNIZE_PEREF) != 0))
-                    && !SLIST_FIRST(&h->active_input)->charref) {
+                    && !inp->charref) {
                 *ref = cp0;
                 stop = true;
                 break;
@@ -1046,7 +1048,9 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
                         "Non-ASCII characters in %s", h->declinfo->name);
             }
-            else if (xml_is_restricted(h, cp0)) {
+            else if (!inp->charref && xml_is_restricted(h, cp0)) {
+                // Ignore if it came from character reference (if it is prohibited,
+                // the character reference parser already complained)
                 // Non-fatal: just let the app figure what to do with it
                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_Char),
                         "Restricted character U+%04X", cp0);
@@ -1354,26 +1358,28 @@ xml_read_reference(xml_reader_t *h, ucs4_t refstart, enum xml_reader_reference_e
     xml_cb_reference_state_t st;
     const xml_reference_info_t *ri;
 
+    if (ucs4_cheq(refstart, '&')) {
+        st.reftype = XML_READER_REF__UNKNOWN;
+    }
+    else if (ucs4_cheq(refstart, '%')) {
+        st.reftype = XML_READER_REF_PARAMETER;
+    }
+    else {
+        return false;
+    }
     st.refstart = refstart;
-    st.reftype = ucs4_cheq(refstart, '&') ?
-            XML_READER_REF__UNKNOWN : XML_READER_REF_PARAMETER;
     st.startchar = true;
     st.hex = false;
     st.terminated = false;
     (void)xml_read_until_noref(h, xml_cb_reference, &st);
     *reftype = st.reftype;
 
-    if (h->tokenbuf_len <= (st.reftype == XML_READER_REF__CHAR && st.hex ? 1 : 0)) {
+    if (h->tokenbuf_len <= (st.reftype == XML_READER_REF__CHAR && st.hex ? 1 : 0)
+            || !st.terminated) {
         // If it is hexadecimal character reference, must have at least one digit besides leading 'x'
         ri = xml_entity_type_info(st.reftype);
-        xml_reader_message_current(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
+        xml_reader_message_lasttoken(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
                 "Malformed %s reference", ri->desc);
-        return false;
-    }
-    else if (!st.terminated) {
-        ri = xml_entity_type_info(st.reftype);
-        xml_reader_message_current(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
-                "Expect semicolon to terminate %s reference", ri->desc);
         return false;
     }
     return true;
@@ -1556,11 +1562,13 @@ textblock_callback(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
 
-    cbp.cbtype = XML_READER_CB_APPEND;
-    cbp.loc = h->tokenloc;
-    cbp.append.text = h->tokenbuf;
-    cbp.append.textlen = h->tokenbuf_len;
-    xml_reader_invoke_callback(h, &cbp);
+    if (h->tokenbuf_len) {
+        cbp.cbtype = XML_READER_CB_APPEND;
+        cbp.loc = h->tokenloc;
+        cbp.append.text = h->tokenbuf;
+        cbp.append.textlen = h->tokenbuf_len;
+        xml_reader_invoke_callback(h, &cbp);
+    }
 }
 
 /**
@@ -1605,16 +1613,17 @@ xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
         case XML_READER_REF__CHAR:
             /* Parse the character referenced */
             if ((charrplc = xml_parse_charref(h)) == UCS4_NOCHAR) {
-                // Did not evaluate to a character; skip.
-                xml_reader_message_lasttoken(h, XMLERR(WARN, XML, P_CharRef),
+                // Did not evaluate to a character; recover by skipping.
+                xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_CharRef),
                         "Character reference did not evaluate to a valid "
                         "UCS-4 code point");
                 continue;
             }
             if (!xml_valid_char_reference(h, charrplc)) {
-                // Recover by still using the referenced character
-                xml_reader_message_lasttoken(h, XMLERR(WARN, XML, P_CharRef),
+                // Recover by skipping invalid character.
+                xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_CharRef),
                         "Referenced character does not match Char production");
+                continue;
             }
             fakechar.type = XML_READER_REF__CHAR;
             fakechar.system_id = NULL;

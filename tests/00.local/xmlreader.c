@@ -147,12 +147,13 @@ run_testcase(const void *arg)
 }
 
 // Some macro magic for declaring event (which is a disciminated union)
-#define FL_MESSAGE      message
-#define FL_XMLDECL      xmldecl
-#define FL_APPEND       append
-#define FL_STAG         stag
-#define FL_ETAG         etag
-#define FL_ATTR         attr
+#define FL_MESSAGE          message
+#define FL_XMLDECL          xmldecl
+#define FL_APPEND           append
+#define FL_STAG             stag
+#define FL_ETAG             etag
+#define FL_ATTR             attr
+#define FL_UNKNOWN_ENTITY   entity
 #define FL(t)           FL_##t
 
 #define E(t, l, ...)    { .cbtype = XML_READER_CB_##t, .loc = l, .FL(t) = { __VA_ARGS__ }, }
