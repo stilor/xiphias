@@ -2085,15 +2085,13 @@ xml_parse_doctypedecl(xml_reader_t *h)
     @param is_empty Pointer to boolean; set to true if the production was EmptyElemTag
     @return Nothing
 */
-static void
-xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
+static bool
+xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
     utf8_t la;
     size_t len;
-
-    // For recovery, assume the element has no content in case of error return.
-    *is_empty = true;
+    bool is_empty;
 
     if (!xml_read_string(h, "<", XMLERR(ERROR, XML, P_STag))) {
         OOPS; // This function should not be called unless looked ahead
@@ -2106,8 +2104,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
         // No valid name - try to recover by skipping until closing bracket
         xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_STag),
                 "Expected element type");
-        xml_read_until_gt(h);
-        return;
+        goto malformed;
     }
 
     // Notify the application that a new element has started
@@ -2120,20 +2117,20 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
         if (xml_lookahead(h, &la, 1, NULL) != 1) {
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
                     "Element start tag truncated");
-            return;
+            return false; // No point in trying to recover, we're at EOF
         }
         if (ucs4_cheq(la, '/')) {
             if (!xml_read_string(h, "/>", XMLERR(ERROR, XML, P_STag))) {
                 goto malformed;
             }
-            *is_empty = true;
+            is_empty = true;
             break;
         }
         else if (ucs4_cheq(la, '>')) {
             if (!xml_read_string(h, ">", XMLERR(ERROR, XML, P_STag))) {
                 OOPS; // Cannot fail - we looked ahead
             }
-            *is_empty = false;
+            is_empty = false;
             break;
         }
         else if (len && (len = xml_read_Name(h)) != 0) {
@@ -2165,14 +2162,14 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
     // Notify the app
     cbp.cbtype = XML_READER_CB_STAG_END;
     cbp.loc = h->tokenloc;
-    cbp.stag_end.is_empty = *is_empty;
+    cbp.stag_end.is_empty = is_empty;
     xml_reader_invoke_callback(h, &cbp);
-    return;
+    return true;
 
 malformed:
     // Try to recover by reading till end of opening tag
     xml_read_until_gt(h);
-    return;
+    return false;
 }
 
 /**
@@ -2229,7 +2226,7 @@ xml_parse_ETag(xml_reader_t *h)
     @param h Reader handle
     @return Nothing
 */
-static void
+static void __unused // TBD
 xml_parse_content(xml_reader_t *h)
 {
     // TBD
@@ -2245,19 +2242,14 @@ xml_parse_content(xml_reader_t *h)
 static void
 xml_parse_element(xml_reader_t *h)
 {
-    bool is_empty_element;
     utf8_t labuf[2];
 
-    xml_parse_STag_EmptyElemTag(h, &is_empty_element);
-    if (!is_empty_element) {
-        xml_parse_content(h);
-        if (xml_lookahead(h, labuf, 2, NULL) < 2) {
-            xml_reader_message_current(h, XMLERR(ERROR, XML, P_element),
-                    "Root element end tag missing");
-            return;
-        }
-        // xml_parse_content() should not have returned otherwise
-        OOPS_ASSERT(ucs4_cheq(labuf[0], '<') && ucs4_cheq(labuf[1], '/'));
+    // TBD temporary: will convert into a common "pattern -> function" loop
+    // TBD this function will go away
+    xml_parse_STag_EmptyElemTag(h);
+    if (xml_lookahead(h, labuf, 2, NULL) == 2
+            && ucs4_cheq(labuf[0], '<')
+            && ucs4_cheq(labuf[1], '/')) {
         xml_parse_ETag(h);
     }
 }
