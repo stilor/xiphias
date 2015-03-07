@@ -222,17 +222,29 @@ evequal_stag(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 }
 
 static void
+evprint_stag_end(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_stag_end_t *x = &cbparam->stag_end;
+
+    printf("Used %s production", x->is_empty ? "EmptyElemTag" : "STag");
+}
+
+static void
 evprint_etag(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_etag_t *x = &cbparam->etag;
 
-    if (x->type == NULL) {
-        printf("EmptyElemTag: closing the declaration");
-    }
-    else {
-        printf("Element '%.*s' [%zu]",
-                (int)x->typelen, x->type, x->typelen);
-    }
+    printf("Element '%.*s' [%zu]",
+            (int)x->typelen, x->type, x->typelen);
+}
+
+static bool
+evequal_stag_end(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    const xml_reader_cbparam_stag_end_t *x1 = &e1->stag_end;
+    const xml_reader_cbparam_stag_end_t *x2 = &e2->stag_end;
+
+    return x1->is_empty == x2->is_empty;
 }
 
 static bool
@@ -304,6 +316,11 @@ static const event_t events[] = {
         .desc = "Start tag",
         .print = evprint_stag,
         .equal = evequal_stag,
+    },
+    [XML_READER_CB_STAG_END] = {
+        .desc = "Start tag (complete)",
+        .print = evprint_stag_end,
+        .equal = evequal_stag_end,
     },
     [XML_READER_CB_ETAG] = {
         .desc = "End tag",

@@ -87,9 +87,8 @@ static const testcase_t testcases_api[] = {
                     .type = U"a",
                     .typelen = 1,
             ),
-            E(ETAG, LOC("simple-utf8.xml", 1, 1),
-                    .type = NULL,
-                    .typelen = 0,
+            E(STAG_END, LOC("simple-utf8.xml", 1, 1),
+                    .is_empty = true,
             ),
             END,
         },
@@ -105,9 +104,8 @@ static const testcase_t testcases_api[] = {
                 .type = U"a", \
                 .typelen = 1, \
         ), \
-        E(ETAG, LOC(s, l, p), \
-                .type = NULL, \
-                .typelen = 0, \
+        E(STAG_END, LOC(s, l, p + 2), \
+                .is_empty = true, \
         )
 
 struct test_set_transport_encoding_s {
@@ -750,6 +748,9 @@ static const testcase_t testcases_xmldecl[] = {
                     .type = U"a\xCC\x81",
                     .typelen = 3,
             ),
+            E(STAG_END, LOC("combining-mark.xml", 1, 3),
+                    .is_empty = false,
+            ),
             E(ETAG, LOC("combining-mark.xml", 1, 4),
                     .type = U"a\xCC\x81",
                     .typelen = 3,
@@ -817,7 +818,7 @@ static const testcase_t testcases_xmldecl[] = {
     },
 };
 
-// To avoid defining twice inline...
+// To avoid defining this monster inline...
 #define VERY_LONG_ELEMENT_NAME \
         "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
         "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
@@ -851,6 +852,9 @@ static const testcase_t testcases_structure[] = {
             E(STAG, LOC("simple-open-close.xml", 2, 1),
                     .type = U"a",
                     .typelen = 1,
+            ),
+            E(STAG_END, LOC("simple-open-close.xml", 2, 3),
+                    .is_empty = false,
             ),
             E(ETAG, LOC("simple-open-close.xml", 2, 4),
                     .type = U"a",
@@ -1039,6 +1043,9 @@ static const testcase_t testcases_structure[] = {
                     .type = U"a",
                     .typelen = 1,
             ),
+            E(STAG_END, LOC("etag-noname.xml", 1, 3),
+                    .is_empty = false,
+            ),
             E(MESSAGE, LOC("etag-noname.xml", 1, 6),
                     .info = XMLERR(ERROR, XML, P_ETag),
                     .msg = "Expected element type",
@@ -1053,6 +1060,9 @@ static const testcase_t testcases_structure[] = {
             E(STAG, LOC("etag-badname.xml", 1, 1),
                     .type = U"a",
                     .typelen = 1,
+            ),
+            E(STAG_END, LOC("etag-badname.xml", 1, 3),
+                    .is_empty = false,
             ),
             E(MESSAGE, LOC("etag-badname.xml", 1, 6),
                     .info = XMLERR(ERROR, XML, P_ETag),
@@ -1069,6 +1079,9 @@ static const testcase_t testcases_structure[] = {
                     .type = U"a",
                     .typelen = 1,
             ),
+            E(STAG_END, LOC("etag-mismatch.xml", 1, 3),
+                    .is_empty = false,
+            ),
             E(ETAG, LOC("etag-mismatch.xml", 1, 4),
                     .type = U"b",
                     .typelen = 1,
@@ -1083,6 +1096,9 @@ static const testcase_t testcases_structure[] = {
             E(STAG, LOC("etag-missing-bracket.xml", 1, 1),
                     .type = U"a",
                     .typelen = 1,
+            ),
+            E(STAG_END, LOC("etag-missing-bracket.xml", 1, 3),
+                    .is_empty = false,
             ),
             E(ETAG, LOC("etag-missing-bracket.xml", 1, 4),
                     .type = U"a",
@@ -1109,6 +1125,9 @@ static const testcase_t testcases_structure[] = {
                     .type = U"é",
                     .typelen = 2,
             ),
+            E(STAG_END, LOC("element-nonutf8-name.xml", 1, 46),
+                    .is_empty = false,
+            ),
             E(ETAG, LOC("element-nonutf8-name.xml", 1, 47),
                     .type = U"é",
                     .typelen = 2,
@@ -1132,9 +1151,8 @@ static const testcase_t testcases_structure[] = {
                     .type = U VERY_LONG_ELEMENT_NAME,
                     .typelen = sizeof(VERY_LONG_ELEMENT_NAME) - 1,
             ),
-            E(ETAG, LOC("very-long-token.xml", 1, 1),
-                    .type = NULL,
-                    .typelen = 0,
+            E(STAG_END, LOC("very-long-token.xml", 1, 1034),
+                    .is_empty = true,
             ),
             END,
         },
@@ -1163,9 +1181,8 @@ static const testcase_t testcases_structure[] = {
                     .text = U"bar",
                     .textlen = 3,
             ),
-            E(ETAG, LOC("attributes.xml", 1, 1),
-                    .type = NULL,
-                    .typelen = 0,
+            E(STAG_END, LOC("attributes.xml", 1, 28),
+                    .is_empty = true,
             ),
             END,
         },
@@ -1229,9 +1246,8 @@ static const testcase_t testcases_structure[] = {
                     .text = U"\xD1\x8Ah",
                     .textlen = 3,
             ),
-            E(ETAG, LOC("attribute-with-references.xml", 1, 1),
-                    .type = NULL,
-                    .typelen = 0,
+            E(STAG_END, LOC("attribute-with-references.xml", 1, 65),
+                    .is_empty = true,
             ),
             END,
         },
@@ -1311,9 +1327,8 @@ static const testcase_t testcases_structure[] = {
                     .info = XMLERR(ERROR, XML, P_CharRef),
                     .msg = "Referenced character does not match Char production",
             ),
-            E(ETAG, LOC("attribute-invalid-references1.xml", 2, 1),
-                    .type = NULL,
-                    .typelen = 0,
+            E(STAG_END, LOC("attribute-invalid-references1.xml", 2, 83),
+                    .is_empty = true,
             ),
             END,
         },
@@ -1351,9 +1366,8 @@ static const testcase_t testcases_structure[] = {
                     .text = U"\xC2\x80",
                     .textlen = 2,
             ),
-            E(ETAG, LOC("attribute-restricted-references.xml", 2, 1),
-                    .type = NULL,
-                    .typelen = 0,
+            E(STAG_END, LOC("attribute-restricted-references.xml", 2, 30),
+                    .is_empty = true,
             ),
             END,
         },

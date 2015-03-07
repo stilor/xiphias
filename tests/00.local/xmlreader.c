@@ -151,6 +151,7 @@ run_testcase(const void *arg)
 #define FL_XMLDECL          xmldecl
 #define FL_APPEND           append
 #define FL_STAG             stag
+#define FL_STAG_END         stag_end
 #define FL_ETAG             etag
 #define FL_ATTR             attr
 #define FL_UNKNOWN_ENTITY   entity

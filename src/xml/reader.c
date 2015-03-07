@@ -2089,7 +2089,6 @@ static void
 xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
 {
     xml_reader_cbparam_t cbp;
-    xmlerr_loc_t loc;
     utf8_t la;
     size_t len;
 
@@ -2099,7 +2098,9 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
     if (!xml_read_string(h, "<", XMLERR(ERROR, XML, P_STag))) {
         OOPS; // This function should not be called unless looked ahead
     }
-    loc = h->tokenloc;
+
+    cbp.cbtype = XML_READER_CB_STAG;
+    cbp.loc = h->tokenloc;
 
     if ((len = xml_read_Name(h)) == 0) {
         // No valid name - try to recover by skipping until closing bracket
@@ -2110,8 +2111,6 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
     }
 
     // Notify the application that a new element has started
-    cbp.cbtype = XML_READER_CB_STAG;
-    cbp.loc = loc;
     cbp.stag.type = h->tokenbuf;
     cbp.stag.typelen = len;
     xml_reader_invoke_callback(h, &cbp);
@@ -2127,20 +2126,15 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
             if (!xml_read_string(h, "/>", XMLERR(ERROR, XML, P_STag))) {
                 goto malformed;
             }
-            cbp.cbtype = XML_READER_CB_ETAG;
-            cbp.loc = loc;
-            cbp.etag.type = NULL; // Indicates empty tag
-            cbp.etag.typelen = 0;
-            xml_reader_invoke_callback(h, &cbp);
             *is_empty = true;
-            return;
+            break;
         }
         else if (ucs4_cheq(la, '>')) {
             if (!xml_read_string(h, ">", XMLERR(ERROR, XML, P_STag))) {
                 OOPS; // Cannot fail - we looked ahead
             }
             *is_empty = false;
-            return;
+            break;
         }
         else if (len && (len = xml_read_Name(h)) != 0) {
             // Attribute, if any, must be preceded by S (whitespace).
@@ -2156,7 +2150,6 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
                 goto malformed;
             }
             (void)xml_read_whitespace(h);
-            // TBD need to interpret Reference production inside the attribute value.
             if (!xml_read_literal(h, &reference_ops_AttValue)) {
                 goto malformed;
             }
@@ -2168,6 +2161,13 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h, bool *is_empty)
             goto malformed;
         }
     }
+
+    // Notify the app
+    cbp.cbtype = XML_READER_CB_STAG_END;
+    cbp.loc = h->tokenloc;
+    cbp.stag_end.is_empty = *is_empty;
+    xml_reader_invoke_callback(h, &cbp);
+    return;
 
 malformed:
     // Try to recover by reading till end of opening tag

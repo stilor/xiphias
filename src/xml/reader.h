@@ -31,6 +31,7 @@ enum xml_reader_cbtype_e {
     XML_READER_CB_DTD_BEGIN,       ///< Beginning of a document type declaration
     XML_READER_CB_DTD_END,         ///< End of a document type declaration
     XML_READER_CB_STAG,            ///< Start of element (STag)
+    XML_READER_CB_STAG_END,        ///< Start of element (STag) terminated
     XML_READER_CB_ETAG,            ///< End of element (ETag)
     XML_READER_CB_ATTR,            ///< Name of an attribute in an element
 
@@ -83,9 +84,14 @@ typedef struct {
     size_t typelen;                          ///< Element type length
 } xml_reader_cbparam_stag_t;
 
+/// Parameter for completion of the start of the element callback
+typedef struct {
+    bool is_empty;                           ///< Whether this was STag or EmptyElemTag production
+} xml_reader_cbparam_stag_end_t;
+
 /// Parameter for end of the element callback
 typedef struct {
-    const utf8_t *type;                      ///< Element type (NULL if saw EmptyElemTag)
+    const utf8_t *type;                      ///< Element type
     size_t typelen;                          ///< Element type length
 } xml_reader_cbparam_etag_t;
 
@@ -106,6 +112,7 @@ typedef struct {
         xml_reader_cbparam_append_t append;       ///< Attribute value
         xml_reader_cbparam_xmldecl_t xmldecl;     ///< XML or text declaration
         xml_reader_cbparam_stag_t stag;           ///< Start of element (STag)
+        xml_reader_cbparam_stag_end_t stag_end;   ///< Start of element (STag) complete
         xml_reader_cbparam_etag_t etag;           ///< End of element (ETag)
         xml_reader_cbparam_attr_t attr;           ///< Attribute name
     };
