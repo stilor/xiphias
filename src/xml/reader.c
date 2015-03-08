@@ -72,22 +72,6 @@ typedef struct xml_reader_xmldecl_declinfo_s {
     const xml_reader_xmldecl_attrdesc_t *attrlist; ///< Allowed/required attributes
 } xml_reader_xmldecl_declinfo_t;
 
-/// Input method: either strbuf for the main document, or diversion from a ucs4_t buffer in memory
-typedef struct xml_reader_input_s {
-    SLIST_ENTRY(xml_reader_input_s) link;   ///< Stack of diversions
-    strbuf_t *buf;                  ///< String buffer to use
-    xmlerr_loc_t saveloc;           ///< Saved location when this input is added
-
-    void (*complete)(void *);       ///< Notification when this input is consumed
-    void *complete_arg;             ///< Argument to completion notification
-
-    // Other fields
-    ucs4_t codepoint;               ///< For 1-character inputs, the codepoint to be read
-    uint32_t srcid;                 ///< Source ID to check for proper nesting
-    bool inc_in_literal;            ///<'included in literal' - special handling of quotes
-    bool charref;                   ///< Input originated from a character reference
-} xml_reader_input_t;
-
 /// Entity information
 typedef struct xml_reader_entity_s {
     enum xml_reader_reference_e type;   ///< Entity type
@@ -107,6 +91,25 @@ typedef struct xml_reader_entity_s {
         };
     };
 } xml_reader_entity_t;
+
+/// Input method: either strbuf for the main document, or diversion from a ucs4_t buffer in memory
+typedef struct xml_reader_input_s {
+    SLIST_ENTRY(xml_reader_input_s) link;   ///< Stack of diversions
+    strbuf_t *buf;                  ///< String buffer to use
+    xmlerr_loc_t saveloc;           ///< Saved location when this input is added
+
+    /// Notification when this input is consumed
+    void (*complete)(struct xml_reader_s *, void *);
+    void *complete_arg;             ///< Argument to completion notification
+
+    // Other fields
+    ucs4_t codepoint;               ///< For 1-character inputs, the codepoint to be read
+    uint32_t srcid;                 ///< Source ID to check for proper nesting
+    bool inc_in_literal;            ///<'included in literal' - special handling of quotes
+    bool charref;                   ///< Input originated from a character reference
+    xml_reader_entity_t *entity;    ///< Associated entity if any
+    void *baton;                    ///< Saved user data for entity being parsed
+} xml_reader_input_t;
 
 /// Structure shared between master and subordinate documents
 typedef struct xml_reader_shared_s {
@@ -176,6 +179,39 @@ typedef struct xml_reference_ops_s {
     xml_refhandler_t hnd[XML_READER_REF__MAX];
 } xml_reference_ops_t;
 
+/// How error messages are generated for references
+typedef struct {
+    const char *desc;           ///< How this reference is called in error messages
+    uint32_t ecode;             ///< Error code associated with this type of references
+} xml_reference_info_t;
+
+/// Maximum number of characters we need to look ahead: '<!DOCTYPE' or '<![CDATA['
+#define MAX_PATTERN     9
+
+/// Lookahead pattern/handler pairs
+typedef struct {
+    const utf8_t pattern[MAX_PATTERN];  ///< Lookahead pattern to look for
+    size_t patlen;                      ///< Length of the recognized pattern
+    bool (*func)(xml_reader_t *);       ///< Function to call for this pattern
+} xml_reader_pattern_t;
+
+/// Maximum number of lookahead pairs
+#define MAX_LA_PAIRS    6
+
+/**
+    Parser settings: entity recognition settings at root level, set of lookahead
+    patterns for root level, pointer to a settings for non-root level.
+*/
+typedef struct xml_reader_settings_s {
+    /// Lookahead patterns
+    const xml_reader_pattern_t *lookahead[MAX_LA_PAIRS];
+
+    /// Settings for non-root context
+    const struct xml_reader_settings_s *nonroot;
+
+    /// Recovery function (if the handler for recognized pattern returns failure)
+} xml_reader_settings_t;
+
 /// Convenience macro: report an error at the start of the last token
 #define xml_reader_message_lasttoken(h, ...) \
         xml_reader_message(h, &h->tokenloc, __VA_ARGS__)
@@ -183,12 +219,6 @@ typedef struct xml_reference_ops_s {
 /// Convenience macro: report an error at current location (i.e. after a lookahead)
 #define xml_reader_message_current(h, ...) \
         xml_reader_message(h, &h->curloc, __VA_ARGS__)
-
-/// How error messages are generated for references
-typedef struct {
-    const char *desc;
-    uint32_t ecode;
-} xml_reference_info_t;
 
 /**
     Determine if a character is a restricted character. Restricted characters are
@@ -389,10 +419,10 @@ xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
         }
         // This input is done with: dequeue, notify and try next
         SLIST_REMOVE_HEAD(&h->active_input, link);
-        if (inp->complete) {
-            inp->complete(inp->complete_arg);
-        }
         h->curloc = inp->saveloc;
+        if (inp->complete) {
+            inp->complete(h, inp->complete_arg);
+        }
         SLIST_INSERT_HEAD(&h->free_input, inp, link);
     }
     return 0; // All inputs consumed, EOF
@@ -646,7 +676,7 @@ xml_reader_delete(xml_reader_t *h)
     while ((inp = SLIST_FIRST(&h->active_input)) != NULL) {
         SLIST_REMOVE_HEAD(&h->active_input, link);
         if (inp->complete) {
-            inp->complete(inp->complete_arg);
+            inp->complete(h, inp->complete_arg);
         }
         strbuf_delete(inp->buf);
         xfree(inp);
@@ -1473,15 +1503,28 @@ xml_valid_char_reference(xml_reader_t *h, ucs4_t cp)
 /**
     When entity finishes parsing, mark it available for other references.
 
+    @param h Reader handle
     @param arg Entity being parsed
     @return Nothing
 */
 static void
-entity_unmark(void *arg)
+entity_input_end(xml_reader_t *h, void *arg)
 {
-    xml_reader_entity_t *e = arg;
+    xml_reader_input_t *inp = arg;
+    xml_reader_entity_t *e = inp->entity;
+    xml_reader_cbparam_t cbp;
 
-    e->being_parsed = false;
+    cbp.cbtype = XML_READER_CB_ENTITY_END;
+    cbp.loc = h->curloc;
+    cbp.entity.type = e->type;
+    cbp.entity.name = NULL;
+    cbp.entity.namelen = 0;
+    cbp.entity.system_id = e->system_id;
+    cbp.entity.public_id = e->system_id ? e->public_id : NULL; // Only for external entities
+    cbp.entity.baton = inp->baton;
+    xml_reader_invoke_callback(h, &cbp);
+
+    inp->entity->being_parsed = false;
 }
 
 /**
@@ -1512,14 +1555,28 @@ static void
 reference_included_in_literal(xml_reader_t *h, xml_reader_entity_t *e)
 {
     xml_reader_input_t *inp;
+    xml_reader_cbparam_t cbp;
+
+    cbp.cbtype = XML_READER_CB_ENTITY_START;
+    cbp.loc = h->tokenloc;
+    cbp.entity.type = e->type;
+    cbp.entity.name = h->tokenbuf;
+    cbp.entity.namelen = h->tokenbuf_len;
+    cbp.entity.system_id = e->system_id;
+    cbp.entity.public_id = e->system_id ? e->public_id : NULL; // Only for external entities
+    cbp.entity.baton = NULL;
+    xml_reader_invoke_callback(h, &cbp);
 
     OOPS_ASSERT(e->system_id == NULL); // Must be internal entity
     e->being_parsed = true;
     inp = xml_reader_input_new(h, e->location);
     strbuf_set_input(inp->buf, e->rplc, e->rplclen);
+    inp->entity = e;
     inp->inc_in_literal = true;
-    inp->complete = entity_unmark;
-    inp->complete_arg = e;
+    inp->baton = cbp.entity.baton;
+
+    inp->complete = entity_input_end;
+    inp->complete_arg = inp;
 }
 
 /**
@@ -1649,13 +1706,14 @@ xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
 
         if (!e) {
             // Entity was not known. This may or may not be error; let the callback decide
-            cbp.cbtype = XML_READER_CB_UNKNOWN_ENTITY;
+            cbp.cbtype = XML_READER_CB_ENTITY_UNKNOWN;
             cbp.loc = h->tokenloc;
             cbp.entity.type = reftype; // Our best guess
             cbp.entity.name = h->tokenbuf;
             cbp.entity.namelen = h->tokenbuf_len;
             cbp.entity.system_id = NULL;
             cbp.entity.public_id = NULL;
+            cbp.entity.baton = NULL;
             xml_reader_invoke_callback(h, &cbp);
         }
         else if (refops->hnd[e->type]) {

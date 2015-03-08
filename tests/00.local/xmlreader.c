@@ -154,7 +154,9 @@ run_testcase(const void *arg)
 #define FL_STAG_END         stag_end
 #define FL_ETAG             etag
 #define FL_ATTR             attr
-#define FL_UNKNOWN_ENTITY   entity
+#define FL_ENTITY_UNKNOWN   entity
+#define FL_ENTITY_START     entity
+#define FL_ENTITY_END       entity
 #define FL(t)           FL_##t
 
 #define E(t, l, ...)    { .cbtype = XML_READER_CB_##t, .loc = l, .FL(t) = { __VA_ARGS__ }, }

@@ -287,8 +287,18 @@ static const event_t events[] = {
         .print = evprint_message,
         .equal = evequal_message,
     },
-    [XML_READER_CB_UNKNOWN_ENTITY] = {
+    [XML_READER_CB_ENTITY_UNKNOWN] = {
         .desc = "Unknown entity",
+        .print = evprint_entity,
+        .equal = evequal_entity,
+    },
+    [XML_READER_CB_ENTITY_START] = {
+        .desc = "Entity parsing start",
+        .print = evprint_entity,
+        .equal = evequal_entity,
+    },
+    [XML_READER_CB_ENTITY_END] = {
+        .desc = "Entity parsing end",
         .print = evprint_entity,
         .equal = evequal_entity,
     },

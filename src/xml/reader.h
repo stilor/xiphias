@@ -23,7 +23,9 @@ struct strbuf_s;
 enum xml_reader_cbtype_e {
     XML_READER_CB_NONE,            ///< No message (placeholder/terminator)
     XML_READER_CB_MESSAGE,         ///< Note/warning/error message
-    XML_READER_CB_UNKNOWN_ENTITY,  ///< Encountered unknown entity name
+    XML_READER_CB_ENTITY_UNKNOWN,  ///< Encountered unknown entity name
+    XML_READER_CB_ENTITY_START,    ///< Encountered unknown entity name
+    XML_READER_CB_ENTITY_END,      ///< Encountered unknown entity name
     XML_READER_CB_APPEND,          ///< Append text to current node (text/attribute)
     XML_READER_CB_XMLDECL,         ///< XML declaration
     XML_READER_CB_COMMENT,         ///< Comment
@@ -63,6 +65,7 @@ typedef struct {
     size_t namelen;                     ///< Length of the entity name
     const char *system_id;              ///< System ID for external entities
     const char *public_id;              ///< Public ID for external entities
+    void *baton;                        ///< (in) Baton from ENTITY_START to ENTITY_END
 } xml_reader_cbparam_entity_t;
 
 /// Parameter for "adding text to a node" callback
