@@ -212,6 +212,15 @@ typedef struct xml_reader_settings_s {
     /// Recovery function (if the handler for recognized pattern returns failure)
 } xml_reader_settings_t;
 
+/// xml_read_until_internal return codes
+enum xml_read_until_status_e {
+    XRUI_CONTINUE,          ///< Internal value: do not return yet
+    XRUI_EOF,               ///< Reach end of input
+    XRUI_STOP,              ///< Callback indicated end of a token
+    XRUI_REFERENCE,         ///< Recognized entity/character reference
+    XRUI_INPUT_BOUNDARY,    ///< Encountered input (entity) boundary
+};
+
 /// Convenience macro: report an error at the start of the last token
 #define xml_reader_message_lasttoken(h, ...) \
         xml_reader_message(h, &h->tokenloc, __VA_ARGS__)
@@ -404,17 +413,17 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz, bool *peof)
     @param h Reader handle
     @param begin Pointer set to the beginning of the readable area
     @param end Pointer set to the end of the readable area
-    @return Number of bytes that can be read
+    @return Reason for termination (EOF or crossing the input boundary)
 */
-static size_t
+static enum xml_read_until_status_e
 xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
 {
     xml_reader_input_t *inp;
-    size_t rv;
+    enum xml_read_until_status_e rv = XRUI_CONTINUE;
 
     while ((inp = SLIST_FIRST(&h->active_input)) != NULL) {
         OOPS_ASSERT(inp->buf);
-        if ((rv = strbuf_rptr(inp->buf, begin, end)) != 0) {
+        if (strbuf_rptr(inp->buf, begin, end) != 0) {
             return rv;
         }
         // This input is done with: dequeue, notify and try next
@@ -424,8 +433,9 @@ xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
             inp->complete(h, inp->complete_arg);
         }
         SLIST_INSERT_HEAD(&h->free_input, inp, link);
+        rv = XRUI_INPUT_BOUNDARY; // No longer reading from the same input
     }
-    return 0; // All inputs consumed, EOF
+    return XRUI_EOF; // All inputs consumed, EOF
 }
 
 /**
@@ -996,14 +1006,12 @@ static const strbuf_ops_t xml_reader_transcode_ops = {
     @param h Reader handle
     @param func Function to call to check for the condition
     @param arg Argument to @a func
-    @param ref If reading terminated due to a recognized entity start, this is set
-            to the character triggering the entity ('&' or '%')
     @param recognize Bitmask of reference types recognized while parsing
-    @return Number of bytes read (token length)
+    @return Reason why the token parser returned
 */
-static inline void
+static inline enum xml_read_until_status_e
 xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
-        ucs4_t *ref, uint32_t recognize)
+        uint32_t recognize)
 {
     xml_reader_input_t *inp;
     const void *begin, *end;
@@ -1011,15 +1019,22 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
     ucs4_t cp, cp0;
     size_t clen, offs, bufsz, total;
     utf8_t *bufptr;
-    bool stop = false;
+    enum xml_read_until_status_e rv = XRUI_CONTINUE;
     bool saw_cr = false;
 
     bufptr = h->tokenbuf;
     total = 0;
     h->tokenloc = h->curloc;
-    while (!stop && xml_reader_input_rptr(h, &begin, &end)) {
+
+    while (rv == XRUI_CONTINUE) { // First check the status from inner for-loop...
+        // ... and only if we're not terminating yet, try to get next read pointers
+        if ((rv = xml_reader_input_rptr(h, &begin, &end)) != XRUI_CONTINUE) {
+            break;
+        }
         inp = SLIST_FIRST(&h->active_input);
-        for (ptr = begin; !stop && ptr < (const ucs4_t *)end; ptr++) {
+        for (ptr = begin;
+                rv == XRUI_CONTINUE && ptr < (const ucs4_t *)end;
+                ptr++) {
             cp0 = *ptr; // codepoint before possible substitution by func
             if (saw_cr && (cp0 == 0x0A || cp0 == 0x85)) {
                 // EOL normalization. This is "continuation" of a previous character - so
@@ -1052,8 +1067,7 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
             if (((ucs4_cheq(cp0, '&') && (recognize & RECOGNIZE_REF) != 0)
                         || (ucs4_cheq(cp0, '%') && (recognize & RECOGNIZE_PEREF) != 0))
                     && !inp->charref) {
-                *ref = cp0;
-                stop = true;
+                rv = XRUI_REFERENCE;
                 break;
             }
 
@@ -1061,7 +1075,7 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
             // (via the argument - when reading chardata, point to a structure that has such flag)
             // TBD if in DTD, and not parsing a literal/comment/PI - recognize parameter entities
             if ((cp = func(arg, cp0)) == UCS4_STOPCHAR) {
-                stop = true;
+                rv = XRUI_STOP;
                 break; // This character is rejected
             }
 
@@ -1088,7 +1102,7 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
 
             // Store the character returned by func and see if func requested a stop
             if (cp & UCS4_LASTCHAR) {
-                stop = true; // This character is accepted but is known to be the last
+                rv = XRUI_STOP; // This character is accepted but is known to be the last
                 cp &= ~UCS4_LASTCHAR;
             }
 
@@ -1117,6 +1131,7 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
         xml_reader_input_radvance(h, (const uint8_t *)ptr - (const uint8_t *)begin);
     }
     h->tokenbuf_len = total;
+    return rv;
 }
 
 /**
@@ -1126,13 +1141,13 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
     @param h Reader handle
     @param func Function to call to check for the condition
     @param arg Argument to @a func
-    @return Number of bytes read (token length)
+    @return Nothing
 */
-static size_t
+static void
 xml_read_until_noref(xml_reader_t *h, xml_condread_func_t func, void *arg)
 {
-    xml_read_until_internal(h, func, arg, NULL, 0);
-    return h->tokenbuf_len;
+    // We are not interested whether we stopped due to entity boundary or stop condition
+    (void)xml_read_until_internal(h, func, arg, 0);
 }
 
 /**
@@ -1148,8 +1163,30 @@ xml_cb_not_whitespace(void *arg, ucs4_t cp)
     return !xml_is_whitespace(cp) ? UCS4_STOPCHAR : cp;
 }
 
-/// Consume whitespace
-#define xml_read_whitespace(h) xml_read_until_noref(h, xml_cb_not_whitespace, NULL)
+/**
+    Consume whitespace.
+
+    @param h Reader handle
+    @return True if there was any whitespace consumed
+*/
+static bool
+xml_read_whitespace(xml_reader_t *h)
+{
+    bool rv = false;
+    enum xml_read_until_status_e stopstatus;
+
+    // Whitespace may cross entity boundaries; repeat until we get something other
+    // than whitespace
+    // TBD somehow indicate that xml_read_until_internal returned due to entity boundary
+    // and only retry in those cases
+    do {
+        stopstatus = xml_read_until_internal(h, xml_cb_not_whitespace, NULL, 0);
+        if (!rv && h->tokenbuf_len) {
+            rv = true;
+        }
+    } while (stopstatus == XRUI_INPUT_BOUNDARY);
+    return rv;
+}
 
 /**
     Read condition: until < (left angle bracket)
@@ -1220,14 +1257,15 @@ xml_cb_not_name(void *arg, ucs4_t cp)
     Read a Name production.
 
     @param h Reader handle
-    @return Length of the token read (token is placed in h->tokenbuf)
+    @return True if Name production was read (NameStartChar, 0+ NameChar)
 */
-static size_t
+static bool
 xml_read_Name(xml_reader_t *h)
 {
     bool startchar = true;
 
-    return xml_read_until_noref(h, xml_cb_not_name, &startchar);
+    xml_read_until_noref(h, xml_cb_not_name, &startchar);
+    return !!h->tokenbuf_len;
 }
 
 /// Current state structure for xml_cb_string
@@ -1275,7 +1313,8 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
     len = strlen(s);
     state.cur = s;
     state.end = s + len;
-    if (len != xml_read_until_noref(h, xml_cb_string, &state)) {
+    xml_read_until_noref(h, xml_cb_string, &state);
+    if (len != h->tokenbuf_len) {
         xml_reader_message_lasttoken(h, errinfo, "Expected string: '%s'", s);
         return false;
     }
@@ -1285,6 +1324,7 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
 /// Current state structure for xml_cb_reference
 typedef struct {
     enum xml_reader_reference_e reftype;    ///< Type of the reference determined
+    bool starting;                          ///< True if expecting '&' or '%' character
     bool startchar;                         ///< When reading entity name: if it is 1st char
     bool hex;                               ///< Char reference: value is hexadecimal
     bool terminated;                        ///< Whether terminating semicolon was seen
@@ -1309,9 +1349,18 @@ xml_cb_reference(void *arg, ucs4_t cp)
     xml_cb_reference_state_t *st = arg;
     bool startchar;
 
-    if (st->refstart == cp) {
+    if (st->starting) {
         // Consume the reference starting character
-        st->refstart = UCS4_NOCHAR;
+        st->starting = false;
+        if (ucs4_cheq(cp, '&')) {
+            st->reftype = XML_READER_REF__UNKNOWN;
+        }
+        else if (ucs4_cheq(cp, '%')) {
+            st->reftype = XML_READER_REF_PARAMETER;
+        }
+        else {
+            OOPS;
+        }
         return UCS4_NOCHAR;
     }
     if (st->reftype == XML_READER_REF__UNKNOWN) {
@@ -1378,30 +1427,20 @@ xml_entity_type_info(enum xml_reader_reference_e type)
     Read entity name or (for character references) the code point.
 
     @param h Reader handle
-    @param refstart Starting code point of the Reference production ('&' or '%')
     @param reftype Entity type determined by parsing
     @return true if parsed successfully, false otherwise
 */
 static bool
-xml_read_reference(xml_reader_t *h, ucs4_t refstart, enum xml_reader_reference_e *reftype)
+xml_read_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
 {
     xml_cb_reference_state_t st;
     const xml_reference_info_t *ri;
 
-    if (ucs4_cheq(refstart, '&')) {
-        st.reftype = XML_READER_REF__UNKNOWN;
-    }
-    else if (ucs4_cheq(refstart, '%')) {
-        st.reftype = XML_READER_REF_PARAMETER;
-    }
-    else {
-        return false;
-    }
-    st.refstart = refstart;
+    st.starting = true;
     st.startchar = true;
     st.hex = false;
     st.terminated = false;
-    (void)xml_read_until_noref(h, xml_cb_reference, &st);
+    xml_read_until_noref(h, xml_cb_reference, &st);
     *reftype = st.reftype;
 
     if (h->tokenbuf_len <= (st.reftype == XML_READER_REF__CHAR && st.hex ? 1 : 0)
@@ -1638,30 +1677,33 @@ textblock_callback(xml_reader_t *h)
     @param h Reader handle
     @param func Function to call to check for the condition
     @param arg Argument to @a func
-    @return Number of bytes read (token length)
+    @return Nothing
 */
-static size_t
-xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
+static void
+xml_read_until_parseref(xml_reader_t *h, xml_condread_func_t func, void *arg,
         const xml_reference_ops_t *refops)
 {
-    ucs4_t refstart, charrplc;
+    enum xml_read_until_status_e stopstatus;
+    ucs4_t charrplc;
     xml_reader_cbparam_t cbp;
     enum xml_reader_reference_e reftype;
     xml_reader_entity_t *e;
     xml_reader_entity_t fakechar;
 
     while (true) {
-        refstart = UCS4_NOCHAR;
-        xml_read_until_internal(h, func, arg, &refstart, refops->flags);
-        if (refops->textblock) {
-            refops->textblock(h);
-        }
-        if (refstart == UCS4_NOCHAR) {
-            break;
+        do {
+            stopstatus = xml_read_until_internal(h, func, arg, refops->flags);
+            if (refops->textblock) {
+                refops->textblock(h);
+            }
+        } while (stopstatus == XRUI_INPUT_BOUNDARY);
+
+        if (stopstatus != XRUI_REFERENCE) {
+            break; // Saw the terminating condition or EOF
         }
 
         // We have some kind of entity, read its name or code point
-        if (!xml_read_reference(h, refstart, &reftype)) {
+        if (!xml_read_reference(h, &reftype)) {
             // no recovery - interpret anything after error as plain text
             continue;
         }
@@ -1724,7 +1766,6 @@ xml_read_until_ref(xml_reader_t *h, xml_condread_func_t func, void *arg,
             OOPS;
         }
     }
-    return h->tokenbuf_len;
 }
 
 /// Callback state for literal reading
@@ -1786,7 +1827,7 @@ xml_read_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     // xml_read_until() may return 0 (empty literal), which is valid
     st.quote = UCS4_NOCHAR;
     st.h = h;
-    xml_read_until_ref(h, xml_cb_literal, &st, refops);
+    xml_read_until_parseref(h, xml_cb_literal, &st, refops);
     if (st.quote != UCS4_STOPCHAR) {
         xml_reader_message_lasttoken(h, refops->errinfo,
                 st.quote == UCS4_NOCHAR ?
@@ -1988,7 +2029,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     const xml_reader_xmldecl_attrdesc_t *attrlist = declinfo->attrlist;
     xml_reader_cbparam_t cbp;
     utf8_t labuf[6]; // ['<?xml' + whitespace] or [?>]
-    size_t len;
+    bool had_ws;
 
     if (6 != xml_lookahead(h, labuf, 6, NULL)
             || !utf8_eqn(labuf, "<?xml", 5)
@@ -2002,7 +2043,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     cbp.loc = h->tokenloc;
 
     while (true) {
-        len = xml_read_whitespace(h);
+        had_ws = xml_read_whitespace(h);
 
         // From the productions above, we expect either closing ?> or Name=Literal.
         // If it was a Name, it is further checked against the expected
@@ -2016,9 +2057,10 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
         }
         // We may have no whitespace before final ?>, but must get some before
         // pseudo-attributes.
-        if (len == 0 || (len = xml_read_Name(h)) == 0) {
+        if (!had_ws || !xml_read_Name(h)) {
             goto malformed;
         }
+
         // Go through the remaining attributes and see if this one is known
         // (and if we skipped any mandatory attributes while advancing).
         while (attrlist->name) {
@@ -2148,7 +2190,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
     utf8_t la;
-    size_t len;
+    bool had_ws;
     bool is_empty;
 
     if (!xml_read_string(h, "<", XMLERR(ERROR, XML, P_STag))) {
@@ -2158,7 +2200,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     cbp.cbtype = XML_READER_CB_STAG;
     cbp.loc = h->tokenloc;
 
-    if ((len = xml_read_Name(h)) == 0) {
+    if (!xml_read_Name(h)) {
         // No valid name - try to recover by skipping until closing bracket
         xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_STag),
                 "Expected element type");
@@ -2167,11 +2209,11 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 
     // Notify the application that a new element has started
     cbp.stag.type = h->tokenbuf;
-    cbp.stag.typelen = len;
+    cbp.stag.typelen = h->tokenbuf_len;
     xml_reader_invoke_callback(h, &cbp);
 
     while (true) {
-        len = xml_read_whitespace(h);
+        had_ws = xml_read_whitespace(h);
         if (xml_lookahead(h, &la, 1, NULL) != 1) {
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
                     "Element start tag truncated");
@@ -2191,7 +2233,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
             is_empty = false;
             break;
         }
-        else if (len && (len = xml_read_Name(h)) != 0) {
+        else if (had_ws && xml_read_Name(h)) {
             // Attribute, if any, must be preceded by S (whitespace).
             cbp.cbtype = XML_READER_CB_ATTR;
             cbp.loc = h->tokenloc;
@@ -2244,14 +2286,13 @@ static void
 xml_parse_ETag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
-    size_t len;
 
     if (!xml_read_string(h, "</", XMLERR(ERROR, XML, P_ETag))) {
         OOPS; // This function should not be called unless looked ahead
     }
     cbp.cbtype = XML_READER_CB_ETAG;
     cbp.loc = h->tokenloc;
-    if ((len = xml_read_Name(h)) == 0) {
+    if (!xml_read_Name(h)) {
         // No valid name - try to recover by skipping until closing bracket
         xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_ETag),
                 "Expected element type");
@@ -2260,10 +2301,10 @@ xml_parse_ETag(xml_reader_t *h)
     }
 
     cbp.stag.type = h->tokenbuf;
-    cbp.stag.typelen = len;
+    cbp.stag.typelen = h->tokenbuf_len;
     xml_reader_invoke_callback(h, &cbp);
 
-    (void)xml_read_whitespace(h);
+    (void)xml_read_whitespace(h); // optional whitespace
     if (!xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag))) {
         // No valid name - try to recover by skipping until closing bracket
         xml_read_until_gt(h);
