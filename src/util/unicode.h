@@ -43,7 +43,7 @@ typedef uint32_t ucs4_t;
 typedef uint8_t utf8_t;
 
 #define U (const utf8_t *)
-
+#define U_ARRAY
 
 /**
     Helper function for implementing decoders: get UTF-8 encoding

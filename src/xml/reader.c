@@ -43,6 +43,7 @@
 enum {
     READER_STARTED  = 0x0001,       ///< Reader has started the operation
     READER_FATAL    = 0x0002,       ///< Reader encountered a fatal error
+    // TBD: RECOGNIZE_ASCII, pass from XMLDecl parser?
     READER_ASCII    = 0x0004,       ///< Only ASCII characters allowed while reading declaration
     READER_LOCTRACK = 0x0008,       ///< Track the current position for error reporting
 };
@@ -142,6 +143,8 @@ struct xml_reader_s {
     enum xml_info_standalone_e standalone;          ///< Document's standalone status
     enum xml_reader_normalization_e normalization;  ///< Desired normalization behavior
 
+    uint32_t nestlvl;               ///< Element nesting level
+
     utf8_t *tokenbuf;               ///< Token buffer
     utf8_t *tokenbuf_end;           ///< End of the token buffer
     size_t tokenbuf_len;            ///< Length of the token in the buffer
@@ -195,6 +198,15 @@ typedef struct {
     bool (*func)(xml_reader_t *);       ///< Function to call for this pattern
 } xml_reader_pattern_t;
 
+// TBD: construct a DFA? Manually or by a constructor?
+/// Lookahead initializer
+#define LOOKAHEAD(s, f) \
+{ \
+    .pattern = U_ARRAY s, \
+    .patlen = sizeof(s) - 1, \
+    .func = f, \
+}
+
 /// Maximum number of lookahead pairs
 #define MAX_LA_PAIRS    6
 
@@ -204,13 +216,17 @@ typedef struct {
 */
 typedef struct xml_reader_settings_s {
     /// Lookahead patterns
-    const xml_reader_pattern_t *lookahead[MAX_LA_PAIRS];
-
-    /// Settings for non-root context
-    const struct xml_reader_settings_s *nonroot;
+    const xml_reader_pattern_t lookahead[MAX_LA_PAIRS];
 
     /// Recovery function (if the handler for recognized pattern returns failure)
-} xml_reader_settings_t;
+    bool (*recover)(xml_reader_t *);
+
+    /// Entity recognition flags
+    uint32_t flags;
+
+    /// Settings for non-root context (if this corresponds to root context)
+    const struct xml_reader_settings_s *nonroot;
+} xml_reader_context_t;
 
 /// xml_read_until_internal return codes
 enum xml_read_until_status_e {
@@ -1170,7 +1186,7 @@ xml_cb_not_whitespace(void *arg, ucs4_t cp)
     @return True if there was any whitespace consumed
 */
 static bool
-xml_read_whitespace(xml_reader_t *h)
+xml_parse_whitespace(xml_reader_t *h)
 {
     bool rv = false;
     enum xml_read_until_status_e stopstatus;
@@ -1201,8 +1217,18 @@ xml_cb_lt(void *arg, ucs4_t cp)
     return ucs4_cheq(cp, '<') ? UCS4_STOPCHAR : cp;
 }
 
-/// Consume until next opening bracket
-#define xml_read_until_lt(h) xml_read_until_noref(h, xml_cb_lt, NULL)
+/**
+    Recovery function: read the next left angle bracket.
+
+    @param h Reader handle
+    @return Always true (either finds the left bracket or reaches EOF)
+*/
+static bool
+xml_read_until_lt(xml_reader_t *h)
+{
+    xml_read_until_noref(h, xml_cb_lt, NULL);
+    return true;
+}
 
 /**
     Read condition: until > (right angle bracket); consume the bracket as well.
@@ -1222,9 +1248,14 @@ xml_cb_gt(void *arg, ucs4_t cp)
     Recovery function: read until (and including) the next right angle bracket.
 
     @param h Reader handle
-    @return Nothing
+    @return Always true (either finds the right bracket or reaches EOF)
 */
-#define xml_read_until_gt(h) xml_read_until_noref(h, xml_cb_gt, NULL)
+static bool
+xml_read_until_gt(xml_reader_t *h)
+{
+    xml_read_until_noref(h, xml_cb_gt, NULL);
+    return true;
+}
 
 /**
     Read condition: matching Name production.
@@ -2043,7 +2074,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     cbp.loc = h->tokenloc;
 
     while (true) {
-        had_ws = xml_read_whitespace(h);
+        had_ws = xml_parse_whitespace(h);
 
         // From the productions above, we expect either closing ?> or Name=Literal.
         // If it was a Name, it is further checked against the expected
@@ -2084,11 +2115,11 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
         }
 
         // Parse Eq ::= S* '=' S*
-        (void)xml_read_whitespace(h);
+        (void)xml_parse_whitespace(h);
         if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_XMLDecl)) != 1) {
             goto malformed;
         }
-        (void)xml_read_whitespace(h);
+        (void)xml_parse_whitespace(h);
         if (!xml_read_literal(h, &reference_ops_pseudo)) {
             goto malformed;
         }
@@ -2132,29 +2163,59 @@ malformed: // Any fatal malformedness: report location where actual error was
 }
 
 /**
+    Read and process CharData (text "node").
+
+    @param h Reader handle
+    @return True if parsed successfully
+*/
+static bool
+xml_parse_CharData(xml_reader_t *h)
+{
+    // TBD
+    xml_read_until_lt(h);
+    return true;
+}
+
+/**
     Read and process a single XML comment, starting with <!-- and ending with -->.
 
     @param h Reader handle
-    @return Nothing
+    @return True if parsed successfully
 */
-static void
-xml_parse_comment(xml_reader_t *h)
+static bool
+xml_parse_Comment(xml_reader_t *h)
 {
     // TBD
     xml_read_until_gt(h);
+    return true;
 }
 
 /**
     Read and process a processing instruction, starting with <? and ending with ?>.
 
     @param h Reader handle
-    @return Nothing
+    @return True if parsed successfully
 */
-static void
-xml_parse_pi(xml_reader_t *h)
+static bool
+xml_parse_PI(xml_reader_t *h)
 {
     // TBD
     xml_read_until_gt(h);
+    return true;
+}
+
+/**
+    Read and process a CDATA section.
+
+    @param h Reader handle
+    @return True if parsed successfully
+*/
+static bool
+xml_parse_CDSect(xml_reader_t *h)
+{
+    // TBD
+    xml_read_until_gt(h);
+    return true;
 }
 
 /**
@@ -2162,13 +2223,14 @@ xml_parse_pi(xml_reader_t *h)
     an external subset and contain an internal subset, or have both, or none.
 
     @param h Reader handle
-    @return Nothing
+    @return True if parsed successfully
 */
-static void
+static bool
 xml_parse_doctypedecl(xml_reader_t *h)
 {
     // TBD
     xml_read_until_gt(h);
+    return true;
 }
 
 /**
@@ -2213,11 +2275,11 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     xml_reader_invoke_callback(h, &cbp);
 
     while (true) {
-        had_ws = xml_read_whitespace(h);
+        had_ws = xml_parse_whitespace(h);
         if (xml_lookahead(h, &la, 1, NULL) != 1) {
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
                     "Element start tag truncated");
-            return false; // No point in trying to recover, we're at EOF
+            return true; // No point in trying to recover, we're at EOF
         }
         if (ucs4_cheq(la, '/')) {
             if (!xml_read_string(h, "/>", XMLERR(ERROR, XML, P_STag))) {
@@ -2231,6 +2293,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
                 OOPS; // Cannot fail - we looked ahead
             }
             is_empty = false;
+            h->nestlvl++; // Opened element
             break;
         }
         else if (had_ws && xml_read_Name(h)) {
@@ -2242,11 +2305,11 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
             // TBD get attribute value normalization type from callback and
             // use it for reading attribute value below
             xml_reader_invoke_callback(h, &cbp);
-            (void)xml_read_whitespace(h);
+            (void)xml_parse_whitespace(h);
             if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_Attribute)) != 1) {
                 goto malformed;
             }
-            (void)xml_read_whitespace(h);
+            (void)xml_parse_whitespace(h);
             if (!xml_read_literal(h, &reference_ops_AttValue)) {
                 goto malformed;
             }
@@ -2269,7 +2332,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 malformed:
     // Try to recover by reading till end of opening tag
     xml_read_until_gt(h);
-    return false;
+    return true; // did recovery
 }
 
 /**
@@ -2280,9 +2343,9 @@ malformed:
     Additionally, Name in ETag must match the element type in STag.
 
     @param h Reader handle
-    @return Nothing
+    @return True if no recovery is needed
 */
-static void
+static bool
 xml_parse_ETag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
@@ -2297,59 +2360,137 @@ xml_parse_ETag(xml_reader_t *h)
         xml_reader_message_lasttoken(h, XMLERR(ERROR, XML, P_ETag),
                 "Expected element type");
         xml_read_until_gt(h);
-        return;
+        return true; // did recovery ourselves
     }
 
     cbp.stag.type = h->tokenbuf;
     cbp.stag.typelen = h->tokenbuf_len;
     xml_reader_invoke_callback(h, &cbp);
 
-    (void)xml_read_whitespace(h); // optional whitespace
+    (void)xml_parse_whitespace(h); // optional whitespace
     if (!xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag))) {
         // No valid name - try to recover by skipping until closing bracket
         xml_read_until_gt(h);
+        return true; // did recovery ourselves
     }
+
+    // Do not decrement nest level if already at the root level. This document
+    // is already malformed, so an error message should already be raised.
+    if (h->nestlvl) {
+        h->nestlvl--;
+    }
+    return true;
 }
 
 /**
-    Read and process a content production.
+    Expected tokens/handlers for parsing content production.
+    Can be used either as non-root context, or as a root context for external
+    parsed entities.
 
     content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
     element ::= EmptyElemTag | STag content ETag
 
-    Note that content is a recursive production: it may contain element, which in turn
-    may contain content. We are processing this in a flat way (substituting loop for
-    recursion); instead, we record the element types we saw in a LIFO list and only
-    apply ETag if we have a matching STag.
+*/
+static const xml_reader_context_t parser_content = {
+    .lookahead = {
+        LOOKAHEAD("<![CDATA[", xml_parse_CDSect),
+        LOOKAHEAD("<?", xml_parse_PI),
+        LOOKAHEAD("<!--", xml_parse_Comment),
+        LOOKAHEAD("</", xml_parse_ETag),
+        LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
+        LOOKAHEAD("", xml_parse_CharData), // catch-all
+    },
+    .flags = RECOGNIZE_REF,
+    .nonroot = &parser_content,
+};
+
+/**
+    Root-level recovery function.
 
     @param h Reader handle
-    @return Nothing
+    @return Always true (we've done our best, try to proceed further)
 */
-static void __unused // TBD
-xml_parse_content(xml_reader_t *h)
+static bool
+recover_document_entity_root(xml_reader_t *h)
 {
-    // TBD
+    // Recover by reading up until next left angle bracket. Report
+    // the error at failing location (not the last valid token)
+    xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
+            "Invalid content at root level");
+    return xml_read_until_lt(h);
 }
 
 /**
-    Read and process a single element. This is used by document entity parser;
-    the other parsers should use xml_parse_content() instead.
+    Root context for parsing document entity. We get here after XMLDecl, if any,
+    is parsed.
+
+    document  ::= ( prolog element Misc* ) - ( Char* RestrictedChar Char* )
+    prolog    ::= XMLDecl Misc* (doctypedecl Misc*)?
+    Misc      ::= Comment | PI | S
+
+    In XML spec 1.0, XMLDecl is optional.
+
+    Expanding the productions for the document (above), we get (for 1.0 or 1.1):
+
+    document  ::= XMLDecl? (Comment|PI|S)* doctypedecl? (Comment|PI|S)* element
+                  (Comment|PI|S)*
+*/
+static const xml_reader_context_t parser_document_entity = {
+    .lookahead = {
+        LOOKAHEAD("<!DOCTYPE", xml_parse_doctypedecl),
+        LOOKAHEAD("<?", xml_parse_PI),
+        LOOKAHEAD("<!--", xml_parse_Comment),
+        LOOKAHEAD("</", xml_parse_ETag),
+        LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
+        LOOKAHEAD("", xml_parse_whitespace),
+    },
+    .recover = recover_document_entity_root,
+    .nonroot = &parser_content,
+};
+
+/**
+    Look ahead and parse according to the list of expected tokens.
+
+    Note that content is a recursive production: it may contain element, which in turn
+    may contain content. We are processing this in a flat way (substituting loop for
+    recursion); instead, we just track the nesting level (to keep track if we're at
+    the root level or not). The proper nesting of STag/ETag cannot be checked with
+    this approach; it needs to be verified by a higher level, SAX or DOM. It is also
+    responsible for checking that both STag/ETag belong to the same input by keeping
+    track when entity parsing started and ended.
 
     @param h Reader handle
+    @param rootctx Root context
     @return Nothing
 */
 static void
-xml_parse_element(xml_reader_t *h)
+xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
 {
-    utf8_t labuf[2];
+    utf8_t labuf[MAX_PATTERN]; // TBD have lookahead read into tokenbuf?
+    const xml_reader_context_t *ctx;
+    const xml_reader_pattern_t *pat, *end;
+    size_t len;
+    bool eof, rv;
 
-    // TBD temporary: will convert into a common "pattern -> function" loop
-    // TBD this function will go away
-    xml_parse_STag_EmptyElemTag(h);
-    if (xml_lookahead(h, labuf, 2, NULL) == 2
-            && ucs4_cheq(labuf[0], '<')
-            && ucs4_cheq(labuf[1], '/')) {
-        xml_parse_ETag(h);
+    while (len = xml_lookahead(h, labuf, sizeof(labuf), &eof), !eof) {
+        // TBD how to pass 'recognition flags' to xml_read_until_internal?
+        ctx = h->nestlvl ? rootctx->nonroot : rootctx;
+        rv = false;
+        for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS; pat < end; pat++) {
+            if (pat->patlen <= len && !memcmp(labuf, pat->pattern, pat->patlen)) {
+                // TBD: bool -> enum ("OK", "NEEDRECOVERY", "STOP") to implement terminatable
+                // contexts (such as DTD parser)
+                rv = pat->func(h);
+                break;
+            }
+        }
+        if (!rv && ctx->recover) {
+            rv = ctx->recover(h);
+        }
+        if (!rv) {
+            // Fatal error, bail out
+            return;
+        }
     }
 }
 
@@ -2363,6 +2504,10 @@ xml_parse_element(xml_reader_t *h)
 static void
 xml_reader_start(xml_reader_t *h)
 {
+    // TBD: convert to xml_reader_prepend(strbuf_t *, const char *loc) - so that 
+    // we can use the same handle and just prepend the inputs. Will need to drop
+    // storing the encodings in the handle - but we are not going to use them at
+    // runtime anyway. Then do away with master/subordinate handles and shared structure
     xml_reader_input_t *inp;
     xml_reader_initial_xcode_t xc;
     utf8_t adbuf[4];       // 4 bytes for encoding detection, per XML spec suggestion
@@ -2502,89 +2647,14 @@ xml_reader_start(xml_reader_t *h)
 void
 xml_reader_process_document_entity(xml_reader_t *h)
 {
-    utf8_t labuf[4]; // Lookahead buffer
-    bool seen_dtd = false;
-    bool seen_element = false;
-    bool eof;
-
-    /*
-        Document entity matches the following productions per XML spec (1.1).
-          document  ::= ( prolog element Misc* ) - ( Char* RestrictedChar Char* )
-          prolog    ::= XMLDecl Misc* (doctypedecl Misc*)?
-          Misc      ::= Comment | PI | S
-        In XML spec 1.0, XMLDecl is optional.
-
-        Expanding the productions for the document (above), we get (for 1.0 or 1.1):
-          document  ::= XMLDecl? (Comment|PI|S)* doctypedecl? (Comment|PI|S)* element
-                        (Comment|PI|S)*
-
-        First get XMLDecl out of the way; this also sets the encoding and allows us
-        to use auto-fill string buffer.  We cannot use auto-fill buffer for XMLDecl
-        as it may look ahead in transcoding the input stream, and final encoding may
-        not be known before parsing the XMLDecl.  After XMLDecl, aside from whitespace
-        we expect:
-        - Comments
-        - PIs
-        - Document type declaration (only one and only if we haven't seen element yet)
-        - Element (only one)
-        After we're done, check if we have seen an element and raise an error otherwise.
-    */
     h->declinfo = &declinfo_xmldecl;
+
+    // TBD return false from xml_reader_start for fatal errors
     xml_reader_start(h);
-    while ((h->flags & READER_FATAL) == 0) {
-        (void)xml_read_whitespace(h); // Skip whitespace if any
-        memset(labuf, 0, sizeof(labuf));
-        if (xml_lookahead(h, labuf, 4, &eof) == 0 && eof) {
-            break; // No more input
-        }
-        else if (labuf[0] == '<') {
-            // Comment, PI, doctypedecl and element all start with '<'
-            if (labuf[1] == '!') {
-                // Comment or doctypedecl
-                if (labuf[2] == '-' && labuf[3] == '-') {
-                    xml_parse_comment(h);
-                }
-                else if (!seen_dtd && !seen_element) {
-                    // DTD may not follow element.
-                    xml_parse_doctypedecl(h);
-                    seen_dtd = true;
-                }
-                else {
-                    // Recover by reading up until closing angle bracket
-                    xml_reader_message_current(h,
-                            XMLERR(ERROR, XML, P_document),
-                            "Document type definition not allowed here");
-                    xml_read_until_gt(h);
-                }
-            }
-            else if (labuf[1] == '?') {
-                xml_parse_pi(h);
-            }
-            else {
-                if (seen_element) {
-                    // Recover by reading the element, even if there are multiple roots
-                    xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
-                            "One root element allowed in a document");
-                }
-                xml_parse_element(h);
-                seen_element = true;
-            }
-        }
-        else {
-            // Recover by reading up until next left angle bracket. Report
-            // the error at failing location (not the last valid token)
-            xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
-                    "Invalid content at root level");
-            (void)xml_read_until_lt(h);
-        }
-    }
 
     // Skip checking for certain errors if reading was aborted prematurely
     if ((h->flags & READER_FATAL) == 0) {
-        if (!seen_element) {
-            xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
-                    "No root element");
-        }
+        xml_parse_by_ctx(h, &parser_document_entity);
         if (!encoding_clean(h->enc)) {
             xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                     "Partial characters at end of input");
