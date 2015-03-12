@@ -199,7 +199,7 @@ ucs4_chin(ucs4_t uc, char lb, char le)
 static inline uint32_t
 ucs4_fromlocal(char lc)
 {
-    return lc;
+    return (unsigned char)lc;
 }
 
 /**

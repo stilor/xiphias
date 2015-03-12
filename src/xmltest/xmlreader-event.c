@@ -65,7 +65,8 @@ static void
 evprint_message(const xml_reader_cbparam_t *cbparam)
 {
     static const char * const severity[] = {
-        [XMLERR_NOTE]  = "NOTE",
+        [XMLERR__NONE]  = "????",
+        [XMLERR_INFO]  = "INFO",
         [XMLERR_WARN]  = "WARN",
         [XMLERR_ERROR] = "ERR",
     };

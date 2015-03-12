@@ -22,6 +22,7 @@ typedef struct {
 
 /// XML error severity
 enum xmlerr_severity_e {
+    XMLERR__NONE,        ///< Internally used value: no error
     XMLERR_INFO,         ///< Informational (e.g. additional information for another message)
     XMLERR_WARN,         ///< Warning (can successfully recover)
     XMLERR_ERROR,        ///< Error (may continue processing but fail at the end)
@@ -46,6 +47,7 @@ enum {
     XMLERR_XML_P_STag,             // STag or EmptyElemTag
     XMLERR_XML_P_ETag,
     XMLERR_XML_P_Attribute,
+    XMLERR_XML_P_Reference,
     XMLERR_XML_P_CharRef,
     XMLERR_XML_P_EntityRef,
     XMLERR_XML_P_PEReference,
@@ -101,5 +103,9 @@ typedef uint32_t xmlerr_info_t;
 /// Code for internal errors
 #define XMLERR_INTERNAL                           \
         XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_NONE, 0)
+
+/// Code for absence of errors
+#define XMLERR_NOERROR                            \
+        XMLERR_MK(XMLERR__NONE, XMLERR_SPEC_NONE, 0)
 
 #endif
