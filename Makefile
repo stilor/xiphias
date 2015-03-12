@@ -53,10 +53,11 @@ clean:
 
 check:
 
-docs:
+docs: src/Doxyfile.tmpl
 	rm -rf build/doc
 	mkdir -p build/doc
-	doxygen src/Doxyfile
+	sed 's,@GENERATED@,$(GENERATED),g' $< > build/Doxyfile
+	doxygen build/Doxyfile
 
 build/outputs.mk: outputs.conf genbuild.py
 	mkdir -p build

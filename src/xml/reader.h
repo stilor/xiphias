@@ -24,8 +24,8 @@ enum xml_reader_cbtype_e {
     XML_READER_CB_NONE,            ///< No message (placeholder/terminator)
     XML_READER_CB_MESSAGE,         ///< Note/warning/error message
     XML_READER_CB_ENTITY_UNKNOWN,  ///< Encountered unknown entity name
-    XML_READER_CB_ENTITY_START,    ///< Encountered unknown entity name
-    XML_READER_CB_ENTITY_END,      ///< Encountered unknown entity name
+    XML_READER_CB_ENTITY_START,    ///< Started parsing an entity
+    XML_READER_CB_ENTITY_END,      ///< Finished parsing an entity
     XML_READER_CB_APPEND,          ///< Append text to current node (text/attribute)
     XML_READER_CB_XMLDECL,         ///< XML declaration
     XML_READER_CB_COMMENT,         ///< Comment
@@ -37,7 +37,7 @@ enum xml_reader_cbtype_e {
     XML_READER_CB_ETAG,            ///< End of element (ETag)
     XML_READER_CB_ATTR,            ///< Name of an attribute in an element
 
-    XML_READER_CB_MAX
+    XML_READER_CB_MAX,             ///< Maximum number of callback types
 };
 
 /// Types of references

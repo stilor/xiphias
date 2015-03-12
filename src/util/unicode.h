@@ -76,7 +76,7 @@ utf8_clen(ucs4_t cp)
     Helper function for implementing decoders: store UTF-8 multibyte
     sequence at the specified pointer and advance the pointer.
 
-    @param p Pointer to pointer where the code point is stored
+    @param pp Pointer to pointer where the code point is stored
     @param cp Code point
     @return None
 */
@@ -182,7 +182,7 @@ ucs4_cheq(ucs4_t uc, char lc)
     @param uc UCS-4 character
     @param lb Range start, locally-encoded
     @param le Range end, locally-encoded
-    @param true if in range
+    @return true if in range
 */
 static inline bool
 ucs4_chin(ucs4_t uc, char lb, char le)

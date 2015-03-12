@@ -295,7 +295,7 @@ xml_is_restricted(xml_reader_t *h, ucs4_t cp)
 
 /**
     Check if a given Unicode code point is white space per XML spec.
-    XML spec says, #x20, #x9, #xA and #xD are whitespace, the rest is not.
+    XML spec says, \#x20, \#x9, \#xA and \#xD are whitespace, the rest is not.
 
     @param cp Code point to check
     @return true if @a cp is whitespace, false otherwise
@@ -356,7 +356,7 @@ xml_is_NameChar(ucs4_t cp)
     Replace encoding translator in a handle.
 
     @param h Reader handle
-    @param enc Encoding to be set, NULL to clear current encoding processor
+    @param encname Encoding to be set, NULL to clear current encoding processor
     @return true if successful, false otherwise
 */
 static bool
@@ -621,7 +621,7 @@ xml_entity_populate(strhash_t *ehash)
 /**
     Create an XML reading handle.
 
-    @param h Master handle (NULL if master document is created)
+    @param master Master handle (NULL if master document is created)
     @param buf String buffer to read the input from; will be destroyed along with
           the handle returned by this function.
     @param location Location that will be used for reporting errors
@@ -913,8 +913,9 @@ typedef struct xml_reader_initial_xcode_s {
     parsing of the XML declaration: until then, the actual encoding is not
     known yet.
 
-    @param buf Input string buffer
-    @param arg Pointer to state structure with 
+    @param arg Pointer to transcoder state
+    @param begin Beginning of the destination memory block
+    @param sz Size of the destination memory block
     @return None
 */
 static size_t
@@ -964,6 +965,8 @@ static const strbuf_ops_t xml_reader_initial_ops = {
     Fetch more data from the transcoder.
 
     @param arg Reader handle (cast to void pointer)
+    @param begin Beginning of the output buffer
+    @param sz Size of the output buffer
     @return None
 */
 static size_t
@@ -999,18 +1002,18 @@ static const strbuf_ops_t xml_reader_transcode_ops = {
     For XML 1.0: To simplify the tasks of applications, the XML processor MUST
     behave as if it normalized all line breaks in external parsed entities
     (including the document entity) on input, before parsing, by translating
-    both the two-character sequence #xD #xA and any #xD that is not followed
-    by #xA to a single #xA character.
+    both the two-character sequence \#xD \#xA and any \#xD that is not followed
+    by #\xA to a single \#xA character.
 
     For XML 1.1: To simplify the tasks of applications, the XML processor MUST
     behave as if it normalized all line breaks in external parsed entities
     (including the document entity) on input, before parsing, by translating
-    all of the following to a single #xA character:
-    1. the two-character sequence #xD #xA
-    2. the two-character sequence #xD #x85
-    3. the single character #x85
-    4. the single character #x2028
-    5. any #xD character that is not immediately followed by #xA or #x85.
+    all of the following to a single \#xA character:
+    1. the two-character sequence \#xD \#xA
+    2. the two-character sequence \#xD \#x85
+    3. the single character \#x85
+    4. the single character \#x2028
+    5. any \#xD character that is not immediately followed by \#xA or \#x85.
 
     Normalization checking (XML 1.1 only):
 
@@ -1266,6 +1269,7 @@ xml_read_until_gt(xml_reader_t *h)
 /**
     Read condition: matching Name production.
 
+    @verbatim
     NameStartChar ::= ":" | [A-Z] | "_" | [a-z] | [#xC0-#xD6] | [#xD8-#xF6] |
                        [#xF8-#x2FF] | [#x370-#x37D] | [#x37F-#x1FFF] |
                        [#x200C-#x200D] | [#x2070-#x218F] | [#x2C00-#x2FEF] |
@@ -1274,8 +1278,10 @@ xml_read_until_gt(xml_reader_t *h)
     NameChar ::= NameStartChar | "-" | "." | [0-9] | #xB7 | [#x0300-#x036F] |
                  [#x203F-#x2040]
     Name ::= NameStartChar (NameChar)*
+    @endverbatim
 
     @param arg Pointer to a boolean: true if first character.
+    @param cp Codepoint
     @return UCS4_STOPCHAR if the character does not belong to Name production
 */
 static ucs4_t
@@ -1465,6 +1471,12 @@ xml_entity_type_info(enum xml_reader_reference_e type)
     Read entity name or (for character references) the code point. Must be entered when
     the next rejected character is the start of the entity.
 
+    @verbatim
+    EntityRef   ::= '&' Name ';'
+    CharRef     ::= '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';'
+    PEReference ::= '%' Name ';'
+    @endverbatim
+
     @param h Reader handle
     @param reftype Entity type determined by parsing
     @return PR_OK if parsed successfully, PR_FAIL otherwise
@@ -1484,12 +1496,12 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
         (void)xml_read_string(h, "&", XMLERR_NOERROR);
         saveloc = h->lastreadloc;
         if (xml_read_Name(h) == PR_OK) {
-            // EntityRef   ::= '&' Name ';'
+            // EntityRef
             *reftype = XML_READER_REF_GENERAL;
             goto read_content;
         }
         else if (ucs4_cheq(h->rejected, '#')) {
-            // CharRef     ::= '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';'
+            // CharRef
             *reftype = XML_READER_REF__CHAR;
             (void)xml_read_string(h, "#", XMLERR_NOERROR); // Again, known to be present
             st.val = 0;
@@ -1516,7 +1528,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
         }
     }
     else if (ucs4_cheq(startchar, '%')) {
-        // PEReference ::= '%' Name ';'
+        // PEReference
         (void)xml_read_string(h, "%", XMLERR_NOERROR);
         saveloc = h->lastreadloc;
         *reftype = XML_READER_REF_PARAMETER;
@@ -1708,6 +1720,8 @@ textblock_callback(xml_reader_t *h)
     @param h Reader handle
     @param func Function to call to check for the condition
     @param arg Argument to @a func
+    @param refops Actions to perform when encountering an entity, or
+        a contiguous text block; also a mask of recognized entities.
     @return Status why the parser terminated
 */
 static xru_t
@@ -1891,8 +1905,10 @@ static const xml_reference_ops_t reference_ops_AttValue = {
 /**
     Check for VersionInfo production.
 
+    @verbatim
     VersionNum ::= '1.' [0-9]+    {{XML1.0}}
     VersionNum ::= '1.1'          {{XML1.1}}
+    @endverbatim
 
     @param h Reader handle
     @return Nothing
@@ -1947,7 +1963,10 @@ bad_version:
 
 /**
     Check if encoding name matches the EncName production:
+
+    @verbatim
     EncName  ::= [A-Za-z] ([A-Za-z0-9._] | '-')*
+    @endverbatim
 
     @param h Reader handle
     @return Nothing
@@ -1989,7 +2008,9 @@ bad_encoding:
     Check for 'yes' or 'no' string. This is used as a value in SDDecl
     production, but this part has no separate production name.
 
+    @verbatim
        <anonymous> ::= 'yes' | 'no'
+    @endverbatim
 
     @param h Reader handle
     @return Nothing
@@ -2013,7 +2034,13 @@ check_SD_YesNo(xml_reader_t *h)
     }
 }
 
-/// Handle TextDecl ::= '<?xml' VersionInfo? EncodingDecl S? '?>'
+/**
+    Handler for TextDecl production.
+
+    @verbatim
+    TextDecl ::= '<?xml' VersionInfo? EncodingDecl S? '?>'
+    @endverbatim
+*/
 static const struct xml_reader_xmldecl_declinfo_s declinfo_textdecl = {
     .name = "TextDecl",
     .attrlist = (const xml_reader_xmldecl_attrdesc_t[]){
@@ -2023,7 +2050,13 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_textdecl = {
     },
 };
 
-/// Handle XMLDecl  ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
+/**
+    Handle for XMLDecl production.
+    
+    @verbatim
+    XMLDecl  ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
+    @endverbatim
+*/
 static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
     .name = "XMLDecl",
     .attrlist = (const struct xml_reader_xmldecl_attrdesc_s[]){
@@ -2038,6 +2071,7 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
     Read XMLDecl/TextDecl if one is present. The set of expected attributes
     and their optionality is passed in the handle.
 
+    @verbatim
     XMLDecl      ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
     TextDecl     ::= '<?xml' VersionInfo? EncodingDecl S? '?>'
     VersionInfo  ::= S 'version' Eq ("'" VersionNum "'" | '"' VersionNum '"')
@@ -2048,6 +2082,7 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
     EncName      ::= [A-Za-z] ([A-Za-z0-9._] | '-')*
     SDDecl       ::= S 'standalone' Eq
                      (("'" ('yes' | 'no') "'") | ('"' ('yes' | 'no') '"'))
+    @endverbatim
 
     @param h Reader handle
     @return PR_OK (this function does its own recovery)
@@ -2113,7 +2148,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
                     "Unexpected pseudo-attribute");
         }
 
-        // Parse Eq ::= S* '=' S*
+        // Parse Eq production
         (void)xml_parse_whitespace(h);
         if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_XMLDecl)) != PR_OK) {
             goto malformed;
@@ -2231,14 +2266,15 @@ xml_parse_doctypedecl(xml_reader_t *h)
     Read and process STag/EmptyElemTag productions.
     Both productions are the same with the exception of the final part:
 
+    @verbatim
     STag         ::= '<' Name (S Attribute)* S? '>'
     EmptyElemTag ::= '<' Name (S Attribute)* S? '/>'
     Attribute    ::= Name Eq AttValue
     AttValue     ::= '"' ([^<&"] | Reference)* '"' | "'" ([^<&'] | Reference)* "'"
     Eq           ::= S? '=' S?
+    @endverbatim
 
     @param h Reader handle
-    @param is_empty Pointer to boolean; set to true if the production was EmptyElemTag
     @return PR_OK if parsed successfully or recovered, PR_NOMATCH on (unexpected) error
 */
 static prodres_t
@@ -2325,7 +2361,9 @@ malformed:
 /**
     Read and process ETag production.
 
+    @verbatim
     ETag ::= '</' Name S? '>'
+    @endverbatim
 
     Additionally, Name in ETag must match the element type in STag.
 
@@ -2372,8 +2410,10 @@ xml_parse_ETag(xml_reader_t *h)
     Can be used either as non-root context, or as a root context for external
     parsed entities.
 
+    @verbatim
     content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
     element ::= EmptyElemTag | STag content ETag
+    @endverbatim
 
 */
 static const xml_reader_context_t parser_content = {
@@ -2409,16 +2449,20 @@ recover_document_entity_root(xml_reader_t *h)
     Root context for parsing document entity. We get here after XMLDecl, if any,
     is parsed.
 
+    @verbatim
     document  ::= ( prolog element Misc* ) - ( Char* RestrictedChar Char* )
     prolog    ::= XMLDecl Misc* (doctypedecl Misc*)?
     Misc      ::= Comment | PI | S
+    @endverbatim
 
     In XML spec 1.0, XMLDecl is optional.
 
     Expanding the productions for the document (above), we get (for 1.0 or 1.1):
 
+    @verbatim
     document  ::= XMLDecl? (Comment|PI|S)* doctypedecl? (Comment|PI|S)* element
                   (Comment|PI|S)*
+    @endverbatim
 */
 static const xml_reader_context_t parser_document_entity = {
     .lookahead = {

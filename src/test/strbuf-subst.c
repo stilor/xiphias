@@ -4,12 +4,12 @@
 /**
     @file
     Substituting string buffer. Operates in UTF-8.
-    Supported substitution (\ indicates escape character configured
+    Supported substitution (* indicates escape character configured
     when creating the string buffer):
-    \\ - Substitute with the escape character itself
-    \<newline> - Remove the newline (consumes either \n or \r\n)
-    \UHHHH/ - Substitute with Unicode character U+HHHH (may have up to 6
-    \BHH/ - Substitute a single byte
+    - ** - Substitute with the escape character itself
+    - *\<newline> - Remove the newline (consumes either CRLF or just LF)
+    - *UHHHH/ - Substitute with Unicode character U+HHHH (may have up to 6 digits)
+    - *BHH/ - Substitute a single byte
         hexadecimal digits).
 */
 #include <string.h>

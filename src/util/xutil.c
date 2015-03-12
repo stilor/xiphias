@@ -91,6 +91,7 @@ xstrdup(const char *s)
     String duplication, limited size.
 
     @param s String to be duplicated
+    @param sz Maximum number of characters to duplicate
     @return Allocated copy of the string
 */
 char *

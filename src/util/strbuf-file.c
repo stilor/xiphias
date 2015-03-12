@@ -18,7 +18,7 @@
 
     @param arg File pointer
     @param begin Start of the destination buffer
-    @param size Size of the destination buffer
+    @param sz Size of the destination buffer
     @return Number of bytes read
 */
 static size_t

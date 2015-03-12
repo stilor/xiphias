@@ -73,7 +73,7 @@ strbuf_set_input(strbuf_t *buf, const void *mem, size_t sz)
     Resize the internal buffer. Currently, can only grow the buffer.
 
     @param buf String buffer
-    @param sz New size of the internal storage.
+    @param newsz New size of the internal storage.
     @return Nothing
 */
 void

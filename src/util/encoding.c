@@ -589,7 +589,7 @@ clean_UTF16(void *baton)
     @param b UTF-16 runtime data
     @param val Next 16-bit value from the input
     @param pout Start of writable space in output buffer
-    @oaram end End of the output buffer
+    @param end End of the output buffer
     @return Nothing
 */
 static inline void
