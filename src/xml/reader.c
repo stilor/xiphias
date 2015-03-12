@@ -1041,7 +1041,7 @@ static const strbuf_ops_t xml_reader_transcode_ops = {
     @return Reason why the token parser returned
 */
 static inline xru_t
-xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
+xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
         uint32_t recognize)
 {
     xml_reader_input_t *inp;
@@ -1169,21 +1169,6 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
 }
 
 /**
-    Wrapper around xml_read_until_internal(): do not expand any references,
-    store the parsed input in the token buffer (do not pass it to callback).
-
-    @param h Reader handle
-    @param func Function to call to check for the condition
-    @param arg Argument to @a func
-    @return Reason for stopping
-*/
-static xru_t
-xml_read_until_noref(xml_reader_t *h, xml_condread_func_t func, void *arg)
-{
-    return xml_read_until_internal(h, func, arg, 0);
-}
-
-/**
     Read condition: until first non-whitespace.
 
     @param arg Argument (unused)
@@ -1219,7 +1204,7 @@ xml_parse_whitespace(xml_reader_t *h)
     // than whitespace
     tlen = h->tokenbuf_len;
     do {
-        stopstatus = xml_read_until_internal(h, xml_cb_not_whitespace, &had_ws, 0);
+        stopstatus = xml_read_until(h, xml_cb_not_whitespace, &had_ws, 0);
     } while (stopstatus == XRU_INPUT_BOUNDARY);
     h->tokenbuf_len = tlen;
     return had_ws ? PR_OK : PR_NOMATCH;
@@ -1247,7 +1232,7 @@ xml_cb_lt(void *arg, ucs4_t cp)
 static prodres_t
 xml_read_until_lt(xml_reader_t *h)
 {
-    xml_read_until_noref(h, xml_cb_lt, NULL);
+    xml_read_until(h, xml_cb_lt, NULL, 0);
     return PR_OK;
 }
 
@@ -1274,7 +1259,7 @@ xml_cb_gt(void *arg, ucs4_t cp)
 static prodres_t
 xml_read_until_gt(xml_reader_t *h)
 {
-    xml_read_until_noref(h, xml_cb_gt, NULL);
+    xml_read_until(h, xml_cb_gt, NULL, 0);
     return PR_OK;
 }
 
@@ -1317,7 +1302,7 @@ xml_read_Name(xml_reader_t *h)
     bool startchar = true;
 
     // May stop at either non-Name character, or input boundary
-    (void)xml_read_until_noref(h, xml_cb_not_name, &startchar);
+    (void)xml_read_until(h, xml_cb_not_name, &startchar, 0);
     if (!h->tokenbuf_len) {
         // No error: this is an auxillary function often used to differentiate between
         // Name or some alternative (e.g. entity vs char references)
@@ -1375,7 +1360,7 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
     state.cur = s;
     state.end = s + len;
     tlen = h->tokenbuf_len;
-    if (xml_read_until_noref(h, xml_cb_string, &state) != XRU_STOP
+    if (xml_read_until(h, xml_cb_string, &state, 0) != XRU_STOP
             || state.cur != state.end) {
         if (errinfo != XMLERR_NOERROR) {
             xml_reader_message_lastread(h, errinfo, "Expected string: '%s'", s);
@@ -1512,11 +1497,11 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
             st.toobig = false;
             if (xml_read_string(h, "x", XMLERR_NOERROR) == PR_OK) {
                 // Using hexadecimal form
-                rv = xml_read_until_noref(h, xml_cb_charref_hex, &st);
+                rv = xml_read_until(h, xml_cb_charref_hex, &st, 0);
             }
             else {
                 // Using decimal form
-                rv = xml_read_until_noref(h, xml_cb_charref_dec, &st);
+                rv = xml_read_until(h, xml_cb_charref_dec, &st, 0);
             }
             if (rv != XRU_STOP || !st.hasdigits) {
                 goto malformed;
@@ -1714,8 +1699,8 @@ textblock_callback(xml_reader_t *h)
 }
 
 /**
-    Wrapper around xml_read_until_internal(): if entities are recognized and
-    xml_read_until_internal() returned due to start of an entity, issue
+    Wrapper around xml_read_until(): if entities are recognized and
+    xml_read_until() returned due to start of an entity, issue
     a callback to expand that entity and if that callback returned
     the replacement text, divert the reader's input to that entity.
     Otherwise, skip over the entity and continue.
@@ -1737,7 +1722,7 @@ xml_read_until_parseref(xml_reader_t *h, xml_condread_func_t func, void *arg,
 
     while (true) {
         do {
-            stopstatus = xml_read_until_internal(h, func, arg, refops->flags);
+            stopstatus = xml_read_until(h, func, arg, refops->flags);
             if (refops->textblock) {
                 refops->textblock(h);
             }
@@ -2475,7 +2460,7 @@ xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
 
     rv = PR_OK;
     while (rv == PR_OK && (len = xml_lookahead(h, labuf, sizeof(labuf), &eof), !eof)) {
-        // TBD pass 'recognition flags' to xml_read_until_internal? Or drop that field
+        // TBD pass 'recognition flags' to xml_read_until? Or drop that field
         // and just pass it directly in CharData handler (rename to CharData_Reference then)
         // Or recognize '&' as a pattern?
         ctx = h->nestlvl ? rootctx->nonroot : rootctx;
