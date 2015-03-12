@@ -151,6 +151,7 @@ struct xml_reader_s {
     utf8_t *tokenbuf_end;           ///< End of the token buffer
     size_t tokenbuf_len;            ///< Length of the token in the buffer
     xmlerr_loc_t tokenloc;          ///< Reader's position at the beginning of last token
+    ucs4_t rejected;                ///< Next character (rejected by xml_read_until_*)
 
     uint32_t srcid;                 ///< Source ID, incremented for each new input
     SLIST_HEAD(,xml_reader_input_s) active_input;   ///< Currently active inputs
@@ -241,7 +242,7 @@ typedef struct xml_reader_settings_s {
     const struct xml_reader_settings_s *nonroot;
 } xml_reader_context_t;
 
-/// xml_read_until_internal return codes
+/// xml_read_until_* return codes
 typedef enum {
     XRU_CONTINUE,          ///< Internal value: do not return yet
     XRU_EOF,               ///< Reach end of input
@@ -1054,6 +1055,7 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
     bufptr = h->tokenbuf;
     total = 0;
     h->tokenloc = h->curloc;
+    h->rejected = UCS4_NOCHAR;
 
     while (rv == XRU_CONTINUE) { // First check the status from inner for-loop...
         // ... and only if we're not terminating yet, try to get next read pointers
@@ -1105,6 +1107,7 @@ xml_read_until_internal(xml_reader_t *h, xml_condread_func_t func, void *arg,
             // TBD if in DTD, and not parsing a literal/comment/PI - recognize parameter entities
             if ((cp = func(arg, cp0)) == UCS4_STOPCHAR) {
                 rv = XRU_STOP;
+                h->rejected = cp0;
                 break; // This character is rejected
             }
 
@@ -2099,7 +2102,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
         // If it was a Name, it is further checked against the expected
         // attribute list and Literal is then verified for begin a valid value
         // for Name.
-        if (1 == xml_lookahead(h, labuf, 1, NULL) && ucs4_cheq(labuf[0], '?')) {
+        if (ucs4_cheq(h->rejected, '?')) {
             if (xml_read_string(h, "?>", XMLERR(ERROR, XML, P_XMLDecl)) != PR_OK) {
                 goto malformed;
             }
@@ -2265,10 +2268,8 @@ static prodres_t
 xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
-    utf8_t la;
     bool had_ws;
     bool is_empty;
-    bool eof;
 
     if (xml_read_string(h, "<", XMLERR(ERROR, XML, P_STag)) != PR_OK) {
         return PR_NOMATCH; // This function should not be called unless looked ahead
@@ -2291,19 +2292,14 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 
     while (true) {
         had_ws = xml_parse_whitespace(h) == PR_OK;
-        if (xml_lookahead(h, &la, 1, &eof) == 0 && eof) {
-            xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
-                    "Element start tag truncated");
-            return PR_STOP; // No point in trying to recover, we're at EOF
-        }
-        if (ucs4_cheq(la, '/')) {
+        if (ucs4_cheq(h->rejected, '/')) {
             if (xml_read_string(h, "/>", XMLERR(ERROR, XML, P_STag)) != PR_OK) {
                 goto malformed;
             }
             is_empty = true;
             break;
         }
-        else if (ucs4_cheq(la, '>')) {
+        else if (ucs4_cheq(h->rejected, '>')) {
             if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_STag)) != PR_OK) {
                 OOPS; // Cannot fail - we looked ahead
             }

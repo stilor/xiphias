@@ -17,6 +17,8 @@
 
 /// Describes a single test case for XML reader
 typedef struct testcase_s {
+    const char *at_file;                    ///< Test case defined in this file
+    uint32_t at_line;                       ///< Test case defined on this line
     const char *desc;                       ///< Description of a test case
     const char *input;                      ///< Input file name
     bool use_bom;                           ///< Prepend byte order mark to this file?
@@ -96,6 +98,7 @@ run_testcase(const void *arg)
 
     // Brief summary of the test
     printf("%s\n", tc->desc);
+    printf("- Defined at %s:%u\n", tc->at_file, tc->at_line);
     printf("- Input: %s/%s\n", XML_INPUT_DIR, tc->input);
     printf("- Encoded into '%s', %s Byte-order mark\n",
             tc->encoding ? tc->encoding : "UTF-8",
@@ -164,6 +167,12 @@ run_testcase(const void *arg)
 
 // Initializer for location info
 #define LOC(s,l,p)      { .src = (s), .line = (l), .pos = (p), }
+
+// Initializer for basic test info
+#define TC(d) \
+        .at_file = __FILE__, \
+        .at_line = __LINE__, \
+        .desc = d
 
 #include "xmlreader-tests.c"
 
