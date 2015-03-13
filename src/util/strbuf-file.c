@@ -62,8 +62,8 @@ strbuf_file_read(const char *path, size_t sz)
     FILE *f;
     strbuf_t *buf;
 
-    // TBD: fail-free xfopen()?
     if ((f = fopen(path, "r")) == NULL) {
+        /// @todo fail-free xfopen()? Or pass error up?
         OOPS;
     }
     buf = strbuf_new(sz);

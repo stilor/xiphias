@@ -65,4 +65,13 @@
       declared attribute." - but the rules for unparsed entities are "Forbidden" rather
       than "Not Recognized". Unparsed entities are already mentioned under "Forbidden"
       rule, so no change is needed there.
+
+
+    @page todo TODO list
+
+    @section TODO-OTHER
+
+    @todo genbuild.py: implement options/rules for installation of libraries/apps
+
+    @todo genbuild.py: build GCOV and regular objects alongside each other
 */

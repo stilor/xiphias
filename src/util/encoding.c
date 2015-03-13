@@ -13,11 +13,14 @@
 #include "util/encoding.h"
 #include "util/unicode.h"
 
-/// List of all encodings
+/// Head of encoding list
 typedef STAILQ_HEAD(encoding_list_s, encoding_link_s) encoding_list_t;
 
-// FIXME: this is not thread-safe. Protect registration/search with a mutex? Or require
-// that registration be done before using anything else in multithreaded context?
+/**
+    List of all encodings.
+    @todo This is not thread-safe. Protect registration/search with a mutex? Or require
+    that registration be done before using anything else in multithreaded context?
+*/
 static encoding_list_t encodings = STAILQ_HEAD_INITIALIZER(encodings);
 
 /// Opaque structure for encoding handle
@@ -471,8 +474,6 @@ in_UTF8(void *baton, const uint8_t *begin, const uint8_t *end,
     ucs4_t *out = *pout;
     const uint8_t *ptr = begin;
     uint8_t tmp;
-
-    // TBD add encoding tests.
 
     // Unicode sections 3.9 and 5.22 describe best practices when substituting
     // with Unicode replacement character, U+FFFD. In brief, advance read pointer

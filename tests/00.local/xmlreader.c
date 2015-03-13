@@ -12,7 +12,10 @@
 #include "xmltest/xmlreader-event.h"
 #include "test/testlib.h"
 
-// TBD get from prog's path? On the command line?
+/**
+    Location of the input files.
+    @todo get from prog's path? On the command line?
+*/
 #define XML_INPUT_DIR "tests/00.local/xmlreader-input"
 
 /// Describes a single test case for XML reader

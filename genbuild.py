@@ -81,7 +81,6 @@ if __name__ == '__main__':
     opts, args = parser.parse_args()
     if len(args) != 1:
         parser.error('Input file required')
-    # TBD: command line for specifying config options such as installation prefix
     cp = ConfigParser.ConfigParser({
 	# Optional keys in each output section have default values provided
         'localdep' : ''

@@ -96,7 +96,7 @@ static const testcase_t testcases_api[] = {
 };
 
 /**
-    Tests for XMLDecl conditions all use dummy <a/> element as document
+    Tests for XMLDecl conditions all use dummy \<a/> element as document
     content.
 */
 #define E_XMLDECL_A(s, l, p) \

@@ -99,10 +99,10 @@ typedef struct {
 } xml_reader_cbparam_etag_t;
 
 /// Parameter for attribute name callback
+/// @todo Need (in) normalization type, CDATA (default) or NMTOKENS
 typedef struct {
     const utf8_t *name;                      ///< Element type (may not match STag for malformed docs)
     size_t namelen;                          ///< Element type length
-    // TBD: (in) normalization type, CDATA (default) or NMTOKENS
 } xml_reader_cbparam_attr_t;
 
 /// Combined callback parameter type

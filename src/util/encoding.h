@@ -76,6 +76,8 @@ typedef struct encoding_s {
     /**
         Perform the translation of some input.
 
+        @todo Need a similar function for output.
+
         @param baton Pointer returned by initializer
         @param begin Start of the input buffer
         @param end End of the input buffer
@@ -90,12 +92,13 @@ typedef struct encoding_s {
         Check if the current state of baton is "clean" - i.e., contains
         no partially decoded characters.
 
+        @todo Need a similar function for output.
+
         @param baton Pointer returned by initializer
         @return True if no mid-character in the runtime structure
     */
     bool (*in_clean)(void *baton);
 
-    // TBD: need a set of functions for output, too (or just out() method)
 } encoding_t;
 
 /// Linking encodings into a list

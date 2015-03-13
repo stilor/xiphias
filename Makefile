@@ -53,7 +53,7 @@ clean:
 
 check:
 
-docs: src/Doxyfile.tmpl
+docs: Doxyfile.tmpl
 	rm -rf build/doc
 	mkdir -p build/doc
 	sed 's,@GENERATED@,$(GENERATED),g' $< > build/Doxyfile

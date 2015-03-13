@@ -53,7 +53,8 @@ iconv_more(void *arg, void *begin, size_t sz)
             // That's ok too: next call will defrag and retry
         }
         else if (errno == EILSEQ) {
-            OOPS; // TBD how to handle?
+            /// @todo how to handle EILSEQ (illegal byte sequence)?
+            OOPS;
         }
         else {
             OOPS; // Undocumented error in iconv

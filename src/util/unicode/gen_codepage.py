@@ -5,7 +5,6 @@ import re
 import sys
 
 # Encoding names as defined by IANA (http://www.iana.org/assignments/character-sets/character-sets.xhtml)
-# TBD generate one codepage at a time, move to makefile
 encodings = (
         ( "ISO-8859-1",     "MAPPINGS/ISO8859/8859-1.TXT" ),
         ( "ISO-8859-2",     "MAPPINGS/ISO8859/8859-2.TXT" ),

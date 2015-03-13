@@ -35,9 +35,14 @@ enum xmlerr_spec_e {
     XMLERR_SPEC_XMLNS,   ///< W3C: Namespaces in XML 1.x
 };
 
-/// XML 1.x messages (TBD: move to a separate header)
-enum {
-    // TBD: sort XML 1.0 codes first, then XML 1.1 codes
+/**
+    XML 1.x messages.
+
+    @todo Move the XML1.x error codes to a separate header?
+
+    @todo Sort XML 1.0 codes first, then XML 1.1 codes
+*/
+enum xml_errcode_e {
     // Production mismatches
     XMLERR_XML_P_BASE              = 0x0000,
     XMLERR_XML_P_Char,

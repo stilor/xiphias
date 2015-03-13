@@ -41,11 +41,11 @@
 
 /// Reader flags
 enum {
-    // TBD: instead, pass an options structure to xml_reader_new/xml_reader_subordinate?
+    /// @todo Instead, pass an options structure to xml_reader_new/xml_reader_subordinate?
     READER_STARTED  = 0x0001,       ///< Reader has started the operation
-    // TBD: get rid of READER_FATAL in favor of PR_FAIL?
+    /// @todo Get rid of READER_FATAL in favor of PR_FAIL?
     READER_FATAL    = 0x0002,       ///< Reader encountered a fatal error
-    // TBD: RECOGNIZE_ASCII, pass from XMLDecl parser?
+    /// @todo Change to RECOGNIZE_ASCII, pass from XMLDecl parser?
     READER_ASCII    = 0x0004,       ///< Only ASCII characters allowed while reading declaration
     READER_LOCTRACK = 0x0008,       ///< Track the current position for error reporting
 };
@@ -163,9 +163,9 @@ struct xml_reader_s {
     SLIST_ENTRY(xml_reader_s) link; ///< Link in subordinate list
 };
 
-// TBD: change the API so that this function can look at arbitrary length of ucs4_t
-// codepoints and tell how many it will consume - to avoid calling it for each character
 /// Function for conditional read termination: returns true if the character is rejected
+/// @todo Change the API so that this function can look at arbitrary length of ucs4_t
+/// codepoints and tell how many it will consume - to avoid calling it for each character.
 typedef ucs4_t (*xml_condread_func_t)(void *arg, ucs4_t cp);
 
 /// Handler for a reference
@@ -213,8 +213,8 @@ typedef struct {
     prodparser_t func;                  ///< Function to call for this pattern
 } xml_reader_pattern_t;
 
-// TBD: construct a DFA? Manually or by a constructor?
 /// Lookahead initializer
+/// @todo Construct a DFA instead of an array? If so, manually or by a constructor?
 #define LOOKAHEAD(s, f) \
 { \
     .pattern = U_ARRAY s, \
@@ -317,7 +317,7 @@ xml_is_whitespace(ucs4_t cp)
 static bool
 xml_is_NameStartChar(ucs4_t cp)
 {
-    // TBD: replace the check in the BMP with a bitmap
+    /// @todo Replace the check in the BMP with a bitmap
     return ucs4_chin(cp, 'A', 'Z')
             || ucs4_chin(cp, 'a', 'z')
             || ucs4_cheq(cp, '_')
@@ -599,7 +599,7 @@ xml_entity_populate(strhash_t *ehash)
     for (i = 0, predef = predefined_entities; i < sizeofarray(predefined_entities);
             i++, predef++) {
         s = predef->rplc[0];
-        // TBD: xml_entity_internal()
+        /// @todo Create xml_entity_internal() for this - to be used when we parse \<!ENTITY>
         e = xmalloc(sizeof(xml_reader_entity_t));
         e->type = XML_READER_REF_INTERNAL;
         e->being_parsed = false;
@@ -864,8 +864,8 @@ xml_reader_update_position(xml_reader_t *h, ucs4_t cp)
     else if (ucs4_get_ccc(cp) == 0) {
         // Do not count combining marks - supposedly they're displayed with the preceding
         // character.
-        // TBD: check UAX#19 - AFAIU, this is what "Stacked boundaries" treatment implies
-        h->curloc.pos++; // TBD expand tabstops
+        /// @todo Check UAX#19 - AFAIU, this is what "Stacked boundaries" treatment implies
+        h->curloc.pos++;
     }
 }
 
@@ -1003,7 +1003,7 @@ static const strbuf_ops_t xml_reader_transcode_ops = {
     behave as if it normalized all line breaks in external parsed entities
     (including the document entity) on input, before parsing, by translating
     both the two-character sequence \#xD \#xA and any \#xD that is not followed
-    by #\xA to a single \#xA character.
+    by \#xA to a single \#xA character.
 
     For XML 1.1: To simplify the tasks of applications, the XML processor MUST
     behave as if it normalized all line breaks in external parsed entities
@@ -1077,7 +1077,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 saw_cr = false;
                 continue;
             }
-            // TBD normalization check
+            /// @todo Normalization check goes here
 
             // XML processor MUST behave as if it normalized all line breaks
             // in external parsed entities (including the document entity) on input,
@@ -1107,9 +1107,8 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 break;
             }
 
-            // TBD check for whitespace and set a flag in reader for later detection of ignorable
-            // (via the argument - when reading chardata, point to a structure that has such flag)
-            // TBD if in DTD, and not parsing a literal/comment/PI - recognize parameter entities
+            /// @todo Check for whitespace and set a flag in reader for later detection of ignorable
+            /// (via the argument - when reading chardata, point to a structure that has such flag)
             if ((cp = func(arg, cp0)) == UCS4_STOPCHAR) {
                 rv = XRU_STOP;
                 h->rejected = cp0;
@@ -1824,6 +1823,8 @@ typedef struct xml_cb_literal_state_s {
     Closure for xml_read_until: expect an initial quote, then read
     up until (and including) a matching end quote.
 
+    @todo Perhaps, normalize attributes here (in callback) to avoid extra copies
+
     @param arg Current state
     @param cp Codepoint
     @return true if this character is rejected
@@ -1855,8 +1856,6 @@ xml_cb_literal(void *arg, ucs4_t cp)
     Read a literal (EntityValue, AttValue, SystemLiteral, PubidLiteral).
     Also handles "pseudo-literals" (pseudo-attribute values defined
     in the XMLDecl/TextDecl).
-
-    TBD perhaps, normalize attributes here to avoid extra copies
 
     @param h Reader handle
     @param refops Literal's "virtual method table" for handling references
@@ -2200,12 +2199,12 @@ malformed: // Any fatal malformedness: report location where actual error was
     Read and process CharData (text "node").
 
     @param h Reader handle
-    @return TBD
+    @return PR_OK if parsed successfully.
 */
 static prodres_t
 xml_parse_CharData(xml_reader_t *h)
 {
-    // TBD
+    /// @todo Implement
     return xml_read_until_lt(h);
 }
 
@@ -2213,12 +2212,12 @@ xml_parse_CharData(xml_reader_t *h)
     Read and process a single XML comment, starting with <!-- and ending with -->.
 
     @param h Reader handle
-    @return TBD
+    @return PR_OK if parsed successfully.
 */
 static prodres_t
 xml_parse_Comment(xml_reader_t *h)
 {
-    // TBD
+    /// @todo Implement
     return xml_read_until_gt(h);
 }
 
@@ -2226,12 +2225,12 @@ xml_parse_Comment(xml_reader_t *h)
     Read and process a processing instruction, starting with <? and ending with ?>.
 
     @param h Reader handle
-    @return TBD
+    @return PR_OK if parsed successfully.
 */
 static prodres_t
 xml_parse_PI(xml_reader_t *h)
 {
-    // TBD
+    /// @todo Implement
     return xml_read_until_gt(h);
 }
 
@@ -2239,12 +2238,12 @@ xml_parse_PI(xml_reader_t *h)
     Read and process a CDATA section.
 
     @param h Reader handle
-    @return TBD
+    @return PR_OK if parsed successfully.
 */
 static prodres_t
 xml_parse_CDSect(xml_reader_t *h)
 {
-    // TBD
+    /// @todo Implement
     return xml_read_until_gt(h);
 }
 
@@ -2253,12 +2252,12 @@ xml_parse_CDSect(xml_reader_t *h)
     an external subset and contain an internal subset, or have both, or none.
 
     @param h Reader handle
-    @return TBD
+    @return PR_OK if parsed successfully.
 */
 static prodres_t
 xml_parse_doctypedecl(xml_reader_t *h)
 {
-    // TBD
+    /// @todo Implement
     return xml_read_until_gt(h);
 }
 
@@ -2326,8 +2325,8 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
             cbp.loc = h->lastreadloc;
             cbp.attr.name = h->tokenbuf;
             cbp.attr.namelen = h->tokenbuf_len;
-            // TBD get attribute value normalization type from callback and
-            // use it for reading attribute value below
+            /// @todo Get attribute value normalization type from callback and
+            /// use it for reading attribute value below
             xml_reader_invoke_callback(h, &cbp);
             (void)xml_parse_whitespace(h);
             if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_Attribute)) != PR_OK) {
@@ -2495,7 +2494,7 @@ static const xml_reader_context_t parser_document_entity = {
 static prodres_t
 xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
 {
-    utf8_t labuf[MAX_PATTERN]; // TBD have lookahead read into tokenbuf?
+    utf8_t labuf[MAX_PATTERN]; /// @todo Have lookahead read into tokenbuf? Do we need to use xml_lookahead() elsewhere?
     const xml_reader_context_t *ctx;
     const xml_reader_pattern_t *pat, *end;
     size_t len;
@@ -2504,9 +2503,9 @@ xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
 
     rv = PR_OK;
     while (rv == PR_OK && (len = xml_lookahead(h, labuf, sizeof(labuf), &eof), !eof)) {
-        // TBD pass 'recognition flags' to xml_read_until? Or drop that field
-        // and just pass it directly in CharData handler (rename to CharData_Reference then)
-        // Or recognize '&' as a pattern?
+        /// @todo pass 'recognition flags' to xml_read_until? Or drop that field
+        /// and just pass it directly in CharData handler (rename to CharData_Reference then)
+        /// Or recognize '&' as a pattern?
         ctx = h->nestlvl ? rootctx->nonroot : rootctx;
         rv = PR_NOMATCH;
         for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS; pat < end; pat++) {
@@ -2532,10 +2531,6 @@ xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
 static void
 xml_reader_start(xml_reader_t *h)
 {
-    // TBD: convert to xml_reader_prepend(strbuf_t *, const char *loc) - so that 
-    // we can use the same handle and just prepend the inputs. Will need to drop
-    // storing the encodings in the handle - but we are not going to use them at
-    // runtime anyway. Then do away with master/subordinate handles and shared structure
     xml_reader_input_t *inp;
     xml_reader_initial_xcode_t xc;
     utf8_t adbuf[4];       // 4 bytes for encoding detection, per XML spec suggestion
@@ -2598,7 +2593,7 @@ xml_reader_start(xml_reader_t *h)
     h->flags &= ~READER_ASCII;
 
     // If there was no XML declaration, assume 1.0 (where XMLDecl is optional)
-    // TBD for external parsed entities, need to inherit version from including document
+    /// @todo For external parsed entities, need to inherit version from including document
     if (h->version == XML_INFO_VERSION_NO_VALUE) {
         h->version = XML_INFO_VERSION_1_0;
     }
@@ -2677,7 +2672,7 @@ xml_reader_process_document_entity(xml_reader_t *h)
 {
     h->declinfo = &declinfo_xmldecl;
 
-    // TBD return false from xml_reader_start for fatal errors
+    /// @todo Return PR_FAIL from xml_reader_start for fatal errors
     xml_reader_start(h);
 
     // Skip checking for certain errors if reading was aborted prematurely
@@ -2704,9 +2699,9 @@ xml_reader_process_external_entity(xml_reader_t *h)
     h->declinfo = &declinfo_textdecl;
     xml_reader_start(h);
     if (h->flags & READER_FATAL) {
-        return; // TBD signal error somehow? or XMLERR(ERROR, ...) is enough?
+        return; /// @todo Signal error somehow? or XMLERR(ERROR, ...) is enough?
     }
-    // TBD process the rest of the content
+    /// @todo Process the rest of the content
 }
 
 /**
@@ -2721,7 +2716,7 @@ xml_reader_process_external_subset(xml_reader_t *h)
     h->declinfo = &declinfo_textdecl;
     xml_reader_start(h);
     if (h->flags & READER_FATAL) {
-        return; // TBD signal error somehow? or XMLERR(ERROR, ...) is enough?
+        return; /// @todo Signal error somehow? or XMLERR(ERROR, ...) is enough?
     }
-    // TBD process the rest of the content
+    /// @todo Process the rest of the content
 }
