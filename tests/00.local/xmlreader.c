@@ -155,6 +155,7 @@ run_testcase(const void *arg)
 // Some macro magic for declaring event (which is a disciminated union)
 #define FL_MESSAGE          message
 #define FL_XMLDECL          xmldecl
+#define FL_COMMENT          comment
 #define FL_APPEND           append
 #define FL_STAG             stag
 #define FL_STAG_END         stag_end

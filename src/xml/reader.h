@@ -29,7 +29,8 @@ enum xml_reader_cbtype_e {
     XML_READER_CB_APPEND,          ///< Append text to current node (text/attribute)
     XML_READER_CB_XMLDECL,         ///< XML declaration
     XML_READER_CB_COMMENT,         ///< Comment
-    XML_READER_CB_PI,              ///< Processing instruction
+    XML_READER_CB_PI_TARGET,       ///< Processing instruction: target
+    XML_READER_CB_PI_CONTENT,      ///< Processing instruction: content
     XML_READER_CB_DTD_BEGIN,       ///< Beginning of a document type declaration
     XML_READER_CB_DTD_END,         ///< End of a document type declaration
     XML_READER_CB_STAG,            ///< Start of element (STag)
@@ -81,6 +82,12 @@ typedef struct {
     enum xml_info_standalone_e standalone;   ///< Is the document is declared standalone
 } xml_reader_cbparam_xmldecl_t;
 
+/// Comment callback
+typedef struct {
+    const utf8_t *content;                   ///< Content of the comment
+    size_t contentlen;                       ///< Content length
+} xml_reader_cbparam_comment_t;
+
 /// Parameter for start of the element callback
 typedef struct {
     const utf8_t *type;                      ///< Element type (name)
@@ -114,6 +121,7 @@ typedef struct {
         xml_reader_cbparam_entity_t entity;       ///< Reference to an entity
         xml_reader_cbparam_append_t append;       ///< Attribute value
         xml_reader_cbparam_xmldecl_t xmldecl;     ///< XML or text declaration
+        xml_reader_cbparam_comment_t comment;     ///< Comment
         xml_reader_cbparam_stag_t stag;           ///< Start of element (STag)
         xml_reader_cbparam_stag_end_t stag_end;   ///< Start of element (STag) complete
         xml_reader_cbparam_etag_t etag;           ///< End of element (ETag)

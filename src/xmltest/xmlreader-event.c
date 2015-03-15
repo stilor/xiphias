@@ -160,6 +160,24 @@ evequal_xmldecl(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 }
 
 static void
+evprint_comment(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_comment_t *x = &cbparam->comment;
+
+    printf("'%.*s' [%zu]", (int)x->contentlen, x->content, x->contentlen);
+}
+
+static bool
+evequal_comment(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    const xml_reader_cbparam_comment_t *x1 = &e1->comment;
+    const xml_reader_cbparam_comment_t *x2 = &e2->comment;
+
+    return x1->contentlen == x2->contentlen
+            && !memcmp(x1->content, x2->content, x1->contentlen);
+}
+
+static void
 evprint_append(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_append_t *x = &cbparam->append;
@@ -311,6 +329,11 @@ static const event_t events[] = {
         .desc = "XML declaration",
         .print = evprint_xmldecl,
         .equal = evequal_xmldecl,
+    },
+    [XML_READER_CB_COMMENT] = {
+        .desc = "Comment",
+        .print = evprint_comment,
+        .equal = evequal_comment,
     },
     [XML_READER_CB_DTD_BEGIN] = {
         .desc = "DTD begin",

@@ -39,6 +39,20 @@
 /// Maximum number of characters to look ahead
 #define MAX_LOOKAHEAD_SIZE          16
 
+/**
+    Longest terminating sequence we're looking for is comment terminator, -->
+    (3 charactes). If we fail to see the closing angle bracket, first dash is
+    returned immediately and two characters (second dash and whatever we saw
+    instead of angle bracket) are stored in the backtrack buffer.
+*/
+#define MAX_BACKTRACK               2
+
+/**
+    Special value for backtrack count: a trivial backtrack, just don't advance
+    the current read pointer (nothing is stored in the backtrack buffer).
+*/
+#define BACKTRACK_NOADVANCE         ((size_t)-1)
+
 /// Reader flags
 enum {
     /// @todo Instead, pass an options structure to xml_reader_new/xml_reader_subordinate?
@@ -109,6 +123,7 @@ typedef struct xml_reader_input_s {
     uint32_t srcid;                 ///< Source ID to check for proper nesting
     bool inc_in_literal;            ///<'included in literal' - special handling of quotes
     bool charref;                   ///< Input originated from a character reference
+    bool backtrack;                 ///< Input for backtracking (does not terminate read loop)
     xml_reader_entity_t *entity;    ///< Associated entity if any
     void *baton;                    ///< Saved user data for entity being parsed
 } xml_reader_input_t;
@@ -150,7 +165,10 @@ struct xml_reader_s {
     utf8_t *tokenbuf_end;           ///< End of the token buffer
     size_t tokenbuf_len;            ///< Length of the token in the buffer
 
-    xmlerr_loc_t lastreadloc;          ///< Reader's position at the beginning of last token
+    ucs4_t backtrack[MAX_BACKTRACK];///< Buffer for "ungot" characters
+    size_t backtrack_cnt;           ///< Number of characters to get from backtrack buffer
+
+    xmlerr_loc_t lastreadloc;       ///< Reader's position at the beginning of last token
     ucs4_t rejected;                ///< Next character (rejected by xml_read_until_*)
     ucs4_t charrefval;              ///< When parsing character reference: stored value
 
@@ -463,8 +481,10 @@ xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
         if (inp->complete) {
             inp->complete(h, inp->complete_arg);
         }
+        if (!inp->backtrack) {
+            rv = XRU_INPUT_BOUNDARY; // No longer reading from the same input
+        }
         SLIST_INSERT_HEAD(&h->free_input, inp, link);
-        rv = XRU_INPUT_BOUNDARY; // No longer reading from the same input
     }
     return XRU_EOF; // All inputs consumed, EOF
 }
@@ -509,9 +529,11 @@ xml_reader_input_new(xml_reader_t *h, const char *location)
     inp->srcid = h->srcid++;
     inp->buf = strbuf_new(0); // Most of these buffers will use static strings
     inp->saveloc = h->curloc;
-    h->curloc.src = location;
-    h->curloc.line = 1;
-    h->curloc.pos = 1;
+    if (location) {
+        h->curloc.src = location;
+        h->curloc.line = 1;
+        h->curloc.pos = 1;
+    }
 
     // To catch if this is used without initialization
     SLIST_INSERT_HEAD(&h->active_input, inp, link);
@@ -1070,6 +1092,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
         for (ptr = begin;
                 rv == XRU_CONTINUE && ptr < (const ucs4_t *)end;
                 ptr++) {
+
             cp0 = *ptr; // codepoint before possible substitution by func
             if (saw_cr && (cp0 == 0x0A || cp0 == 0x85)) {
                 // EOL normalization. This is "continuation" of a previous character - so
@@ -1077,6 +1100,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 saw_cr = false;
                 continue;
             }
+
             /// @todo Normalization check goes here
 
             // XML processor MUST behave as if it normalized all line breaks
@@ -1156,6 +1180,12 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 total += clen;
             }
 
+            // If backtracking, go to the outer loop to setup new input. Do not count this
+            // character for the position update; we will re-parse it later.
+            if (h->backtrack_cnt) {
+                break;
+            }
+
             // Character not rejected, update position. Note that we're checking
             // the original character - cp0 - not processed, so that we update position
             // based on actual input.
@@ -1163,8 +1193,23 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 xml_reader_update_position(h, cp0);
             }
         }
+
         // Consumed this block
         xml_reader_input_radvance(h, (const uint8_t *)ptr - (const uint8_t *)begin);
+
+        // If non-trivial backtracking, set up backtracking input and let the outer
+        // loop re-read begin/end/ptr. Otherwise, the outer loop will just re-parse
+        // the character at *ptr again.
+        if (h->backtrack_cnt && h->backtrack_cnt != BACKTRACK_NOADVANCE) {
+            OOPS_ASSERT(!inp->backtrack); // Recursive backtracking not allowed
+
+            // 1 character counted above when we broke out of the loop;
+            h->curloc.pos -= h->backtrack_cnt - 1;
+            inp = xml_reader_input_new(h, NULL);
+            strbuf_set_input(inp->buf, h->backtrack, h->backtrack_cnt * sizeof(ucs4_t));
+            inp->backtrack = true;
+        }
+        h->backtrack_cnt = 0;
     }
     h->tokenbuf_len = total;
     return rv;
@@ -1328,21 +1373,20 @@ typedef struct xml_cb_string_state_s {
 
     @param arg Current matching state
     @param cp Codepoint
-    @return True if saw the whole string (normal termination) or found a mismatch
-        (abnormal termination)
+    @return Codepoint to insert in token buffer
 */
 static ucs4_t
 xml_cb_string(void *arg, ucs4_t cp)
 {
-    xml_cb_string_state_t *state = arg;
+    xml_cb_string_state_t *st = arg;
     ucs4_t tmp;
 
-    if ((tmp = ucs4_fromlocal(*state->cur)) >= 0x7F || tmp != cp) {
+    if ((tmp = ucs4_fromlocal(*st->cur)) >= 0x7F || tmp != cp) {
         return UCS4_STOPCHAR;
     }
     // Advance; no need to save into token buffer
-    state->cur++;
-    return UCS4_NOCHAR | (state->cur == state->end ? UCS4_LASTCHAR : 0);
+    st->cur++;
+    return st->cur == st->end ? UCS4_NOCHAR | UCS4_LASTCHAR : UCS4_NOCHAR;
 }
 
 /**
@@ -1359,11 +1403,10 @@ static prodres_t
 xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
 {
     xml_cb_string_state_t state;
-    size_t len, tlen;
+    size_t tlen;
 
-    len = strlen(s);
     state.cur = s;
-    state.end = s + len;
+    state.end = s + strlen(s);
     tlen = h->tokenbuf_len;
     if (xml_read_until(h, xml_cb_string, &state, 0) != XRU_STOP
             || state.cur != state.end) {
@@ -1374,6 +1417,102 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
         return PR_NOMATCH;
     }
     h->tokenbuf_len = tlen;
+    return PR_OK;
+}
+
+/// Current state structure for xml_cb_termstring
+typedef struct xml_cb_termstring_state_s {
+    const char *term;               ///< Terminator string
+    const char *cur;                ///< Currently expected character
+    const char *end;                ///< End of the expected string
+    xml_reader_t *h;                ///< Reader handle to backtrack if needed
+    void *arg;                      ///< Argument to mismatch callback
+
+    /// Function to call on mismatch
+    void (*func)(void *, size_t);
+} xml_cb_termstring_state_t;
+
+/**
+    Closure for xml_read_until: read anything until a terminator string is matched.
+
+    @param arg Matching state
+    @param cp Current codepoint
+    @return Codepoint to insert in token buffer
+*/
+static ucs4_t
+xml_cb_termstring(void *arg, ucs4_t cp)
+{
+    xml_cb_termstring_state_t *st = arg;
+    const char *p;
+    xml_reader_t *h;
+    ucs4_t tmp;
+
+    tmp = ucs4_fromlocal(*st->cur);
+    if (tmp == cp) {
+        // Matches the pattern so far, see if it concludes the terminator
+        ++st->cur;
+        return st->cur == st->end ? UCS4_NOCHAR | UCS4_LASTCHAR : UCS4_NOCHAR;
+    }
+    if (st->cur == st->term) {
+        // Haven't matched anything so far, this character is part of token
+        return cp;
+    }
+
+    // Notify the callback
+    if (st->func) {
+        st->func(st->arg, st->cur - st->term);
+    }
+
+    // Need to backtrack. Return the first *matched* character - this is not a part
+    // of the terminator string. Unget the rest of *matched* characters. Current
+    // (unmatched) character will be reprocessed after the backtrack buffer is consumed.
+    OOPS_ASSERT(st->cur - st->term <= MAX_BACKTRACK);
+
+    /// @todo Assert that ungot chars are neither newline nor tab nor combining char
+    h = st->h;
+    for (p = st->term + 1; p < st->cur; p++) {
+        h->backtrack[h->backtrack_cnt++] = ucs4_fromlocal(*p);
+    }
+    if (!h->backtrack_cnt) {
+        // We don't need to create an input diversion - just indicate that we'll
+        // reparse the current character
+        h->backtrack_cnt = BACKTRACK_NOADVANCE;
+    }
+
+    st->cur = st->term;
+    return ucs4_fromlocal(*st->term);
+}
+
+/**
+    Read a string until a terminating string is seen. Terminating string itself
+    is not stored into the token buffer. Terminator string may not contain
+    newlines, tabs or combining characters (location update logic for backtracking
+    is very simple-minded).
+
+    @param h Reader handle
+    @param s String expected as a terminator
+    @param func Function to call in case of we need to backtrack (i.e., if a part
+        of the terminator string is seen, but then a mismatch is detected). The
+        function shall accept one argument, the number of characters matched before
+        a mismatch occurred. NULL if no notifications are requested.
+    @param arg Argument to @a func callback
+    @return PR_OK on success, PR_NOMATCH if terminator string was not found.
+*/
+static prodres_t
+xml_read_termstring(xml_reader_t *h, const char *s, void (*func)(void *, size_t),
+        void *arg)
+{
+    xml_cb_termstring_state_t st;
+
+    st.term = s;
+    st.cur = s;
+    st.end = s + strlen(s);
+    st.h = h;
+    st.func = func;
+    st.arg = arg;
+    if (xml_read_until(h, xml_cb_termstring, &st, 0) != XRU_STOP || st.cur != st.end) {
+        return PR_NOMATCH;
+    }
     return PR_OK;
 }
 
@@ -2208,8 +2347,39 @@ xml_parse_CharData(xml_reader_t *h)
     return xml_read_until_lt(h);
 }
 
+/// State structure for comment backtrack handler
+typedef struct {
+    xml_reader_t *h;    ///< Reader handle
+    bool warned;        ///< 1 error per comment
+} comment_backtrack_handler_t;
+
+/**
+    If comment parser backtracks after 2 characters (--), it is an error.
+    For compatibility, the string "--" (double-hyphen) MUST NOT occur within
+    comments.
+
+    @param arg State structure
+    @param nch Number of characters matched before backtracking
+    @return Nothing
+*/
+static void
+comment_backtrack_handler(void *arg, size_t nch)
+{
+    comment_backtrack_handler_t *cbh = arg;
+
+    if (nch == 2 && !cbh->warned) {
+        xml_reader_message_current(cbh->h, XMLERR(ERROR, XML, P_Comment),
+                "Double hyphen must not occur within comments");
+        cbh->warned = true;
+    }
+}
+
 /**
     Read and process a single XML comment, starting with <!-- and ending with -->.
+
+    @verbatim
+    Comment ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
+    @endverbatim
 
     @param h Reader handle
     @return PR_OK if parsed successfully.
@@ -2217,8 +2387,28 @@ xml_parse_CharData(xml_reader_t *h)
 static prodres_t
 xml_parse_Comment(xml_reader_t *h)
 {
-    /// @todo Implement
-    return xml_read_until_gt(h);
+    xml_reader_cbparam_t cbp;
+    comment_backtrack_handler_t cbh;
+
+    if (xml_read_string(h, "<!--", XMLERR(ERROR, XML, P_Comment)) != PR_OK) {
+        return PR_NOMATCH; // Shouldn't have been called in this case
+    }
+
+    cbp.cbtype = XML_READER_CB_COMMENT;
+    cbp.loc = h->lastreadloc;
+
+    cbh.h = h;
+    cbh.warned = false;
+    if (xml_read_termstring(h, "-->", comment_backtrack_handler, &cbh) != PR_OK) {
+        /// no need to recover (EOF)
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_Comment),
+                "Unterminated comment");
+        return PR_STOP;
+    }
+    cbp.comment.content = h->tokenbuf;
+    cbp.comment.contentlen = h->tokenbuf_len;
+    xml_reader_invoke_callback(h, &cbp);
+    return PR_OK;
 }
 
 /**
@@ -2231,6 +2421,10 @@ static prodres_t
 xml_parse_PI(xml_reader_t *h)
 {
     /// @todo Implement
+    /// @todo Have a registry of known PI targets and how to handle them
+    /// @todo Implement <?xml ... ?> as a PI target with pseudo-attributes? Note that
+    /// pseudo-attributes in <?xml ... ?> do not allow reference substitutions
+    /// @todo Need to implement xml_read_terminated_string(h, terminator) - for PIs, comments, ...
     return xml_read_until_gt(h);
 }
 
