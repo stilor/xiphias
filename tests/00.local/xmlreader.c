@@ -156,6 +156,8 @@ run_testcase(const void *arg)
 #define FL_MESSAGE          message
 #define FL_XMLDECL          xmldecl
 #define FL_COMMENT          comment
+#define FL_PI_TARGET        pi_target
+#define FL_PI_CONTENT       pi_content
 #define FL_APPEND           append
 #define FL_STAG             stag
 #define FL_STAG_END         stag_end

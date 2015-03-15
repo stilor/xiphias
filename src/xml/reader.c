@@ -2414,17 +2414,67 @@ xml_parse_Comment(xml_reader_t *h)
 /**
     Read and process a processing instruction, starting with <? and ending with ?>.
 
+    @verbatim
+    PI       ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
+    PITarget ::= Name - (('X' | 'x') ('M' | 'm') ('L' | 'l'))
+    @endverbatim
+
+    @todo Have a registry of known PI targets and how to handle them (xml-model,
+    xml-stylesheet, anything else?)
+
+    @todo Implement <?xml ... ?> as a PI target with pseudo-attributes? Note that the
+    pseudo-attributes in <?xml ... ?> do not allow reference substitutions, and the
+    order of pseudo-attributes in xml-{model,stylesheet} is not fixed
+
     @param h Reader handle
     @return PR_OK if parsed successfully.
 */
 static prodres_t
 xml_parse_PI(xml_reader_t *h)
 {
-    /// @todo Implement
-    /// @todo Have a registry of known PI targets and how to handle them
-    /// @todo Implement <?xml ... ?> as a PI target with pseudo-attributes? Note that
-    /// pseudo-attributes in <?xml ... ?> do not allow reference substitutions
-    /// @todo Need to implement xml_read_terminated_string(h, terminator) - for PIs, comments, ...
+    xml_reader_cbparam_t cbp;
+
+    if (xml_read_string(h, "<?", XMLERR(ERROR, XML, P_PI)) != PR_OK) {
+        return PR_NOMATCH; // Shouldn't have been called in this case
+    }
+
+    cbp.cbtype = XML_READER_CB_PI_TARGET;
+    cbp.loc = h->lastreadloc;
+    if (xml_read_Name(h) != PR_OK) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
+                "Expected PI target here");
+        return xml_read_until_gt(h);
+    }
+    /// @todo Check for XML-reserved names ([Xx][Mm][Ll]*)
+
+    cbp.pi_target.name = h->tokenbuf;
+    cbp.pi_target.namelen = h->tokenbuf_len;
+    xml_reader_invoke_callback(h, &cbp);
+
+    // Content, if any, must be separated by a whitespace
+    if (xml_parse_whitespace(h) == PR_OK) {
+        // Whitespace; everything up to closing ?> is the content
+        if (xml_read_termstring(h, "?>", NULL, NULL) == PR_OK) {
+            cbp.cbtype = XML_READER_CB_PI_CONTENT;
+            cbp.pi_content.content = h->tokenbuf;
+            cbp.pi_content.contentlen = h->tokenbuf_len;
+            xml_reader_invoke_callback(h, &cbp);
+            return PR_OK;
+        }
+        else {
+            /// no need to recover (EOF)
+            xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
+                    "Unterminated processing instruction");
+            return PR_STOP;
+        }
+    }
+    else if (xml_read_string(h, "?>", XMLERR(ERROR, XML, P_PI)) == PR_OK) {
+        // We could only have closing ?> if there's no whitespace after PI target.
+        // There is no content in this case.
+        return PR_OK;
+    }
+
+    // Recover by skipping until closing angle bracket
     return xml_read_until_gt(h);
 }
 

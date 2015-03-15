@@ -88,6 +88,18 @@ typedef struct {
     size_t contentlen;                       ///< Content length
 } xml_reader_cbparam_comment_t;
 
+/// PI target
+typedef struct {
+    const utf8_t *name;                      ///< Content of the comment
+    size_t namelen;                          ///< Content length
+} xml_reader_cbparam_pi_target_t;
+
+/// PI content
+typedef struct {
+    const utf8_t *content;                   ///< Content of the comment
+    size_t contentlen;                       ///< Content length
+} xml_reader_cbparam_pi_content_t;
+
 /// Parameter for start of the element callback
 typedef struct {
     const utf8_t *type;                      ///< Element type (name)
@@ -122,6 +134,8 @@ typedef struct {
         xml_reader_cbparam_append_t append;       ///< Attribute value
         xml_reader_cbparam_xmldecl_t xmldecl;     ///< XML or text declaration
         xml_reader_cbparam_comment_t comment;     ///< Comment
+        xml_reader_cbparam_pi_target_t pi_target;      ///< PI target
+        xml_reader_cbparam_pi_content_t pi_content;    ///< PI content
         xml_reader_cbparam_stag_t stag;           ///< Start of element (STag)
         xml_reader_cbparam_stag_end_t stag_end;   ///< Start of element (STag) complete
         xml_reader_cbparam_etag_t etag;           ///< End of element (ETag)

@@ -178,6 +178,42 @@ evequal_comment(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 }
 
 static void
+evprint_pi_target(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_pi_target_t *x = &cbparam->pi_target;
+
+    printf("'%.*s' [%zu]", (int)x->namelen, x->name, x->namelen);
+}
+
+static bool
+evequal_pi_target(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    const xml_reader_cbparam_pi_target_t *x1 = &e1->pi_target;
+    const xml_reader_cbparam_pi_target_t *x2 = &e2->pi_target;
+
+    return x1->namelen == x2->namelen
+            && !memcmp(x1->name, x2->name, x1->namelen);
+}
+
+static void
+evprint_pi_content(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_pi_content_t *x = &cbparam->pi_content;
+
+    printf("'%.*s' [%zu]", (int)x->contentlen, x->content, x->contentlen);
+}
+
+static bool
+evequal_pi_content(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    const xml_reader_cbparam_pi_content_t *x1 = &e1->pi_content;
+    const xml_reader_cbparam_pi_content_t *x2 = &e2->pi_content;
+
+    return x1->contentlen == x2->contentlen
+            && !memcmp(x1->content, x2->content, x1->contentlen);
+}
+
+static void
 evprint_append(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_append_t *x = &cbparam->append;
@@ -334,6 +370,16 @@ static const event_t events[] = {
         .desc = "Comment",
         .print = evprint_comment,
         .equal = evequal_comment,
+    },
+    [XML_READER_CB_PI_TARGET] = {
+        .desc = "PI target",
+        .print = evprint_pi_target,
+        .equal = evequal_pi_target,
+    },
+    [XML_READER_CB_PI_CONTENT] = {
+        .desc = "PI content",
+        .print = evprint_pi_content,
+        .equal = evequal_pi_content,
     },
     [XML_READER_CB_DTD_BEGIN] = {
         .desc = "DTD begin",
