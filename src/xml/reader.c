@@ -2478,7 +2478,7 @@ xml_parse_Comment(xml_reader_t *h)
     cbh.h = h;
     cbh.warned = false;
     if (xml_read_termstring(h, "-->", comment_backtrack_handler, &cbh) != PR_OK) {
-        /// no need to recover (EOF)
+        // no need to recover (EOF)
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_Comment),
                 "Unterminated comment");
         return PR_STOP;
@@ -2540,7 +2540,7 @@ xml_parse_PI(xml_reader_t *h)
             return PR_OK;
         }
         else {
-            /// no need to recover (EOF)
+            // no need to recover (EOF)
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                     "Unterminated processing instruction");
             return PR_STOP;
@@ -2559,14 +2559,38 @@ xml_parse_PI(xml_reader_t *h)
 /**
     Read and process a CDATA section.
 
+    @verbatime
+    CDSect      ::= CDStart CData CDEnd
+    CDStart     ::= '<![CDATA['
+    CData       ::= (Char* - (Char* ']]>' Char*))
+    CDEnd       ::= ']]>'
+    @endverbatim
+
     @param h Reader handle
     @return PR_OK if parsed successfully.
 */
 static prodres_t
 xml_parse_CDSect(xml_reader_t *h)
 {
-    /// @todo Implement
-    return xml_read_until_gt(h);
+    xml_reader_cbparam_t cbp;
+
+    if (xml_read_string(h, "<![CDATA[", XMLERR(ERROR, XML, P_CDSect)) != PR_OK) {
+        return PR_NOMATCH; // Shouldn't have been called in this case
+    }
+
+    cbp.cbtype = XML_READER_CB_CDSECT;
+    cbp.loc = h->lastreadloc;
+    if (xml_read_termstring(h, "]]>", NULL, NULL) != PR_OK) {
+        // no need to recover (EOF)
+        /// @todo Test unterminated comments/PIs/CDATA in entities - is PR_STOP proper here?
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_CDSect),
+                "Unterminated CDATA section");
+        return PR_STOP;
+    }
+    cbp.append.text = h->tokenbuf;
+    cbp.append.textlen = h->tokenbuf_len;
+    xml_reader_invoke_callback(h, &cbp);
+    return PR_OK;
 }
 
 /**

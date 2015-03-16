@@ -159,6 +159,7 @@ run_testcase(const void *arg)
 #define FL_PI_TARGET        pi_target
 #define FL_PI_CONTENT       pi_content
 #define FL_APPEND           append
+#define FL_CDSECT           append
 #define FL_STAG             stag
 #define FL_STAG_END         stag_end
 #define FL_ETAG             etag

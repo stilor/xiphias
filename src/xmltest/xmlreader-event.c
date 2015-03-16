@@ -361,6 +361,11 @@ static const event_t events[] = {
         .print = evprint_append,
         .equal = evequal_append,
     },
+    [XML_READER_CB_CDSECT] = {
+        .desc = "CDATA section",
+        .print = evprint_append,
+        .equal = evequal_append,
+    },
     [XML_READER_CB_XMLDECL] = {
         .desc = "XML declaration",
         .print = evprint_xmldecl,

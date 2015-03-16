@@ -27,6 +27,7 @@ enum xml_reader_cbtype_e {
     XML_READER_CB_ENTITY_START,    ///< Started parsing an entity
     XML_READER_CB_ENTITY_END,      ///< Finished parsing an entity
     XML_READER_CB_APPEND,          ///< Append text to current node (text/attribute)
+    XML_READER_CB_CDSECT,          ///< Identical to APPEND, in case caller cares
     XML_READER_CB_XMLDECL,         ///< XML declaration
     XML_READER_CB_COMMENT,         ///< Comment
     XML_READER_CB_PI_TARGET,       ///< Processing instruction: target
