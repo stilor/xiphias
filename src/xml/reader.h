@@ -19,25 +19,67 @@
 // Forward declarations
 struct strbuf_s;
 
-/// Callback types
+/**
+    Callback types; discriminates the union for the extra data to the callback
+    and defines the meaning of the string contained in .token, if any.
+*/
 enum xml_reader_cbtype_e {
-    XML_READER_CB_NONE,            ///< No message (placeholder/terminator)
-    XML_READER_CB_MESSAGE,         ///< Note/warning/error message
-    XML_READER_CB_ENTITY_UNKNOWN,  ///< Encountered unknown entity name
-    XML_READER_CB_ENTITY_START,    ///< Started parsing an entity
-    XML_READER_CB_ENTITY_END,      ///< Finished parsing an entity
-    XML_READER_CB_APPEND,          ///< Append text to current node (text/attribute)
-    XML_READER_CB_CDSECT,          ///< Identical to APPEND, in case caller cares
-    XML_READER_CB_XMLDECL,         ///< XML declaration
-    XML_READER_CB_COMMENT,         ///< Comment
-    XML_READER_CB_PI_TARGET,       ///< Processing instruction: target
-    XML_READER_CB_PI_CONTENT,      ///< Processing instruction: content
-    XML_READER_CB_DTD_BEGIN,       ///< Beginning of a document type declaration
-    XML_READER_CB_DTD_END,         ///< End of a document type declaration
-    XML_READER_CB_STAG,            ///< Start of element (STag)
-    XML_READER_CB_STAG_END,        ///< Start of element (STag) terminated
-    XML_READER_CB_ETAG,            ///< End of element (ETag)
-    XML_READER_CB_ATTR,            ///< Name of an attribute in an element
+    /// No message (placeholder/terminator)
+    XML_READER_CB_NONE,
+
+    /// Note/warning/error message (no token; extra data in .message)
+    XML_READER_CB_MESSAGE,
+
+    /// Encountered unknown entity name (token: entity name; extra data in .entity)
+    XML_READER_CB_ENTITY_UNKNOWN,
+
+    /// Started parsing an entity (token: entity name; extra data in .entity)
+    XML_READER_CB_ENTITY_START,
+
+    /// Finished parsing an entity (no token; extra data in .entity)
+    XML_READER_CB_ENTITY_END,
+
+    /// Append text to current node (token: appended string; extra data in .append)
+    XML_READER_CB_APPEND,
+
+    /// Append text via CDATA (token: appended string; extra data in .append)
+    XML_READER_CB_CDSECT,
+
+    /// XML declaration (no token; extra data in .xmldecl)
+    XML_READER_CB_XMLDECL,
+
+    /// Comment (token: content; no extra data)
+    XML_READER_CB_COMMENT,
+
+    /// PI target (token: target; no extra data)
+    XML_READER_CB_PI_TARGET,
+
+    /// PI content (token: content; no extra data)
+    XML_READER_CB_PI_CONTENT,
+
+    /// Beginning of the DTD (token: root element type; no extra data)
+    XML_READER_CB_DTD_BEGIN,
+
+    /// Public ID in DTD (token: public ID; no extra data)
+    XML_READER_CB_DTD_PUBID,
+
+    /// System ID in DTD (token: system ID; no extra data)
+    XML_READER_CB_DTD_SYSID,
+
+    /// End of the DTD (no token; no extra data)
+    XML_READER_CB_DTD_END,
+
+    /// Start of element (token: element type; no extra data)
+    XML_READER_CB_STAG,
+
+    /// Attribute in an element (token: atttribute name; extra data in .attr)
+    XML_READER_CB_ATTR,
+
+    /// Finished element start (no token; extra data in .stag_end)
+    XML_READER_CB_STAG_END,
+
+    /// End of element (token: element type; no extra data)
+    XML_READER_CB_ETAG,
 
     XML_READER_CB_MAX,             ///< Maximum number of callback types
 };
@@ -54,6 +96,12 @@ enum xml_reader_reference_e {
     XML_READER_REF__UNKNOWN,       ///< Internal value: character or general (not yet determined)
 };
 
+/// Normalization type for an attribute
+enum xml_reader_attrnorm_e {
+    XML_READER_ATTRNORM_CDATA,     ///< CDATA attribute (basic normalization)
+    XML_READER_ATTRNORM_OTHER,     ///< Any other type (basic + whitespace collapsing)
+};
+
 /// Parameter for message callback
 typedef struct {
     xmlerr_info_t info;            ///< Error info
@@ -63,8 +111,6 @@ typedef struct {
 /// Unexpanded entity, either unknown or external
 typedef struct {
     enum xml_reader_reference_e type;   ///< Entity type
-    const utf8_t *name;                 ///< Entity name
-    size_t namelen;                     ///< Length of the entity name
     const char *system_id;              ///< System ID for external entities
     const char *public_id;              ///< Public ID for external entities
     void *baton;                        ///< (in) Baton from ENTITY_START to ENTITY_END
@@ -72,8 +118,6 @@ typedef struct {
 
 /// Parameter for "adding text to a node" callback
 typedef struct {
-    const utf8_t *text;              ///< Element type (may not match STag for malformed docs)
-    size_t textlen;                  ///< Element type length
     bool ws;                         ///< True if this text is pure whitespace
 } xml_reader_cbparam_append_t;
 
@@ -84,64 +128,32 @@ typedef struct {
     enum xml_info_standalone_e standalone;   ///< Is the document is declared standalone
 } xml_reader_cbparam_xmldecl_t;
 
-/// Comment callback
-typedef struct {
-    const utf8_t *content;                   ///< Content of the comment
-    size_t contentlen;                       ///< Content length
-} xml_reader_cbparam_comment_t;
-
-/// PI target
-typedef struct {
-    const utf8_t *name;                      ///< Content of the comment
-    size_t namelen;                          ///< Content length
-} xml_reader_cbparam_pi_target_t;
-
-/// PI content
-typedef struct {
-    const utf8_t *content;                   ///< Content of the comment
-    size_t contentlen;                       ///< Content length
-} xml_reader_cbparam_pi_content_t;
-
-/// Parameter for start of the element callback
-typedef struct {
-    const utf8_t *type;                      ///< Element type (name)
-    size_t typelen;                          ///< Element type length
-} xml_reader_cbparam_stag_t;
-
 /// Parameter for completion of the start of the element callback
 typedef struct {
     bool is_empty;                           ///< Whether this was STag or EmptyElemTag production
 } xml_reader_cbparam_stag_end_t;
 
-/// Parameter for end of the element callback
-typedef struct {
-    const utf8_t *type;                      ///< Element type
-    size_t typelen;                          ///< Element type length
-} xml_reader_cbparam_etag_t;
-
 /// Parameter for attribute name callback
-/// @todo Need (in) normalization type, CDATA (default) or NMTOKENS
 typedef struct {
-    const utf8_t *name;                      ///< Element type (may not match STag for malformed docs)
-    size_t namelen;                          ///< Element type length
+    enum xml_reader_attrnorm_e attrnorm;     ///< Requested attribute normalization
 } xml_reader_cbparam_attr_t;
 
 /// Combined callback parameter type
 typedef struct {
     enum xml_reader_cbtype_e cbtype;              ///< Callback type
     xmlerr_loc_t loc;                             ///< Location of the event
+    struct {
+        const utf8_t *str;                        ///< Token associated with the event
+        size_t len;                               ///< Length of the token
+    } token;                                      ///< Associated token
     union {
         xml_reader_cbparam_message_t message;     ///< Error/warning message
         xml_reader_cbparam_entity_t entity;       ///< Reference to an entity
-        xml_reader_cbparam_append_t append;       ///< Attribute value
+        xml_reader_cbparam_append_t append;       ///< Text appended to a node
         xml_reader_cbparam_xmldecl_t xmldecl;     ///< XML or text declaration
-        xml_reader_cbparam_comment_t comment;     ///< Comment
-        xml_reader_cbparam_pi_target_t pi_target;      ///< PI target
-        xml_reader_cbparam_pi_content_t pi_content;    ///< PI content
-        xml_reader_cbparam_stag_t stag;           ///< Start of element (STag)
         xml_reader_cbparam_stag_end_t stag_end;   ///< Start of element (STag) complete
-        xml_reader_cbparam_etag_t etag;           ///< End of element (ETag)
         xml_reader_cbparam_attr_t attr;           ///< Attribute name
+        struct {} __dummy;                        ///< For macro initializers of types with no extra
     };
 } xml_reader_cbparam_t;
 

@@ -95,7 +95,7 @@ strhash_destroy(strhash_t *hash)
         inside the string, but may not be NUL-terminated.
     @param len Length of the key string
     @param payload Value to store in the hash
-    @return Stored copy of the string. Always NUL terminated at @a len.
+    @return Nothing
 */
 void
 strhash_setn(strhash_t *hash, const utf8_t *key, size_t len, void *payload)

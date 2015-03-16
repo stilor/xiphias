@@ -155,27 +155,33 @@ run_testcase(const void *arg)
 // Some macro magic for declaring event (which is a disciminated union)
 #define FL_MESSAGE          message
 #define FL_XMLDECL          xmldecl
-#define FL_COMMENT          comment
-#define FL_PI_TARGET        pi_target
-#define FL_PI_CONTENT       pi_content
+#define FL_COMMENT          __dummy
+#define FL_PI_TARGET        __dummy
+#define FL_PI_CONTENT       __dummy
 #define FL_APPEND           append
 #define FL_CDSECT           append
-#define FL_STAG             stag
+#define FL_STAG             __dummy
 #define FL_STAG_END         stag_end
-#define FL_ETAG             etag
+#define FL_ETAG             __dummy
 #define FL_ATTR             attr
 #define FL_ENTITY_UNKNOWN   entity
 #define FL_ENTITY_START     entity
 #define FL_ENTITY_END       entity
 #define FL(t)           FL_##t
 
-#define E(t, l, ...)    { .cbtype = XML_READER_CB_##t, .loc = l, .FL(t) = { __VA_ARGS__ }, }
-#define END             { .cbtype = XML_READER_CB_NONE, }
+#define E(t, l, tok, ...)   { .cbtype = XML_READER_CB_##t, l, tok, .FL(t) = { __VA_ARGS__ }, }
+#define END                 { .cbtype = XML_READER_CB_NONE, }
 
-// Initializer for location info
-#define LOC(s,l,p)      { .src = (s), .line = (l), .pos = (p), }
+/// Initializer for location info
+#define LOC(s,l,p)      .loc = { .src = (s), .line = (l), .pos = (p), }
 
-// Initializer for basic test info
+/// Initializer for a token string
+#define TOK(s)          .token = { .str = U s, .len = sizeof(s) - 1 }
+
+/// Initializer for absense of token string
+#define NOTOK           .token = { .str = NULL, .len = 0 }
+
+/// Initializer for basic test info
 #define TC(d) \
         .at_file = __FILE__, \
         .at_line = __LINE__, \

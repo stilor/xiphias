@@ -164,7 +164,7 @@ struct xml_reader_s {
 
     utf8_t *tokenbuf;               ///< Token buffer
     utf8_t *tokenbuf_end;           ///< End of the token buffer
-    size_t tokenbuf_len;            ///< Length of the token in the buffer
+    size_t tokenlen;                ///< Length of the token in the buffer
 
     ucs4_t backtrack[MAX_BACKTRACK];///< Buffer for "ungot" characters
     size_t backtrack_cnt;           ///< Number of characters to get from backtrack buffer
@@ -677,7 +677,7 @@ xml_reader_new_internal(xml_reader_t *master, strbuf_t *buf, const char *locatio
     h->lastreadloc = h->curloc; // Shares reference to copy of location
     h->tokenbuf = xmalloc(INITIAL_TOKENBUF_SIZE);
     h->tokenbuf_end = h->tokenbuf + INITIAL_TOKENBUF_SIZE;
-    h->tokenbuf_len = 0;
+    h->tokenlen = 0;
 
     SLIST_INIT(&h->active_input);
     SLIST_INIT(&h->free_input);
@@ -914,6 +914,8 @@ xml_reader_message(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
     va_list ap;
 
     cbparam.cbtype = XML_READER_CB_MESSAGE;
+    cbparam.token.str = NULL;
+    cbparam.token.len = 0;
     cbparam.loc = *loc;
     cbparam.message.info = info;
     va_start(ap, fmt);
@@ -1217,7 +1219,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
         }
         h->backtrack_cnt = 0;
     }
-    h->tokenbuf_len = total;
+    h->tokenlen = total;
     return rv;
 }
 
@@ -1255,11 +1257,11 @@ xml_parse_whitespace(xml_reader_t *h)
 
     // Whitespace may cross entity boundaries; repeat until we get something other
     // than whitespace
-    tlen = h->tokenbuf_len;
+    tlen = h->tokenlen;
     do {
         stopstatus = xml_read_until(h, xml_cb_not_whitespace, &had_ws, 0);
     } while (stopstatus == XRU_INPUT_BOUNDARY);
-    h->tokenbuf_len = tlen;
+    h->tokenlen = tlen;
     return had_ws ? PR_OK : PR_NOMATCH;
 }
 
@@ -1359,7 +1361,7 @@ xml_read_Name(xml_reader_t *h)
 
     // May stop at either non-Name character, or input boundary
     (void)xml_read_until(h, xml_cb_not_name, &startchar, 0);
-    if (!h->tokenbuf_len) {
+    if (!h->tokenlen) {
         // No error: this is an auxillary function often used to differentiate between
         // Name or some alternative (e.g. entity vs char references)
         return PR_NOMATCH;
@@ -1413,16 +1415,16 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
 
     state.cur = s;
     state.end = s + strlen(s);
-    tlen = h->tokenbuf_len;
+    tlen = h->tokenlen;
     if (xml_read_until(h, xml_cb_string, &state, 0) != XRU_STOP
             || state.cur != state.end) {
         if (errinfo != XMLERR_NOERROR) {
             xml_reader_message_lastread(h, errinfo, "Expected string: '%s'", s);
         }
-        h->tokenbuf_len = tlen;
+        h->tokenlen = tlen;
         return PR_NOMATCH;
     }
-    h->tokenbuf_len = tlen;
+    h->tokenlen = tlen;
     return PR_OK;
 }
 
@@ -1745,14 +1747,20 @@ entity_input_end(xml_reader_t *h, void *arg)
     xml_reader_entity_t *e = inp->entity;
     xml_reader_cbparam_t cbp;
 
+    /// @todo It would probably be useful to pass the entity name again to the callback;
+    /// for that, strhash_set/setn need to return a pointer to permanent key string, which
+    /// needs to be stored back into xml_reader_entity_t.
     cbp.cbtype = XML_READER_CB_ENTITY_END;
+    cbp.token.str = NULL;
+    cbp.token.len = 0;
     cbp.loc = h->curloc;
     cbp.entity.type = e->type;
-    cbp.entity.name = NULL;
-    cbp.entity.namelen = 0;
     cbp.entity.system_id = e->system_id;
     cbp.entity.public_id = e->system_id ? e->public_id : NULL; // Only for external entities
     cbp.entity.baton = inp->baton;
+
+    /// @todo Ideally, this initialization should look something like:
+    /// @code XML_INVOKE_CALLBACK(ENTITY_END, h->curloc, NOTOKEN, .type = e->type, ...) @endcode
     xml_reader_invoke_callback(h, &cbp);
 
     inp->entity->being_parsed = false;
@@ -1792,8 +1800,8 @@ reference_included_common(xml_reader_t *h, xml_reader_entity_t *e, bool inc_in_l
     cbp.cbtype = XML_READER_CB_ENTITY_START;
     cbp.loc = h->lastreadloc;
     cbp.entity.type = e->type;
-    cbp.entity.name = h->tokenbuf;
-    cbp.entity.namelen = h->tokenbuf_len;
+    cbp.token.str = h->tokenbuf;
+    cbp.token.len = h->tokenlen;
     cbp.entity.system_id = e->system_id;
     cbp.entity.public_id = e->system_id ? e->public_id : NULL; // Only for external entities
     cbp.entity.baton = NULL;
@@ -1942,11 +1950,11 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
 
         case XML_READER_REF_GENERAL:
             // Clarify the type
-            e = strhash_getn(h->share->entities_gen, h->tokenbuf, h->tokenbuf_len);
+            e = strhash_getn(h->share->entities_gen, h->tokenbuf, h->tokenlen);
             break;
 
         case XML_READER_REF_PARAMETER:
-            e = strhash_getn(h->share->entities_param, h->tokenbuf, h->tokenbuf_len);
+            e = strhash_getn(h->share->entities_param, h->tokenbuf, h->tokenlen);
             break;
 
         default:
@@ -1958,8 +1966,8 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
             cbp.cbtype = XML_READER_CB_ENTITY_UNKNOWN;
             cbp.loc = h->lastreadloc;
             cbp.entity.type = reftype; // Our best guess
-            cbp.entity.name = h->tokenbuf;
-            cbp.entity.namelen = h->tokenbuf_len;
+            cbp.token.str = h->tokenbuf;
+            cbp.token.len = h->tokenlen;
             cbp.entity.system_id = NULL;
             cbp.entity.public_id = NULL;
             cbp.entity.baton = NULL;
@@ -1987,11 +1995,11 @@ textblock_append_common(xml_reader_t *h, bool ws)
 {
     xml_reader_cbparam_t cbp;
 
-    if (h->tokenbuf_len) {
+    if (h->tokenlen) {
         cbp.cbtype = XML_READER_CB_APPEND;
         cbp.loc = h->lastreadloc;
-        cbp.append.text = h->tokenbuf;
-        cbp.append.textlen = h->tokenbuf_len;
+        cbp.token.str = h->tokenbuf;
+        cbp.token.len = h->tokenlen;
         cbp.append.ws = ws;
         xml_reader_invoke_callback(h, &cbp);
     }
@@ -2118,7 +2126,7 @@ static void
 check_VersionInfo(xml_reader_t *h)
 {
     const utf8_t *str = h->tokenbuf;
-    size_t sz = h->tokenbuf_len;
+    size_t sz = h->tokenlen;
     size_t i;
 
     if (sz == 3) {
@@ -2177,7 +2185,7 @@ check_EncName(xml_reader_t *h)
 {
     const utf8_t *str = h->tokenbuf;
     const utf8_t *s;
-    size_t sz = h->tokenbuf_len;
+    size_t sz = h->tokenlen;
     size_t i;
 
     for (i = 0, s = str; i < sz; i++, s++) {
@@ -2220,7 +2228,7 @@ static void
 check_SD_YesNo(xml_reader_t *h)
 {
     const utf8_t *str = h->tokenbuf;
-    size_t sz = h->tokenbuf_len;
+    size_t sz = h->tokenlen;
 
     if (sz == 2 && utf8_eqn(str, "no", 2)) {
         h->standalone = XML_INFO_STANDALONE_NO;
@@ -2306,6 +2314,8 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     // We know it's there, checked above
     (void)xml_read_string(h, "<?xml", XMLERR(ERROR, XML, P_XMLDecl));
     cbp.cbtype = XML_READER_CB_XMLDECL;
+    cbp.token.str = NULL;
+    cbp.token.len = 0;
     cbp.loc = h->lastreadloc;
 
     while (true) {
@@ -2330,8 +2340,8 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
         // Go through the remaining attributes and see if this one is known
         // (and if we skipped any mandatory attributes while advancing).
         while (attrlist->name) {
-            if (h->tokenbuf_len == strlen(attrlist->name)
-                    && utf8_eqn(h->tokenbuf, attrlist->name, h->tokenbuf_len)) {
+            if (h->tokenlen == strlen(attrlist->name)
+                    && utf8_eqn(h->tokenbuf, attrlist->name, h->tokenlen)) {
                 break; // Yes, that is what we expect
             }
             if (attrlist->mandatory) {
@@ -2533,8 +2543,8 @@ xml_parse_Comment(xml_reader_t *h)
                 "Unterminated comment");
         return PR_STOP;
     }
-    cbp.comment.content = h->tokenbuf;
-    cbp.comment.contentlen = h->tokenbuf_len;
+    cbp.token.str = h->tokenbuf;
+    cbp.token.len = h->tokenlen;
     xml_reader_invoke_callback(h, &cbp);
     return PR_OK;
 }
@@ -2575,8 +2585,8 @@ xml_parse_PI(xml_reader_t *h)
     }
     /// @todo Check for XML-reserved names ([Xx][Mm][Ll]*)
 
-    cbp.pi_target.name = h->tokenbuf;
-    cbp.pi_target.namelen = h->tokenbuf_len;
+    cbp.token.str = h->tokenbuf;
+    cbp.token.len = h->tokenlen;
     xml_reader_invoke_callback(h, &cbp);
 
     // Content, if any, must be separated by a whitespace
@@ -2584,8 +2594,8 @@ xml_parse_PI(xml_reader_t *h)
         // Whitespace; everything up to closing ?> is the content
         if (xml_read_termstring(h, "?>", NULL, NULL) == PR_OK) {
             cbp.cbtype = XML_READER_CB_PI_CONTENT;
-            cbp.pi_content.content = h->tokenbuf;
-            cbp.pi_content.contentlen = h->tokenbuf_len;
+            cbp.token.str = h->tokenbuf;
+            cbp.token.len = h->tokenlen;
             xml_reader_invoke_callback(h, &cbp);
             return PR_OK;
         }
@@ -2643,8 +2653,8 @@ xml_parse_CDSect(xml_reader_t *h)
                 "Unterminated CDATA section");
         return PR_STOP;
     }
-    cbp.append.text = h->tokenbuf;
-    cbp.append.textlen = h->tokenbuf_len;
+    cbp.token.str = h->tokenbuf;
+    cbp.token.len = h->tokenlen;
     cbp.append.ws = false;
     xml_reader_invoke_callback(h, &cbp);
     return PR_OK;
@@ -2701,8 +2711,8 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     }
 
     // Notify the application that a new element has started
-    cbp.stag.type = h->tokenbuf;
-    cbp.stag.typelen = h->tokenbuf_len;
+    cbp.token.str = h->tokenbuf;
+    cbp.token.len = h->tokenlen;
     xml_reader_invoke_callback(h, &cbp);
 
     while (true) {
@@ -2726,8 +2736,9 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
             // Attribute, if any, must be preceded by S (whitespace).
             cbp.cbtype = XML_READER_CB_ATTR;
             cbp.loc = h->lastreadloc;
-            cbp.attr.name = h->tokenbuf;
-            cbp.attr.namelen = h->tokenbuf_len;
+            cbp.token.str = h->tokenbuf;
+            cbp.token.len = h->tokenlen;
+            cbp.attr.attrnorm = XML_READER_ATTRNORM_CDATA;
             /// @todo Get attribute value normalization type from callback and
             /// use it for reading attribute value below
             xml_reader_invoke_callback(h, &cbp);
@@ -2750,6 +2761,8 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 
     // Notify the app
     cbp.cbtype = XML_READER_CB_STAG_END;
+    cbp.token.str = NULL;
+    cbp.token.len = 0;
     cbp.loc = h->lastreadloc;
     cbp.stag_end.is_empty = is_empty;
     xml_reader_invoke_callback(h, &cbp);
@@ -2789,8 +2802,8 @@ xml_parse_ETag(xml_reader_t *h)
         return xml_read_until_gt(h);
     }
 
-    cbp.stag.type = h->tokenbuf;
-    cbp.stag.typelen = h->tokenbuf_len;
+    cbp.token.str = h->tokenbuf;
+    cbp.token.len = h->tokenlen;
     xml_reader_invoke_callback(h, &cbp);
 
     (void)xml_parse_whitespace(h); // optional whitespace
@@ -2897,7 +2910,8 @@ static const xml_reader_context_t parser_document_entity = {
 static prodres_t
 xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
 {
-    utf8_t labuf[MAX_PATTERN]; /// @todo Have lookahead read into tokenbuf? Do we need to use xml_lookahead() elsewhere?
+    /// @todo Have lookahead read into tokenbuf? Do we need to use xml_lookahead() elsewhere?
+    utf8_t labuf[MAX_PATTERN];
     const xml_reader_context_t *ctx;
     const xml_reader_pattern_t *pat, *end;
     size_t len;

@@ -88,10 +88,10 @@ evequal_message(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 }
 
 static const char * const reftypename[] = {
-    [XML_READER_REF_PARAMETER] = "Parameter",
-    [XML_READER_REF_INTERNAL] = "Internal general",
-    [XML_READER_REF_EXTERNAL] = "External parsed general",
-    [XML_READER_REF_UNPARSED] = "External unparsed general",
+    [XML_READER_REF_PARAMETER] = "Parameter entity",
+    [XML_READER_REF_INTERNAL] = "Internal general entity",
+    [XML_READER_REF_EXTERNAL] = "External parsed general entity",
+    [XML_READER_REF_UNPARSED] = "External unparsed general entity",
     [XML_READER_REF__CHAR] = "Bad value (CHAR)",
     [XML_READER_REF__MAX] = "Bad value (MAX)",
     [XML_READER_REF_GENERAL] = "Undetermined general entity",
@@ -103,14 +103,12 @@ evprint_entity(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_entity_t *x = &cbparam->entity;
 
-    printf("%s '%.*s' [%zu]",
-            x->type < sizeofarray(reftypename) ? reftypename[x->type] : "<unknown",
-            (int)x->namelen, x->name, x->namelen);
+    printf("%s", x->type < sizeofarray(reftypename) ? reftypename[x->type] : "<unknown>");
     if (x->system_id) {
-        printf(" system ID '%s'", x->system_id);
+        printf(", system ID '%s'", x->system_id);
     }
     if (x->public_id) {
-        printf(" public ID '%s'", x->public_id);
+        printf(", public ID '%s'", x->public_id);
     }
 }
 
@@ -121,8 +119,6 @@ evequal_entity(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     const xml_reader_cbparam_entity_t *x2 = &e2->entity;
 
     return x1->type == x2->type
-            && x1->namelen == x2->namelen
-            && !memcmp(x1->name, x2->name, x1->namelen)
             && str_null_or_equal(x1->system_id, x2->system_id)
             && str_null_or_equal(x1->public_id, x2->public_id);
 }
@@ -160,66 +156,13 @@ evequal_xmldecl(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 }
 
 static void
-evprint_comment(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_comment_t *x = &cbparam->comment;
-
-    printf("'%.*s' [%zu]", (int)x->contentlen, x->content, x->contentlen);
-}
-
-static bool
-evequal_comment(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_comment_t *x1 = &e1->comment;
-    const xml_reader_cbparam_comment_t *x2 = &e2->comment;
-
-    return x1->contentlen == x2->contentlen
-            && !memcmp(x1->content, x2->content, x1->contentlen);
-}
-
-static void
-evprint_pi_target(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_pi_target_t *x = &cbparam->pi_target;
-
-    printf("'%.*s' [%zu]", (int)x->namelen, x->name, x->namelen);
-}
-
-static bool
-evequal_pi_target(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_pi_target_t *x1 = &e1->pi_target;
-    const xml_reader_cbparam_pi_target_t *x2 = &e2->pi_target;
-
-    return x1->namelen == x2->namelen
-            && !memcmp(x1->name, x2->name, x1->namelen);
-}
-
-static void
-evprint_pi_content(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_pi_content_t *x = &cbparam->pi_content;
-
-    printf("'%.*s' [%zu]", (int)x->contentlen, x->content, x->contentlen);
-}
-
-static bool
-evequal_pi_content(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_pi_content_t *x1 = &e1->pi_content;
-    const xml_reader_cbparam_pi_content_t *x2 = &e2->pi_content;
-
-    return x1->contentlen == x2->contentlen
-            && !memcmp(x1->content, x2->content, x1->contentlen);
-}
-
-static void
 evprint_append(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_append_t *x = &cbparam->append;
 
-    printf("'%.*s' [%zu]%s", (int)x->textlen, x->text, x->textlen,
-            x->ws ? " (whitespace)" : "");
+    if (x->ws) {
+        printf("(whitespace)");
+    }
 }
 
 static bool
@@ -228,53 +171,7 @@ evequal_append(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     const xml_reader_cbparam_append_t *x1 = &e1->append;
     const xml_reader_cbparam_append_t *x2 = &e2->append;
 
-    return x1->textlen == x2->textlen
-            && !memcmp(x1->text, x2->text, x1->textlen)
-            && x1->ws == x2->ws;
-}
-
-static void
-evprint_dtd_begin(const xml_reader_cbparam_t *cbparam)
-{
-    /// @todo Implement
-}
-
-static bool
-evequal_dtd_begin(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    /// @todo Implement
-    return false;
-}
-
-static void
-evprint_dtd_end(const xml_reader_cbparam_t *cbparam)
-{
-    /// @todo Implement
-}
-
-static bool
-evequal_dtd_end(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    /// @todo Implement
-    return false;
-}
-
-static void
-evprint_stag(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_stag_t *x = &cbparam->stag;
-
-    printf("Element '%.*s' [%zu]", (int)x->typelen, x->type, x->typelen);
-}
-
-static bool
-evequal_stag(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_stag_t *x1 = &e1->stag;
-    const xml_reader_cbparam_stag_t *x2 = &e2->stag;
-
-    return x1->typelen == x2->typelen
-            && !memcmp(x1->type, x2->type, x1->typelen);
+    return x1->ws == x2->ws;
 }
 
 static void
@@ -283,15 +180,6 @@ evprint_stag_end(const xml_reader_cbparam_t *cbparam)
     const xml_reader_cbparam_stag_end_t *x = &cbparam->stag_end;
 
     printf("Used %s production", x->is_empty ? "EmptyElemTag" : "STag");
-}
-
-static void
-evprint_etag(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_etag_t *x = &cbparam->etag;
-
-    printf("Element '%.*s' [%zu]",
-            (int)x->typelen, x->type, x->typelen);
 }
 
 static bool
@@ -303,23 +191,12 @@ evequal_stag_end(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     return x1->is_empty == x2->is_empty;
 }
 
-static bool
-evequal_etag(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_etag_t *x1 = &e1->etag;
-    const xml_reader_cbparam_etag_t *x2 = &e2->etag;
-
-    return x1->typelen == x2->typelen
-            && !memcmp(x1->type, x2->type, x1->typelen);
-}
-
 static void
 evprint_attr(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_attr_t *x = &cbparam->attr;
 
-    printf("Attr '%.*s' [%zu]",
-            (int)x->namelen, x->name, x->namelen);
+    printf("Normalization: %u", x->attrnorm);
 }
 
 static bool
@@ -328,8 +205,7 @@ evequal_attr(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     const xml_reader_cbparam_attr_t *x1 = &e1->attr;
     const xml_reader_cbparam_attr_t *x2 = &e2->attr;
 
-    return x1->namelen == x2->namelen
-            && !memcmp(x1->name, x2->name, x1->namelen);
+    return x1->attrnorm == x2->attrnorm;
 }
 
 static const event_t events[] = {
@@ -375,33 +251,27 @@ static const event_t events[] = {
     },
     [XML_READER_CB_COMMENT] = {
         .desc = "Comment",
-        .print = evprint_comment,
-        .equal = evequal_comment,
     },
     [XML_READER_CB_PI_TARGET] = {
         .desc = "PI target",
-        .print = evprint_pi_target,
-        .equal = evequal_pi_target,
     },
     [XML_READER_CB_PI_CONTENT] = {
         .desc = "PI content",
-        .print = evprint_pi_content,
-        .equal = evequal_pi_content,
     },
     [XML_READER_CB_DTD_BEGIN] = {
         .desc = "DTD begin",
-        .print = evprint_dtd_begin,
-        .equal = evequal_dtd_begin,
+    },
+    [XML_READER_CB_DTD_PUBID] = {
+        .desc = "DTD public ID",
+    },
+    [XML_READER_CB_DTD_SYSID] = {
+        .desc = "DTD system ID",
     },
     [XML_READER_CB_DTD_END] = {
         .desc = "DTD end",
-        .print = evprint_dtd_end,
-        .equal = evequal_dtd_end,
     },
     [XML_READER_CB_STAG] = {
         .desc = "Start tag",
-        .print = evprint_stag,
-        .equal = evequal_stag,
     },
     [XML_READER_CB_STAG_END] = {
         .desc = "Start tag (complete)",
@@ -410,8 +280,6 @@ static const event_t events[] = {
     },
     [XML_READER_CB_ETAG] = {
         .desc = "End tag",
-        .print = evprint_etag,
-        .equal = evequal_etag,
     },
     [XML_READER_CB_ATTR] = {
         .desc = "Attribute",
@@ -438,7 +306,14 @@ xmlreader_event_print(const xml_reader_cbparam_t *cbparam)
     }
     if (cbparam->cbtype < sizeofarray(events) && events[cbparam->cbtype].desc) {
         printf(" %s: ", events[cbparam->cbtype].desc);
-        events[cbparam->cbtype].print(cbparam);
+        if (cbparam->token.str) {
+            printf("'%*s' [%zu] ",
+                    (int)cbparam->token.len, cbparam->token.str,
+                    cbparam->token.len);
+        }
+        if (events[cbparam->cbtype].print) {
+            events[cbparam->cbtype].print(cbparam);
+        }
         printf("\n");
     }
     else {
@@ -459,10 +334,14 @@ xmlreader_event_equal(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t
     if (e1->cbtype != e2->cbtype
             || e1->cbtype >= sizeofarray(events)
             || !str_null_or_equal(e1->loc.src, e2->loc.src)
+            || e1->token.len != e2->token.len
+            || memcmp(e1->token.str, e2->token.str, e1->token.len)
             || e1->loc.line != e2->loc.line
-            || e1->loc.pos != e2->loc.pos
-            || !events[e1->cbtype].equal) {
+            || e1->loc.pos != e2->loc.pos) {
         return false;
+    }
+    if (!events[e1->cbtype].equal) {
+        return true; // nothing else to compare
     }
     return events[e1->cbtype].equal(e1, e2);
 }
