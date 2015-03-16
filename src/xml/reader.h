@@ -72,8 +72,9 @@ typedef struct {
 
 /// Parameter for "adding text to a node" callback
 typedef struct {
-    const utf8_t *text;                      ///< Element type (may not match STag for malformed docs)
-    size_t textlen;                          ///< Element type length
+    const utf8_t *text;              ///< Element type (may not match STag for malformed docs)
+    size_t textlen;                  ///< Element type length
+    bool ws;                         ///< True if this text is pure whitespace
 } xml_reader_cbparam_append_t;
 
 /// Parameter for XML or text declaration callback

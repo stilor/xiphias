@@ -218,7 +218,8 @@ evprint_append(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_append_t *x = &cbparam->append;
 
-    printf("'%.*s' [%zu]", (int)x->textlen, x->text, x->textlen);
+    printf("'%.*s' [%zu]%s", (int)x->textlen, x->text, x->textlen,
+            x->ws ? " (whitespace)" : "");
 }
 
 static bool
@@ -228,7 +229,8 @@ evequal_append(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     const xml_reader_cbparam_append_t *x2 = &e2->append;
 
     return x1->textlen == x2->textlen
-            && !memcmp(x1->text, x2->text, x1->textlen);
+            && !memcmp(x1->text, x2->text, x1->textlen)
+            && x1->ws == x2->ws;
 }
 
 static void

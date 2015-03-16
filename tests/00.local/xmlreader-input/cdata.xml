@@ -1,1 +1,1 @@
-<a>A <![CDATA[section < with & special ]] characters inside]]>.</a>
+<a>A <![CDATA[section < with & special ]] characters inside]]><![CDATA[]]><![CDATA[ ]]>.</a>

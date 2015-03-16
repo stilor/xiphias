@@ -3,6 +3,7 @@
 
 /** @file
     XML reader handle operations.
+    @todo After the reader is implemented, establish naming policy.
 */
 #include <string.h>
 
@@ -197,8 +198,11 @@ typedef struct xml_reference_ops_s {
     /// Flags for entity recognition
     uint32_t flags;
 
+    /// Stop condition function
+    xml_condread_func_t condread;
+
     /// How text blocks are handled
-    void (*textblock)(xml_reader_t *h);
+    void (*textblock)(void *arg);
     
     /// How different types of entities are handled
     xml_refhandler_t hnd[XML_READER_REF__MAX];
@@ -335,7 +339,9 @@ xml_is_whitespace(ucs4_t cp)
 static bool
 xml_is_NameStartChar(ucs4_t cp)
 {
-    /// @todo Replace the check in the BMP with a bitmap
+    /// @todo Replace the check in the BMP with a bitmap? Or have a full map, for all UCS-4
+    /// code points, with properties like NameStart, Name, block, etc (will need them for XML
+    /// regexp extensions later).
     return ucs4_chin(cp, 'A', 'Z')
             || ucs4_chin(cp, 'a', 'z')
             || ucs4_cheq(cp, '_')
@@ -1869,26 +1875,6 @@ reference_included_charref(xml_reader_t *h, xml_reader_entity_t *e)
 }
 
 /**
-    Handler for text block in literals or content: invoke callback to append text.
-
-    @param h Reader handle
-    @return Nothing
-*/
-static void
-textblock_append(xml_reader_t *h)
-{
-    xml_reader_cbparam_t cbp;
-
-    if (h->tokenbuf_len) {
-        cbp.cbtype = XML_READER_CB_APPEND;
-        cbp.loc = h->lastreadloc;
-        cbp.append.text = h->tokenbuf;
-        cbp.append.textlen = h->tokenbuf_len;
-        xml_reader_invoke_callback(h, &cbp);
-    }
-}
-
-/**
     Wrapper around xml_read_until(): if entities are recognized and
     xml_read_until() returned due to start of an entity, issue
     a callback to expand that entity and if that callback returned
@@ -1896,15 +1882,14 @@ textblock_append(xml_reader_t *h)
     Otherwise, skip over the entity and continue.
 
     @param h Reader handle
-    @param func Function to call to check for the condition
-    @param arg Argument to @a func
     @param refops Actions to perform when encountering an entity, or
-        a contiguous text block; also a mask of recognized entities.
+        a contiguous text block; a mask of recognized entities, and
+        a stop-condition detection.
+    @param arg Argument to @a func
     @return Status why the parser terminated
 */
 static xru_t
-xml_read_until_parseref(xml_reader_t *h, xml_condread_func_t func, void *arg,
-        const xml_reference_ops_t *refops)
+xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void *arg)
 {
     xru_t stopstatus;
     xml_reader_cbparam_t cbp;
@@ -1914,9 +1899,9 @@ xml_read_until_parseref(xml_reader_t *h, xml_condread_func_t func, void *arg,
 
     while (true) {
         do {
-            stopstatus = xml_read_until(h, func, arg, refops->flags);
+            stopstatus = xml_read_until(h, refops->condread, arg, refops->flags);
             if (refops->textblock) {
-                refops->textblock(h);
+                refops->textblock(arg);
             }
         } while (stopstatus == XRU_INPUT_BOUNDARY);
 
@@ -1990,6 +1975,28 @@ xml_read_until_parseref(xml_reader_t *h, xml_condread_func_t func, void *arg,
     }
 }
 
+/**
+    Common part of a handler for text block in literals or content.
+
+    @param h Reader handle
+    @param ws If true, appended text contains only whitespace
+    @return Nothing
+*/
+static void
+textblock_append_common(xml_reader_t *h, bool ws)
+{
+    xml_reader_cbparam_t cbp;
+
+    if (h->tokenbuf_len) {
+        cbp.cbtype = XML_READER_CB_APPEND;
+        cbp.loc = h->lastreadloc;
+        cbp.append.text = h->tokenbuf;
+        cbp.append.textlen = h->tokenbuf_len;
+        cbp.append.ws = ws;
+        xml_reader_invoke_callback(h, &cbp);
+    }
+}
+
 /// Callback state for literal reading
 typedef struct xml_cb_literal_state_s {
     /// UCS4_NOCHAR at start, quote seen in progress, or UCS4_STOPCHAR if saw final quote
@@ -1997,6 +2004,20 @@ typedef struct xml_cb_literal_state_s {
     /// Reader handle (need to check the state of the current input
     xml_reader_t *h;
 } xml_cb_literal_state_t;
+
+/**
+    Handler for text block in literals: invoke callback to append text.
+
+    @param arg Literal parser state
+    @return Nothing
+*/
+static void
+textblock_append_literal(void *arg)
+{
+    xml_cb_literal_state_t *st = arg;
+
+    textblock_append_common(st->h, false);
+}
 
 /**
     Closure for xml_read_until: expect an initial quote, then read
@@ -2031,6 +2052,29 @@ xml_cb_literal(void *arg, ucs4_t cp)
     }
 }
 
+/// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
+static const xml_reference_ops_t reference_ops_pseudo = {
+    .errinfo = XMLERR(ERROR, XML, P_XMLDecl),
+    .condread = xml_cb_literal,
+    .flags = 0,
+    .hnd = { /* No entities expected */ },
+};
+
+/// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
+static const xml_reference_ops_t reference_ops_AttValue = {
+    .errinfo = XMLERR(ERROR, XML, P_Attribute),
+    .condread = xml_cb_literal,
+    .flags = RECOGNIZE_REF,
+    .textblock = textblock_append_literal,
+    .hnd = {
+        /* Default: 'Not recognized' */
+        [XML_READER_REF_INTERNAL] = reference_included_in_literal,
+        [XML_READER_REF_EXTERNAL] = reference_forbidden,
+        [XML_READER_REF_UNPARSED] = reference_forbidden,
+        [XML_READER_REF__CHAR] = reference_included_charref,
+    },
+};
+
 /**
     Read a literal (EntityValue, AttValue, SystemLiteral, PubidLiteral).
     Also handles "pseudo-literals" (pseudo-attribute values defined
@@ -2049,7 +2093,7 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     // xml_read_until() may return 0 (empty literal), which is valid
     st.quote = UCS4_NOCHAR;
     st.h = h;
-    if (xml_read_until_parseref(h, xml_cb_literal, &st, refops) != XRU_STOP
+    if (xml_read_until_parseref(h, refops, &st) != XRU_STOP
             || st.quote != UCS4_STOPCHAR) {
         xml_reader_message_lastread(h, refops->errinfo,
                 st.quote == UCS4_NOCHAR ?
@@ -2058,41 +2102,6 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     }
     return PR_OK;
 }
-
-/// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
-static const xml_reference_ops_t reference_ops_pseudo = {
-    .errinfo = XMLERR(ERROR, XML, P_XMLDecl),
-    .flags = 0,
-    .hnd = { /* No entities expected */ },
-};
-
-/// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
-static const xml_reference_ops_t reference_ops_AttValue = {
-    .errinfo = XMLERR(ERROR, XML, P_Attribute),
-    .flags = RECOGNIZE_REF,
-    .textblock = textblock_append,
-    .hnd = {
-        /* Default: 'Not recognized' */
-        [XML_READER_REF_INTERNAL] = reference_included_in_literal,
-        [XML_READER_REF_EXTERNAL] = reference_forbidden,
-        [XML_READER_REF_UNPARSED] = reference_forbidden,
-        [XML_READER_REF__CHAR] = reference_included_charref,
-    },
-};
-
-/// Virtual methods for reading CharData production
-static const xml_reference_ops_t reference_ops_CharData = {
-    .errinfo = XMLERR(ERROR, XML, P_CharData),
-    .flags = RECOGNIZE_REF,
-    .textblock = textblock_append,
-    .hnd = {
-        /* Default: 'Not recognized' */
-        [XML_READER_REF_INTERNAL] = reference_included,
-        [XML_READER_REF_EXTERNAL] = reference_included_if_validating,
-        [XML_READER_REF_UNPARSED] = reference_forbidden,
-        [XML_READER_REF__CHAR] = reference_included_charref,
-    },
-};
 
 /**
     Check for VersionInfo production.
@@ -2388,24 +2397,61 @@ malformed: // Any fatal malformedness: report location where actual error was
     return PR_FAIL;
 }
 
+/// State of CharData parser
+typedef struct {
+    xml_reader_t *h;        ///< Reader handle
+    bool ws;                ///< True if parsed token only has whitespace
+} cb_CharData_t;
+
 /**
     Callback to find the end of the character data.
 
-    @param arg Reader handle (cast to void pointer)
+    @param arg CharData parser state
     @param cp Current codepoint
     @return Nothing
 */
 static ucs4_t
 xml_cb_CharData(void *arg, ucs4_t cp)
 {
-    xml_reader_t *h = arg;
+    cb_CharData_t *st = arg;
 
-    if (!ucs4_cheq(cp, '<') || SLIST_FIRST(&h->active_input)->charref) {
+    if (!ucs4_cheq(cp, '<') || SLIST_FIRST(&st->h->active_input)->charref) {
+        if (st->ws && !xml_is_whitespace(cp)) {
+            st->ws = false;
+        }
         return cp;
     }
     return UCS4_STOPCHAR;
 }
 
+/**
+    Handler for text block in content: invoke callback to append text.
+
+    @param arg CharData parser state
+    @return Nothing
+*/
+static void
+textblock_append_CharData(void *arg)
+{
+    cb_CharData_t *st = arg;
+
+    textblock_append_common(st->h, st->ws);
+}
+
+/// Virtual methods for reading CharData production
+static const xml_reference_ops_t reference_ops_CharData = {
+    .errinfo = XMLERR(ERROR, XML, P_CharData),
+    .condread = xml_cb_CharData,
+    .flags = RECOGNIZE_REF,
+    .textblock = textblock_append_CharData,
+    .hnd = {
+        /* Default: 'Not recognized' */
+        [XML_READER_REF_INTERNAL] = reference_included,
+        [XML_READER_REF_EXTERNAL] = reference_included_if_validating,
+        [XML_READER_REF_UNPARSED] = reference_forbidden,
+        [XML_READER_REF__CHAR] = reference_included_charref,
+    },
+};
 
 /**
     Read and process CharData (text "node"). Character and entity references are
@@ -2421,7 +2467,11 @@ xml_cb_CharData(void *arg, ucs4_t cp)
 static prodres_t
 xml_parse_CharData(xml_reader_t *h)
 {
-    (void)xml_read_until_parseref(h, xml_cb_CharData, h, &reference_ops_CharData);
+    cb_CharData_t st;
+
+    st.h = h;
+    st.ws = true; // Until we've seen anything but
+    (void)xml_read_until_parseref(h, &reference_ops_CharData, &st);
     return PR_OK;
 }
 
@@ -2559,6 +2609,12 @@ xml_parse_PI(xml_reader_t *h)
 /**
     Read and process a CDATA section.
 
+    For purposes of checking of ignorable whitespace, CDATA is never considered
+    whitespace: "Note that a CDATA section containing only white space [...]
+    do not match the nonterminal S, and hence cannot appear in these positions."
+    (XML spec, describing validity constraints for elements with 'children'
+    content).
+
     @verbatime
     CDSect      ::= CDStart CData CDEnd
     CDStart     ::= '<![CDATA['
@@ -2589,6 +2645,7 @@ xml_parse_CDSect(xml_reader_t *h)
     }
     cbp.append.text = h->tokenbuf;
     cbp.append.textlen = h->tokenbuf_len;
+    cbp.append.ws = false;
     xml_reader_invoke_callback(h, &cbp);
     return PR_OK;
 }
