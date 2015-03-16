@@ -1774,10 +1774,11 @@ reference_forbidden(xml_reader_t *h, xml_reader_entity_t *e)
 
     @param h Reader handle
     @param e Entity information
+    @param inc_in_literal True if 'included in literal'
     @return Nothing
 */
 static void
-reference_included_in_literal(xml_reader_t *h, xml_reader_entity_t *e)
+reference_included_common(xml_reader_t *h, xml_reader_entity_t *e, bool inc_in_literal)
 {
     xml_reader_input_t *inp;
     xml_reader_cbparam_t cbp;
@@ -1797,7 +1798,7 @@ reference_included_in_literal(xml_reader_t *h, xml_reader_entity_t *e)
     inp = xml_reader_input_new(h, e->location);
     strbuf_set_input(inp->buf, e->rplc, e->rplclen);
     inp->entity = e;
-    inp->inc_in_literal = true;
+    inp->inc_in_literal = inc_in_literal;
     inp->baton = cbp.entity.baton;
 
     inp->complete = entity_input_end;
@@ -1805,8 +1806,47 @@ reference_included_in_literal(xml_reader_t *h, xml_reader_entity_t *e)
 }
 
 /**
-    Entity handler: 'Included' (for character references, the rules are slightly
-    different).
+    Entity handler: 'Included in literal'
+
+    @param h Reader handle
+    @param e Entity information
+    @return Nothing
+*/
+static void
+reference_included_in_literal(xml_reader_t *h, xml_reader_entity_t *e)
+{
+    reference_included_common(h, e, true);
+}
+
+/**
+    Entity handler: 'Included'
+
+    @param h Reader handle
+    @param e Entity information
+    @return Nothing
+*/
+static void
+reference_included(xml_reader_t *h, xml_reader_entity_t *e)
+{
+    reference_included_common(h, e, false);
+}
+
+/**
+    Entity handler: 'Included if validating'
+
+    @param h Reader handle
+    @param e Entity information
+    @return Nothing
+*/
+static void
+reference_included_if_validating(xml_reader_t *h, xml_reader_entity_t *e)
+{
+    /// @todo Implement
+}
+
+/**
+    Character reference handler: 'Included' (for character references,
+    the rules are slightly different).
 
     @param h Reader handle
     @param e Entity information, if any
@@ -1829,13 +1869,13 @@ reference_included_charref(xml_reader_t *h, xml_reader_entity_t *e)
 }
 
 /**
-    Handler for text block in literals or content: invoke callback.
+    Handler for text block in literals or content: invoke callback to append text.
 
     @param h Reader handle
     @return Nothing
 */
 static void
-textblock_callback(xml_reader_t *h)
+textblock_append(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
 
@@ -2030,14 +2070,28 @@ static const xml_reference_ops_t reference_ops_pseudo = {
 static const xml_reference_ops_t reference_ops_AttValue = {
     .errinfo = XMLERR(ERROR, XML, P_Attribute),
     .flags = RECOGNIZE_REF,
-    .textblock = textblock_callback,
+    .textblock = textblock_append,
     .hnd = {
         /* Default: 'Not recognized' */
         [XML_READER_REF_INTERNAL] = reference_included_in_literal,
         [XML_READER_REF_EXTERNAL] = reference_forbidden,
         [XML_READER_REF_UNPARSED] = reference_forbidden,
         [XML_READER_REF__CHAR] = reference_included_charref,
-    }
+    },
+};
+
+/// Virtual methods for reading CharData production
+static const xml_reference_ops_t reference_ops_CharData = {
+    .errinfo = XMLERR(ERROR, XML, P_CharData),
+    .flags = RECOGNIZE_REF,
+    .textblock = textblock_append,
+    .hnd = {
+        /* Default: 'Not recognized' */
+        [XML_READER_REF_INTERNAL] = reference_included,
+        [XML_READER_REF_EXTERNAL] = reference_included_if_validating,
+        [XML_READER_REF_UNPARSED] = reference_forbidden,
+        [XML_READER_REF__CHAR] = reference_included_charref,
+    },
 };
 
 /**
@@ -2335,7 +2389,31 @@ malformed: // Any fatal malformedness: report location where actual error was
 }
 
 /**
-    Read and process CharData (text "node").
+    Callback to find the end of the character data.
+
+    @param arg Reader handle (cast to void pointer)
+    @param cp Current codepoint
+    @return Nothing
+*/
+static ucs4_t
+xml_cb_CharData(void *arg, ucs4_t cp)
+{
+    xml_reader_t *h = arg;
+
+    if (!ucs4_cheq(cp, '<') || SLIST_FIRST(&h->active_input)->charref) {
+        return cp;
+    }
+    return UCS4_STOPCHAR;
+}
+
+
+/**
+    Read and process CharData (text "node"). Character and entity references are
+    also recognized by this function, using the same common reference parser.
+
+    @verbatim
+    CharData ::= [^<&]* - ([^<&]* ']]>' [^<&]*)
+    @endverbatim
 
     @param h Reader handle
     @return PR_OK if parsed successfully.
@@ -2343,8 +2421,8 @@ malformed: // Any fatal malformedness: report location where actual error was
 static prodres_t
 xml_parse_CharData(xml_reader_t *h)
 {
-    /// @todo Implement
-    return xml_read_until_lt(h);
+    (void)xml_read_until_parseref(h, xml_cb_CharData, h, &reference_ops_CharData);
+    return PR_OK;
 }
 
 /// State structure for comment backtrack handler
@@ -2747,9 +2825,6 @@ xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
 
     rv = PR_OK;
     while (rv == PR_OK && (len = xml_lookahead(h, labuf, sizeof(labuf), &eof), !eof)) {
-        /// @todo pass 'recognition flags' to xml_read_until? Or drop that field
-        /// and just pass it directly in CharData handler (rename to CharData_Reference then)
-        /// Or recognize '&' as a pattern?
         ctx = h->nestlvl ? rootctx->nonroot : rootctx;
         rv = PR_NOMATCH;
         for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS; pat < end; pat++) {
