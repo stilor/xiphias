@@ -307,7 +307,7 @@ xmlreader_event_print(const xml_reader_cbparam_t *cbparam)
     if (cbparam->cbtype < sizeofarray(events) && events[cbparam->cbtype].desc) {
         printf(" %s: ", events[cbparam->cbtype].desc);
         if (cbparam->token.str) {
-            printf("'%*s' [%zu] ",
+            printf("'%.*s' [%zu] ",
                     (int)cbparam->token.len, cbparam->token.str,
                     cbparam->token.len);
         }
