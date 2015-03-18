@@ -297,17 +297,12 @@ static const event_t events[] = {
 void
 xmlreader_event_print(const xml_reader_cbparam_t *cbparam)
 {
-    if (cbparam->loc.src) {
-        printf("  [%s:", cbparam->loc.src);
-        if (cbparam->loc.line == XMLERR_EOF && cbparam->loc.pos == XMLERR_EOF) {
-            printf("<EOF>]");
-        }
-        else {
-            printf("%u:%u]", cbparam->loc.line, cbparam->loc.pos);
-        }
+    printf("  [%s:", cbparam->loc.src ? cbparam->loc.src : "<undef>");
+    if (cbparam->loc.line == XMLERR_EOF && cbparam->loc.pos == XMLERR_EOF) {
+        printf("<EOF>]");
     }
     else {
-        printf("  [NO LOC]");
+        printf("%u:%u]", cbparam->loc.line, cbparam->loc.pos);
     }
     if (cbparam->cbtype < sizeofarray(events) && events[cbparam->cbtype].desc) {
         printf(" %s: ", events[cbparam->cbtype].desc);
@@ -339,10 +334,10 @@ xmlreader_event_equal(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t
     if (e1->cbtype != e2->cbtype
             || e1->cbtype >= sizeofarray(events)
             || !str_null_or_equal(e1->loc.src, e2->loc.src)
-            || e1->loc.line != e2->loc.line
-            || e1->loc.pos != e2->loc.pos
             || e1->token.len != e2->token.len
-            || memcmp(e1->token.str, e2->token.str, e1->token.len)) {
+            || memcmp(e1->token.str, e2->token.str, e1->token.len)
+            || e1->loc.line != e2->loc.line
+            || e1->loc.pos != e2->loc.pos) {
         return false;
     }
     if (!events[e1->cbtype].equal) {

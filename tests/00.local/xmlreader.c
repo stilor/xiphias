@@ -175,9 +175,6 @@ run_testcase(const void *arg)
 /// Initializer for location info
 #define LOC(s,l,p)      .loc = { .src = (s), .line = (l), .pos = (p), }
 
-/// Initializer for events with no location info
-#define NOLOC           .loc = { .src = NULL, .line = 0, .pos = 0, }
-
 /// Initializer for a token string
 #define TOK(s)          .token = { .str = U s, .len = sizeof(s) - 1 }
 
