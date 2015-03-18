@@ -492,7 +492,9 @@ xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
     while (rv == PR_OK && (len = xml_lookahead(h, labuf, sizeof(labuf), &eof), !eof)) {
         ctx = h->nestlvl ? rootctx->nonroot : rootctx;
         rv = PR_NOMATCH;
-        for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS; pat < end; pat++) {
+        for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS;
+                pat < end && pat->func;
+                pat++) {
             if (pat->patlen <= len && !memcmp(labuf, pat->pattern, pat->patlen)) {
                 rv = pat->func(h);
                 break;
@@ -2732,6 +2734,34 @@ xml_parse_CDSect(xml_reader_t *h)
 }
 
 /**
+    Trivial parser: exit from internal subset context when closing bracket is seen.
+
+    @param h Reader handle
+    @return Always PR_STOP (this function is only called if lookahead confirmed next
+        character to be closing bracket)
+*/
+static prodres_t
+xml_end_internal_subset(xml_reader_t *h)
+{
+    xml_read_string_assert(h, "]");
+    return PR_STOP;
+}
+
+/**
+    Context for parsing internal subset in a document type definition (DTD).
+    Has no distinction between root/nonroot contexts.
+
+    @verbatim
+    @endverbatim
+*/
+static const xml_reader_context_t parser_internal_subset = {
+    .lookahead = {
+        LOOKAHEAD("]", xml_end_internal_subset),
+    },
+    .nonroot = &parser_internal_subset,
+};
+
+/**
     Read and process a document type declaration; the declaration may reference
     an external subset and contain an internal subset, or have both, or none.
 
@@ -2832,10 +2862,14 @@ xml_parse_doctypedecl(xml_reader_t *h)
     (void)xml_parse_whitespace(h);
     if (ucs4_cheq(h->rejected, '[')) {
         // Internal subset: '[' intSubset ']'
+        xml_read_string_assert(h, "[");
         cbp.cbtype = XML_READER_CB_DTD_INTERNAL;
         xml_reader_invoke_callback(h, &cbp);
 
-        // TBD parse by context until closing ]
+        // Parse internal subset
+        if (xml_parse_by_ctx(h, &parser_internal_subset) != PR_STOP) {
+            return PR_FAIL;
+        }
     }
 
     // Ignore optional whitespace before closing angle bracket
