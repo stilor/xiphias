@@ -1428,6 +1428,24 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
     return PR_OK;
 }
 
+/**
+    Read an expected string where the content has already been checked via
+    lookahead. Does not raise an error; rather just checks the result with
+    an assertion.
+
+    @param h Reader handle
+    @param s String expected in the document; must be ASCII-only
+    @return PR_OK on success, PR_NOMATCH on failure
+*/
+static void
+xml_read_string_assert(xml_reader_t *h, const char *s)
+{
+    prodres_t rv;
+
+    rv = xml_read_string(h, s, XMLERR_NOERROR);
+    OOPS_ASSERT(rv == PR_OK);
+}
+
 /// Current state structure for xml_cb_termstring
 typedef struct xml_cb_termstring_state_s {
     const char *term;               ///< Terminator string
@@ -1639,7 +1657,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     // We know startchar is there, it has been rejected by previous call
     if (ucs4_cheq(startchar, '&')) {
         // This may be either entity or character reference
-        (void)xml_read_string(h, "&", XMLERR_NOERROR);
+        xml_read_string_assert(h, "&");
         saveloc = h->lastreadloc;
         if (xml_read_Name(h) == PR_OK) {
             // EntityRef
@@ -1649,7 +1667,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
         else if (ucs4_cheq(h->rejected, '#')) {
             // CharRef
             *reftype = XML_READER_REF__CHAR;
-            (void)xml_read_string(h, "#", XMLERR_NOERROR); // Again, known to be present
+            xml_read_string_assert(h, "#");
             st.val = 0;
             st.hasdigits = false;
             st.toobig = false;
@@ -1675,7 +1693,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     }
     else if (ucs4_cheq(startchar, '%')) {
         // PEReference
-        (void)xml_read_string(h, "%", XMLERR_NOERROR);
+        xml_read_string_assert(h, "%");
         saveloc = h->lastreadloc;
         *reftype = XML_READER_REF_PARAMETER;
         if (xml_read_Name(h) == PR_OK) {
@@ -2312,7 +2330,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     }
 
     // We know it's there, checked above
-    (void)xml_read_string(h, "<?xml", XMLERR(ERROR, XML, P_XMLDecl));
+    xml_read_string_assert(h, "<?xml");
     cbp.cbtype = XML_READER_CB_XMLDECL;
     cbp.token.str = NULL;
     cbp.token.len = 0;
@@ -2528,10 +2546,7 @@ xml_parse_Comment(xml_reader_t *h)
     xml_reader_cbparam_t cbp;
     comment_backtrack_handler_t cbh;
 
-    if (xml_read_string(h, "<!--", XMLERR(ERROR, XML, P_Comment)) != PR_OK) {
-        return PR_NOMATCH; // Shouldn't have been called in this case
-    }
-
+    xml_read_string_assert(h, "<!--");
     cbp.cbtype = XML_READER_CB_COMMENT;
     cbp.loc = h->lastreadloc;
 
@@ -2572,10 +2587,7 @@ xml_parse_PI(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
 
-    if (xml_read_string(h, "<?", XMLERR(ERROR, XML, P_PI)) != PR_OK) {
-        return PR_NOMATCH; // Shouldn't have been called in this case
-    }
-
+    xml_read_string_assert(h, "<?");
     cbp.cbtype = XML_READER_CB_PI_TARGET;
     cbp.loc = h->lastreadloc;
     if (xml_read_Name(h) != PR_OK) {
@@ -2640,10 +2652,7 @@ xml_parse_CDSect(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
 
-    if (xml_read_string(h, "<![CDATA[", XMLERR(ERROR, XML, P_CDSect)) != PR_OK) {
-        return PR_NOMATCH; // Shouldn't have been called in this case
-    }
-
+    xml_read_string_assert(h, "<![CDATA[");
     cbp.cbtype = XML_READER_CB_CDSECT;
     cbp.loc = h->lastreadloc;
     if (xml_read_termstring(h, "]]>", NULL, NULL) != PR_OK) {
@@ -2696,10 +2705,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     bool had_ws;
     bool is_empty;
 
-    if (xml_read_string(h, "<", XMLERR(ERROR, XML, P_STag)) != PR_OK) {
-        return PR_NOMATCH; // This function should not be called unless looked ahead
-    }
-
+    xml_read_string_assert(h, "<");
     cbp.cbtype = XML_READER_CB_STAG;
     cbp.loc = h->lastreadloc;
 
@@ -2725,9 +2731,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
             break;
         }
         else if (ucs4_cheq(h->rejected, '>')) {
-            if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_STag)) != PR_OK) {
-                OOPS; // Cannot fail - we looked ahead
-            }
+            xml_read_string_assert(h, ">");
             is_empty = false;
             h->nestlvl++; // Opened element
             break;
@@ -2790,9 +2794,7 @@ xml_parse_ETag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
 
-    if (xml_read_string(h, "</", XMLERR(ERROR, XML, P_ETag)) != PR_OK) {
-        return PR_NOMATCH; // This function should not be called unless looked ahead
-    }
+    xml_read_string_assert(h, "</");
     cbp.cbtype = XML_READER_CB_ETAG;
     cbp.loc = h->lastreadloc;
     if (xml_read_Name(h) != PR_OK) {
