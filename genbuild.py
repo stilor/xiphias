@@ -18,62 +18,76 @@ class Output(object):
         self.subdir = cp.get(section, 'subdir')
         self.sources = cp.get(section, 'sources').split()
         self.localdep = cp.get(section, 'localdep').split()
-	if self.outtype == 'lib':
-	    self.outpath = "build/lib/lib%s_%s.so" % (general['prefix'], self.name)
-	    self.extraldflags = "-Wl,-soname=lib%s_%s.so" % (general['prefix'], self.name)
-	elif self.outtype == 'test':
-	    self.outpath = "build/tests/%s" % self.name
-	    self.extraldflags = ""
-        elif self.outtype == 'app':
-            self.outpath = "build/bin/%s" % self.name
-	    self.extraldflags = ""
-	else:
-	    raise ValueError('Unknown output type [%s]' % self.outtype)
-	builddirs[os.path.dirname(self.outpath)] = 1
-	self.objs = []
-	self.deps = []
-        for s in self.sources:
-            if s[-2:] != '.c':
-                raise ValueError('Non C source') # Don't know how to handle
-	    src = self.subdir + '/' + s
-            obj = 'build/' + src[:-2] + '.o'
-            dep = 'build/' + src[:-2] + '.d'
-            builddirs[os.path.dirname(obj)] = 1
-	    self.objs.append(obj)
-	    self.deps.append(dep)
-	outputs[section] = self
+        self.outpath = {}
+        self.extraldflags = {}
+        self.objs = {}
+        self.deps = {}
+        for v in general['variants'].split():
+            if self.outtype == 'lib':
+                self.outpath[v] = "build/lib/lib%s_%s$(EXT_%s).so" % \
+                        (general['prefix'], self.name, v)
+                self.extraldflags[v] = "-Wl,-soname=lib%s_%s$(EXT_%s).so" % \
+                        (general['prefix'], self.name, v)
+            elif self.outtype == 'test':
+                self.outpath[v] = "build/tests/%s$(EXT_%s)" % \
+                        (self.name, v)
+                self.extraldflags[v] = ""
+            elif self.outtype == 'app':
+                self.outpath[v] = "build/bin/%s$(EXT_%s)" % \
+                        (self.name, v)
+                self.extraldflags[v] = ""
+            else:
+                raise ValueError('Unknown output type [%s]' % self.outtype)
+            builddirs[os.path.dirname(self.outpath[v])] = 1
+            self.objs[v] = []
+            self.deps[v] = []
+            for s in self.sources:
+                if s[-2:] != '.c':
+                    raise ValueError('Non C source') # Don't know how to handle
+                src = self.subdir + '/' + s
+                obj = "build/%s$(EXT_%s).o" % (src[:-2], v)
+                dep = "build/%s$(EXT_%s).d" % (src[:-2], v)
+                builddirs[os.path.dirname(obj)] = 1
+                self.objs[v].append(obj)
+                self.deps[v].append(dep)
+            outputs[section] = self
 
     def write_makefile(self, f):
-	f.write('''
-all: build-dirs %(outpath)s
+        for v in general['variants'].split():
+            f.write('''
+all-%(variant)s: %(outpath)s
 
 %(outpath)s: %(objs)s %(localdeps)s $(__makefiles) | build-dirs
-\t$(CC) -o $@ %(objs)s $(LDFLAGS_%(outtype)s) %(extraldflags)s %(locallibs)s
+\t$(CC) -o $@ %(objs)s $(LDFLAGS_%(outtype)s) $(LDFLAGS_%(variant)s) %(extraldflags)s %(locallibs)s
 
-%(objs)s: build/%%.o: %%.c $(__makefiles) | build-dirs
-\t$(CC) $(CFLAGS_%(outtype)s) -c -MMD -o $@ $<
+%(objs)s: build/%%$(EXT_%(variant)s).o: %%.c $(__makefiles) | build-dirs
+\t$(CC) $(CFLAGS_%(outtype)s) $(CFLAGS_%(variant)s) -c -MMD -o $@ $<
 
 -include %(deps)s
 '''		% {
-		'objs' : ' '.join(self.objs),
-		'deps' : ' '.join(self.deps),
-		'outpath' : self.outpath,
-		'extraldflags' : self.extraldflags,
-		'outtype' : self.outtype,
-                'localdeps' : ' '.join([outputs['lib:' + x].outpath for x in self.localdep]),
-		'locallibs' : ' '.join(["-l%s_%s" % (general['prefix'], x) for x in self.localdep]),
-		})
-        # Additional rules
-        if self.outtype == 'test':
-            f.write('''
-check: check-%(name)s
+                    'variant' : v,
+                    'objs' : ' '.join(self.objs[v]),
+                    'deps' : ' '.join(self.deps[v]),
+                    'outpath' : self.outpath[v],
+                    'extraldflags' : self.extraldflags[v],
+                    'outtype' : self.outtype,
+                    'localdeps' : ' '.join([outputs['lib:' + x].outpath[v] \
+                            for x in self.localdep]),
+                    'locallibs' : ' '.join(["-l%s_%s$(EXT_%s)" % (general['prefix'], x, v) \
+                            for x in self.localdep]),
+                    })
+            # Additional rules
+            if self.outtype == 'test':
+                f.write('''
+check-%(variant)s: check-%(variant)s-%(name)s
 
-check-%(name)s: %(outpath)s
+check-%(variant)s-%(name)s: %(outpath)s
 \t%(outpath)s
 '''             % {
-                'name' : self.name,
-		'outpath' : self.outpath,
-                })
+                    'variant' : v,
+                    'name' : self.name,
+                    'outpath' : self.outpath[v],
+                    })
 
 if __name__ == '__main__':
     parser = OptionParser()
@@ -99,6 +113,8 @@ if __name__ == '__main__':
 	o.write_makefile(f)
     # Write common part
     f.write('''
+all: build-dirs
+
 %(builddirs)s:
 \tmkdir -p $@
 

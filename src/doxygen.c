@@ -72,6 +72,4 @@
     @section TODO-OTHER
 
     @todo genbuild.py: implement options/rules for installation of libraries/apps
-
-    @todo genbuild.py: build GCOV and regular objects alongside each other
 */

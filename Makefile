@@ -18,31 +18,35 @@ COVERAGE_CMD-lcov		:= lcov --output-file build/lcov.tmp.info \
 						   		--function-coverage build/lcov.info
 
 CC	= gcc
-OPTIMIZE				:= -O2
-CFLAGS_common			:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
+WARNS					:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wstrict-overflow=4 -Wignored-qualifiers -Wunused-but-set-parameter \
 						   -Wmaybe-uninitialized -Wpointer-arith -Wtype-limits -Wbad-function-cast \
 						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered \
 						   -Wsign-compare -Wlogical-op -Waggregate-return \
-						   -Wmissing-field-initializers -Wnested-externs \
-						   -g $(OPTIMIZE) -fno-common -iquote src $(CFLAGS_extra)
+						   -Wmissing-field-initializers -Wnested-externs
+CFLAGS_common			:= -g -fno-common -iquote src
+CFLAGS_normal			:= -O2
+CFLAGS_coverage			:= -O0 --coverage -DOOPS_COVERAGE
 
 CFLAGS_app				:= $(CFLAGS_common)
 CFLAGS_lib				:= $(CFLAGS_common) -fPIC
 CFLAGS_test				:= $(CFLAGS_common)
 
 LDFLAGS_common			:= -L build/lib $(LDFLAGS_extra)
+LDFLAGS_coverage		:= --coverage
 LDFLAGS_app				:= $(LDFLAGS_common) -Wl,-rpath=build/lib
 LDFLAGS_lib				:= $(LDFLAGS_common) -fPIC -shared
 LDFLAGS_test			:= $(LDFLAGS_common) -Wl,-rpath=build/lib
 
-all:
+EXT_normal				:=
+EXT_coverage			:= .cov
 
-coverage:
-	find build -name "*.gcda" | xargs rm -f
-	@$(MAKE) all check CFLAGS_extra='--coverage -DOOPS_COVERAGE' LDFLAGS_extra='--coverage' OPTIMIZE='-O0'
+all: all-normal
+
+coverage: check-coverage
 	mkdir -p build/coverage
 	$(COVERAGE_CMD-$(COVERAGE_TOOL))
+	find build -name "*.gcda" | xargs rm -f
 
 GENERATED				:= src/util/encoding-codepages.c \
 						   src/util/ucs4data.c
@@ -51,7 +55,7 @@ clean:
 	rm -rf build
 	rm -f $(GENERATED)
 
-check:
+check: check-normal
 
 docs: Doxyfile.tmpl
 	rm -rf build/doc
