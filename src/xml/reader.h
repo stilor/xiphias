@@ -66,6 +66,9 @@ enum xml_reader_cbtype_e {
     /// System ID in DTD (token: system ID; no extra data)
     XML_READER_CB_DTD_SYSID,
 
+    /// Start of the internal subset in DTD (no token; no extra data)
+    XML_READER_CB_DTD_INTERNAL,
+
     /// End of the DTD (no token; no extra data)
     XML_READER_CB_DTD_END,
 

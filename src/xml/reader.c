@@ -463,6 +463,49 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz, bool *peof)
 }
 
 /**
+    Look ahead and parse according to the list of expected tokens.
+
+    Note that content is a recursive production: it may contain element, which in turn
+    may contain content. We are processing this in a flat way (substituting loop for
+    recursion); instead, we just track the nesting level (to keep track if we're at
+    the root level or not). The proper nesting of STag/ETag cannot be checked with
+    this approach; it needs to be verified by a higher level, SAX or DOM. Higher level
+    is also responsible for checking that both STag/ETag belong to the same input by
+    keeping track when entity parsing started and ended.
+
+    @param h Reader handle
+    @param rootctx Root context
+    @return Nothing
+*/
+static prodres_t
+xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
+{
+    /// @todo Have lookahead read into tokenbuf? Do we need to use xml_lookahead() elsewhere?
+    utf8_t labuf[MAX_PATTERN];
+    const xml_reader_context_t *ctx;
+    const xml_reader_pattern_t *pat, *end;
+    size_t len;
+    bool eof;
+    prodres_t rv;
+
+    rv = PR_OK;
+    while (rv == PR_OK && (len = xml_lookahead(h, labuf, sizeof(labuf), &eof), !eof)) {
+        ctx = h->nestlvl ? rootctx->nonroot : rootctx;
+        rv = PR_NOMATCH;
+        for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS; pat < end; pat++) {
+            if (pat->patlen <= len && !memcmp(labuf, pat->pattern, pat->patlen)) {
+                rv = pat->func(h);
+                break;
+            }
+        }
+        if (rv == PR_NOMATCH && ctx->nomatch) {
+            rv = ctx->nomatch(h);
+        }
+    }
+    return eof ? PR_STOP : rv;
+}
+
+/**
     Get read pointers, either from a strbuf or from an input diversion.
 
     @param h Reader handle
@@ -2086,7 +2129,7 @@ static const xml_reference_ops_t reference_ops_pseudo = {
     .hnd = { /* No entities expected */ },
 };
 
-/// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
+/// Virtual methods for reading attribute values (AttValue production)
 static const xml_reference_ops_t reference_ops_AttValue = {
     .errinfo = XMLERR(ERROR, XML, P_Attribute),
     .condread = xml_cb_literal,
@@ -2099,6 +2142,25 @@ static const xml_reference_ops_t reference_ops_AttValue = {
         [XML_READER_REF_UNPARSED] = reference_forbidden,
         [XML_READER_REF__CHAR] = reference_included_charref,
     },
+};
+
+/// Virtual methods for reading system ID (SystemLiteral production)
+static const xml_reference_ops_t reference_ops_SystemLiteral = {
+    .errinfo = XMLERR(ERROR, XML, P_SystemLiteral),
+    .condread = xml_cb_literal,
+    .flags = 0,
+    .hnd = { /* No entities expected */ },
+};
+
+/// Virtual methods for reading public ID (PubidLiteral production)
+/// @todo Need to disallow characters except for PubidChar. Do it in some
+/// way so that READER_ASCII may also make use of that approach? Also,
+/// can attribute value normalization use that approach?
+static const xml_reference_ops_t reference_ops_PubidLiteral = {
+    .errinfo = XMLERR(ERROR, XML, P_PubidLiteral),
+    .condread = xml_cb_literal,
+    .flags = 0,
+    .hnd = { /* No entities expected */ },
 };
 
 /**
@@ -2673,14 +2735,118 @@ xml_parse_CDSect(xml_reader_t *h)
     Read and process a document type declaration; the declaration may reference
     an external subset and contain an internal subset, or have both, or none.
 
+    @verbatim
+    doctypedecl ::= '<!DOCTYPE' S Name (S ExternalID)? S? ('[' intSubset ']' S?)? '>'
+    ExternalID  ::= 'SYSTEM' S SystemLiteral | 'PUBLIC' S PubidLiteral S SystemLiteral
+    @endverbatim
+
+    @par No recovery
+    We can try to recover by reading to the next right angle bracket, but if DTD
+    contains an internal subset, we're likely to terminate on some entity or other
+    markup declaration. Thus, this function signals an abort to the caller if it
+    detects a misformatting in most cases; the only exception is when the malformedness
+    is detected after the closing bracket following the internal subset; in that case,
+    the next right angle bracket must be the one closing the DTD.
+
     @param h Reader handle
     @return PR_OK if parsed successfully.
 */
 static prodres_t
 xml_parse_doctypedecl(xml_reader_t *h)
 {
-    /// @todo Implement
-    return xml_read_until_gt(h);
+    xml_reader_cbparam_t cbp;
+    bool has_system_id = false;
+    bool has_public_id = false;
+
+    // Expanding doctypedecl production, we get these possible variants:
+    //   '<!DOCTYPE' S Name S? '>'
+    //   '<!DOCTYPE' S Name 'SYSTEM' S SystemLiteral S? '>'
+    //   '<!DOCTYPE' S Name 'PUBLIC' S PubidLiteral S SystemLiteral S? '>'
+    //   '<!DOCTYPE' S Name S? '[' intSubset ']' S? '>'
+    //   '<!DOCTYPE' S Name 'SYSTEM' S SystemLiteral S? '[' intSubset ']' S? '>'
+    //   '<!DOCTYPE' S Name 'PUBLIC' S PubidLiteral S SystemLiteral S? '[' intSubset ']' S? '>'
+
+    // Common part: '<!DOCTYPE' S Name
+    xml_read_string_assert(h, "<!DOCTYPE");
+    cbp.cbtype = XML_READER_CB_DTD_BEGIN;
+    cbp.loc = h->lastreadloc;
+
+    if (xml_parse_whitespace(h) != PR_OK) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_doctypedecl),
+                "Expect whitespace here");
+        return PR_FAIL;
+    }
+    if (xml_read_Name(h) != PR_OK) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_doctypedecl),
+                "Expect root element type here");
+        return PR_FAIL;
+    }
+    cbp.token.str = h->tokenbuf;
+    cbp.token.len = h->tokenlen;
+    xml_reader_invoke_callback(h, &cbp);
+
+    // Optional external subset: 'SYSTEM' ... or 'PUBLIC' ...
+    if (xml_parse_whitespace(h) == PR_OK) {
+        if (ucs4_cheq(h->rejected, 'S')) {
+            if (xml_read_string(h, "SYSTEM", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
+                return PR_FAIL;
+            }
+            has_system_id = true;
+        }
+        else if (ucs4_cheq(h->rejected, 'P')) {
+            if (xml_read_string(h, "PUBLIC", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
+                return PR_FAIL;
+            }
+            has_system_id = true;
+            has_public_id = true;
+        }
+    }
+    if (has_public_id) {
+        // Had external subset with PUBLIC: S PubidLiteral
+        if (xml_parse_whitespace(h) != PR_OK
+                || xml_parse_literal(h, &reference_ops_PubidLiteral) != PR_OK) {
+            return PR_FAIL;
+        }
+        cbp.cbtype = XML_READER_CB_DTD_PUBID;
+        cbp.token.str = h->tokenbuf;
+        cbp.token.len = h->tokenlen;
+        xml_reader_invoke_callback(h, &cbp);
+    }
+    if (has_system_id) {
+        // Had any external subset: S SystemLiteral
+        if (xml_parse_whitespace(h) != PR_OK
+                || xml_parse_literal(h, &reference_ops_SystemLiteral) != PR_OK) {
+            return PR_FAIL;
+        }
+        cbp.cbtype = XML_READER_CB_DTD_SYSID;
+        cbp.token.str = h->tokenbuf;
+        cbp.token.len = h->tokenlen;
+        xml_reader_invoke_callback(h, &cbp);
+    }
+
+    // Two other remaining messages bear no tokens
+    cbp.token.str = NULL,
+    cbp.token.len = 0;
+
+    // Ignore optional whitespace before internal subset
+    (void)xml_parse_whitespace(h);
+    if (ucs4_cheq(h->rejected, '[')) {
+        // Internal subset: '[' intSubset ']'
+        cbp.cbtype = XML_READER_CB_DTD_INTERNAL;
+        xml_reader_invoke_callback(h, &cbp);
+
+        // TBD parse by context until closing ]
+    }
+
+    // Ignore optional whitespace before closing angle bracket
+    (void)xml_parse_whitespace(h);
+    if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
+        // The only case we're attempting recovery in doctypedecl
+        return xml_read_until_gt(h);
+    }
+    cbp.cbtype = XML_READER_CB_DTD_END;
+    xml_reader_invoke_callback(h, &cbp);
+    return PR_OK;
 }
 
 /**
@@ -2893,49 +3059,6 @@ static const xml_reader_context_t parser_document_entity = {
     .nomatch = recover_document_entity_root,
     .nonroot = &parser_content,
 };
-
-/**
-    Look ahead and parse according to the list of expected tokens.
-
-    Note that content is a recursive production: it may contain element, which in turn
-    may contain content. We are processing this in a flat way (substituting loop for
-    recursion); instead, we just track the nesting level (to keep track if we're at
-    the root level or not). The proper nesting of STag/ETag cannot be checked with
-    this approach; it needs to be verified by a higher level, SAX or DOM. Higher level
-    is also responsible for checking that both STag/ETag belong to the same input by
-    keeping track when entity parsing started and ended.
-
-    @param h Reader handle
-    @param rootctx Root context
-    @return Nothing
-*/
-static prodres_t
-xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
-{
-    /// @todo Have lookahead read into tokenbuf? Do we need to use xml_lookahead() elsewhere?
-    utf8_t labuf[MAX_PATTERN];
-    const xml_reader_context_t *ctx;
-    const xml_reader_pattern_t *pat, *end;
-    size_t len;
-    bool eof;
-    prodres_t rv;
-
-    rv = PR_OK;
-    while (rv == PR_OK && (len = xml_lookahead(h, labuf, sizeof(labuf), &eof), !eof)) {
-        ctx = h->nestlvl ? rootctx->nonroot : rootctx;
-        rv = PR_NOMATCH;
-        for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS; pat < end; pat++) {
-            if (pat->patlen <= len && !memcmp(labuf, pat->pattern, pat->patlen)) {
-                rv = pat->func(h);
-                break;
-            }
-        }
-        if (rv == PR_NOMATCH && ctx->nomatch) {
-            rv = ctx->nomatch(h);
-        }
-    }
-    return eof ? PR_STOP : rv;
-}
 
 /**
     Start parsing an input stream: detect initial encoding, read

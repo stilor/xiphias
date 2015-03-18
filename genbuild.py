@@ -61,7 +61,7 @@ all-%(variant)s: %(outpath)s
 \t$(CC) -o $@ %(objs)s $(LDFLAGS_%(outtype)s) $(LDFLAGS_%(variant)s) %(extraldflags)s %(locallibs)s
 
 %(objs)s: build/%%$(EXT_%(variant)s).o: %%.c $(__makefiles) | build-dirs
-\t$(CC) $(CFLAGS_%(outtype)s) $(CFLAGS_%(variant)s) -c -MMD -o $@ $<
+\t$(CC) $(WARNS) $(CFLAGS_%(outtype)s) $(CFLAGS_%(variant)s) -c -MMD -o $@ $<
 
 -include %(deps)s
 '''		% {

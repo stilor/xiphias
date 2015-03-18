@@ -267,6 +267,9 @@ static const event_t events[] = {
     [XML_READER_CB_DTD_SYSID] = {
         .desc = "DTD system ID",
     },
+    [XML_READER_CB_DTD_INTERNAL] = {
+        .desc = "DTD internal subset",
+    },
     [XML_READER_CB_DTD_END] = {
         .desc = "DTD end",
     },

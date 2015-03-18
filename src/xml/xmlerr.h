@@ -60,6 +60,9 @@ enum xml_errcode_e {
     XMLERR_XML_P_PI,
     XMLERR_XML_P_CharData,
     XMLERR_XML_P_CDSect,
+    XMLERR_XML_P_doctypedecl,
+    XMLERR_XML_P_SystemLiteral,
+    XMLERR_XML_P_PubidLiteral,
 
     // Other errors and recommendations (spelled in text of the spec)
     XMLERR_XML_OTHER_BASE          = 0x0100,

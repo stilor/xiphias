@@ -158,6 +158,11 @@ run_testcase(const void *arg)
 #define FL_COMMENT          __dummy
 #define FL_PI_TARGET        __dummy
 #define FL_PI_CONTENT       __dummy
+#define FL_DTD_BEGIN        __dummy
+#define FL_DTD_PUBID        __dummy
+#define FL_DTD_SYSID        __dummy
+#define FL_DTD_INTERNAL     __dummy
+#define FL_DTD_END          __dummy
 #define FL_APPEND           append
 #define FL_CDSECT           append
 #define FL_STAG             __dummy
