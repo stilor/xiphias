@@ -39,6 +39,12 @@ enum xml_reader_cbtype_e {
     /// Finished parsing an entity (no token; extra data in .entity)
     XML_READER_CB_ENTITY_END,
 
+    /// Public ID (DTD, entity or notation) (token: public ID; no extra data)
+    XML_READER_CB_PUBID,
+
+    /// System ID (DTD, entity or notation) (token: system ID; no extra data)
+    XML_READER_CB_SYSID,
+
     /// Append text to current node (token: appended string; extra data in .append)
     XML_READER_CB_APPEND,
 
@@ -59,12 +65,6 @@ enum xml_reader_cbtype_e {
 
     /// Beginning of the DTD (token: root element type; no extra data)
     XML_READER_CB_DTD_BEGIN,
-
-    /// Public ID in DTD (token: public ID; no extra data)
-    XML_READER_CB_DTD_PUBID,
-
-    /// System ID in DTD (token: system ID; no extra data)
-    XML_READER_CB_DTD_SYSID,
 
     /// Start of the internal subset in DTD (no token; no extra data)
     XML_READER_CB_DTD_INTERNAL,

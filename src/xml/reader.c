@@ -2977,7 +2977,7 @@ xml_parse_doctypedecl(xml_reader_t *h)
                 || xml_parse_literal(h, &reference_ops_PubidLiteral) != PR_OK) {
             return PR_FAIL;
         }
-        cbp.cbtype = XML_READER_CB_DTD_PUBID;
+        cbp.cbtype = XML_READER_CB_PUBID;
         cbp.token.str = h->tokenbuf;
         cbp.token.len = h->tokenlen;
         xml_reader_invoke_callback(h, &cbp);
@@ -2988,7 +2988,7 @@ xml_parse_doctypedecl(xml_reader_t *h)
                 || xml_parse_literal(h, &reference_ops_SystemLiteral) != PR_OK) {
             return PR_FAIL;
         }
-        cbp.cbtype = XML_READER_CB_DTD_SYSID;
+        cbp.cbtype = XML_READER_CB_SYSID;
         cbp.token.str = h->tokenbuf;
         cbp.token.len = h->tokenlen;
         xml_reader_invoke_callback(h, &cbp);

@@ -234,6 +234,12 @@ static const event_t events[] = {
         .print = evprint_entity,
         .equal = evequal_entity,
     },
+    [XML_READER_CB_PUBID] = {
+        .desc = "Public ID",
+    },
+    [XML_READER_CB_SYSID] = {
+        .desc = "System ID",
+    },
     [XML_READER_CB_APPEND] = {
         .desc = "Append text",
         .print = evprint_append,
@@ -260,12 +266,6 @@ static const event_t events[] = {
     },
     [XML_READER_CB_DTD_BEGIN] = {
         .desc = "DTD begin",
-    },
-    [XML_READER_CB_DTD_PUBID] = {
-        .desc = "DTD public ID",
-    },
-    [XML_READER_CB_DTD_SYSID] = {
-        .desc = "DTD system ID",
     },
     [XML_READER_CB_DTD_INTERNAL] = {
         .desc = "DTD internal subset",
