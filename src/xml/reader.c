@@ -225,8 +225,8 @@ typedef enum {
 /// Production parser function
 typedef prodres_t (*prodparser_t)(xml_reader_t *);
 
-/// Maximum number of characters we need to look ahead: '<!DOCTYPE' or '<![CDATA['
-#define MAX_PATTERN     9
+/// Maximum number of characters we need to look ahead: '<!NOTATION'
+#define MAX_PATTERN     10
 
 /// Lookahead pattern/handler pairs
 typedef struct {
@@ -245,7 +245,7 @@ typedef struct {
 }
 
 /// Maximum number of lookahead pairs
-#define MAX_LA_PAIRS    6
+#define MAX_LA_PAIRS    8
 
 /**
     Parser settings: entity recognition settings at root level, set of lookahead
@@ -1286,15 +1286,15 @@ xml_cb_not_whitespace(void *arg, ucs4_t cp)
 }
 
 /**
-    Consume whitespace.
-
+    Consume whitespace; allows to specify which entities need to be interpreted.
     Does not modify the token buffer.
 
     @param h Reader handle
-    @return PR_OK if consumed any whitespace, PR_NOMATCH otherwise.
+    @param recognize Entity recognition flags
+    @return PR_OK if it consumed any whitespace, PR_NOMATCH otherwise
 */
 static prodres_t
-xml_parse_whitespace(xml_reader_t *h)
+xml_parse_whitespace_internal(xml_reader_t *h, uint32_t recognize)
 {
     xru_t stopstatus;
     bool had_ws = false;
@@ -1304,10 +1304,22 @@ xml_parse_whitespace(xml_reader_t *h)
     // than whitespace
     tlen = h->tokenlen;
     do {
-        stopstatus = xml_read_until(h, xml_cb_not_whitespace, &had_ws, 0);
+        stopstatus = xml_read_until(h, xml_cb_not_whitespace, &had_ws, recognize);
     } while (stopstatus == XRU_INPUT_BOUNDARY);
     h->tokenlen = tlen;
     return had_ws ? PR_OK : PR_NOMATCH;
+}
+
+/*
+    Consumes whitespace without expanding entities. Does not modify the token buffer.
+
+    @param h Reader handle
+    @return PR_OK if consumed any whitespace, PR_NOMATCH otherwise.
+*/
+static prodres_t
+xml_parse_whitespace(xml_reader_t *h)
+{
+    return xml_parse_whitespace_internal(h, 0);
 }
 
 /**
@@ -2734,6 +2746,113 @@ xml_parse_CDSect(xml_reader_t *h)
 }
 
 /**
+    Parse element declaration (elementdecl).
+
+    @verbatim
+    elementdecl ::= '<!ELEMENT' S Name S contentspec S? '>
+    contentspec ::= 'EMPTY' | 'ANY' | Mixed | children
+    children    ::= (choice | seq) ('?' | '*' | '+')?
+    cp          ::= (Name | choice | seq) ('?' | '*' | '+')?
+    choice      ::= '(' S? cp ( S? '|' S? cp )+ S? ')'
+    seq         ::= '(' S? cp ( S? ',' S? cp )* S? ')'
+    Mixed       ::= '(' S? '#PCDATA' (S? '|' S? Name)* S? ')*' | '(' S? '#PCDATA' S? ')'
+    @endverbatim
+
+    @param h Reader handle
+    @return PR_OK if the declaration parsed successfully, or recovery was performed
+*/
+static prodres_t
+xml_parse_elementdecl(xml_reader_t *h)
+{
+    return PR_FAIL; // TBD
+}
+
+/**
+    Parse attribute list declaration (elementdecl).
+
+    @verbatim
+    AttlistDecl    ::= '<!ATTLIST' S Name AttDef* S? '>'
+    AttDef         ::= S Name S AttType S DefaultDecl
+    AttType        ::= StringType | TokenizedType | EnumeratedType
+    StringType     ::= 'CDATA'
+    TokenizedType  ::= 'ID' | 'IDREF' | 'IDREFS' | 'ENTITY' | 'ENTITIES' |
+                       'NMTOKEN' | 'NMTOKENS'
+    EnumeratedType ::= NotationType | Enumeration
+    NotationType   ::= 'NOTATION' S '(' S? Name (S? '|' S? Name)* S? ')'
+    Enumeration    ::= '(' S? Nmtoken (S? '|' S? Nmtoken)* S? ')'
+    DefaultDecl    ::= '#REQUIRED' | '#IMPLIED' | (('#FIXED' S)? AttValue)
+    @endverbatim
+
+    @param h Reader handle
+    @return PR_OK if the declaration parsed successfully, or recovery was performed
+*/
+static prodres_t
+xml_parse_AttlistDecl(xml_reader_t *h)
+{
+    return PR_FAIL; // TBD
+}
+
+/**
+    Parse general or parameter entity declaration (EntityDecl).
+
+    @verbatim
+    EntityDecl ::= GEDecl | PEDecl
+    GEDecl     ::= '<!ENTITY' S Name S EntityDef S? '>'
+    PEDecl     ::= '<!ENTITY' S '%' S Name S PEDef S? '>'
+    EntityDef  ::= EntityValue | (ExternalID NDataDecl?)
+    PEDef      ::= EntityValue | ExternalID
+    ExternalID ::= 'SYSTEM' S SystemLiteral | 'PUBLIC' S PubidLiteral S SystemLiteral
+    NDataDecl  ::= S 'NDATA' S Name
+    @endverbatim
+
+    @param h Reader handle
+    @return PR_OK if the declaration parsed successfully, or recovery was performed
+*/
+static prodres_t
+xml_parse_EntityDecl(xml_reader_t *h)
+{
+    return PR_FAIL; // TBD
+}
+
+/**
+    Parse notation declaration (NotationDecl).
+
+    @verbatim
+    NotationDecl ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
+    ExternalID   ::= 'SYSTEM' S SystemLiteral | 'PUBLIC' S PubidLiteral S SystemLiteral
+    PublicID     ::= 'PUBLIC' S PubidLiteral
+    @endverbatim
+
+    @param h Reader handle
+    @return PR_OK if the declaration parsed successfully, or recovery was performed
+*/
+static prodres_t
+xml_parse_NotationDecl(xml_reader_t *h)
+{
+    return PR_FAIL; // TBD
+}
+
+/**
+    Parse declaration separator (DeclSep).
+
+    @verbatim
+    DeclSep ::= PEReference | S
+    @endverbatim
+
+    Essentially, this function just parses whitespace while allowing for parameter entity
+    expansion.
+
+    @param h Reader handle
+    @return PR_OK if the declaration parsed successfully, or recovery was performed
+*/
+static prodres_t
+xml_parse_DeclSep(xml_reader_t *h)
+{
+    (void)xml_parse_whitespace_internal(h, RECOGNIZE_PEREF);
+    return PR_OK;
+}
+
+/**
     Trivial parser: exit from internal subset context when closing bracket is seen.
 
     @param h Reader handle
@@ -2752,11 +2871,32 @@ xml_end_internal_subset(xml_reader_t *h)
     Has no distinction between root/nonroot contexts.
 
     @verbatim
+    intSubset    ::= (markupdecl | DeclSep)*
+    markupdecl   ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
+    DeclSep      ::= PEReference | S
+    elementdecl  ::= '<!ELEMENT' S Name S contentspec S? '>'
+    AttlistDecl  ::= '<!ATTLIST' S Name AttDef* S? '>'
+    EntityDecl   ::= GEDecl | PEDecl
+    GEDecl       ::= '<!ENTITY' S Name S EntityDef S? '>'
+    PEDecl       ::= '<!ENTITY' S '%' S Name S PEDef S? '>'
+    NotationDecl ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
+    PI           ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>' 
+    Comment      ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
     @endverbatim
+
+    Additionally, in internal subset PEReference may only occur in DeclSep. So, we parse
+    DeclSep as whitespace with PE reference substitution enabled.
 */
 static const xml_reader_context_t parser_internal_subset = {
     .lookahead = {
+        LOOKAHEAD("<!ELEMENT", xml_parse_elementdecl),
+        LOOKAHEAD("<!ATTLIST", xml_parse_AttlistDecl),
+        LOOKAHEAD("<!ENTITY", xml_parse_EntityDecl),
+        LOOKAHEAD("<!NOTATION", xml_parse_NotationDecl),
+        LOOKAHEAD("<?", xml_parse_PI),
+        LOOKAHEAD("<!--", xml_parse_Comment),
         LOOKAHEAD("]", xml_end_internal_subset),
+        LOOKAHEAD("", xml_parse_DeclSep),
     },
     .nonroot = &parser_internal_subset,
 };
