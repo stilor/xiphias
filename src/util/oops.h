@@ -23,6 +23,8 @@
     abort(); \
 } while (0)
 
+#define OOPS_UNREACHABLE OOPS
+
 #include "test/oops.h"
 
 #endif

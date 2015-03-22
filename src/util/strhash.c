@@ -95,9 +95,10 @@ strhash_destroy(strhash_t *hash)
         inside the string, but may not be NUL-terminated.
     @param len Length of the key string
     @param payload Value to store in the hash
-    @return Nothing
+    @return Pointer to the "permanent" key string (that is stored in hash as long as the
+        item itself), NUL-terminated.
 */
-void
+const utf8_t *
 strhash_setn(strhash_t *hash, const utf8_t *key, size_t len, void *payload)
 {
     uint32_t hval = murmurhash32(key, len);
@@ -123,20 +124,23 @@ strhash_setn(strhash_t *hash, const utf8_t *key, size_t len, void *payload)
                         SLIST_REMOVE_HEAD(bucket, link);
                     }
                     xfree(item);
+                    return NULL;
                 }
             }
-            return;
+            return item->key;
         }
         prev = item;
     }
 
     // Not found, create a new record
-    item = xmalloc(sizeof(item_t) + len);
+    item = xmalloc(sizeof(item_t) + len + 1);
     item->len = len;
     item->hval = hval;
     item->payload = payload;
     memcpy(item->key, key, len);
+    item->key[len] = '\0';
     SLIST_INSERT_HEAD(bucket, item, link);
+    return item->key;
 }
 
 /**

@@ -26,10 +26,13 @@
 // Local, overriding versions below
 #undef OOPS
 #undef OOPS_ASSERT
+#undef OOPS_UNREACHABLE
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
+
+#include "util/defs.h"
 
 extern jmp_buf *oops_buf;
 
@@ -68,8 +71,9 @@ __oops_assert(unsigned long c)
     }
 }
 
-#define OOPS_ASSERT(c) __oops_assert((unsigned long)(c))
-#define OOPS __oops()
+#define OOPS_ASSERT(c)      __oops_assert((unsigned long)(c))
+#define OOPS                __oops()
+#define OOPS_UNREACHABLE    __unreachable()
 
 #endif
 

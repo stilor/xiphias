@@ -20,13 +20,13 @@ typedef void (*strhash_payload_destroy_cb_t)(void *);
 
 strhash_t *strhash_create(unsigned int order, strhash_payload_destroy_cb_t payload_destroy);
 void strhash_destroy(strhash_t *hash);
-void strhash_setn(strhash_t *hash, const utf8_t *s, size_t len, void *payload);
+const utf8_t *strhash_setn(strhash_t *hash, const utf8_t *s, size_t len, void *payload);
 void *strhash_getn(strhash_t *hash, const utf8_t *s, size_t len);
 
-static inline void
+static inline const utf8_t *
 strhash_set(strhash_t *hash, const utf8_t *s, void *payload)
 {
-    strhash_setn(hash, s, utf8_len(s), payload);
+    return strhash_setn(hash, s, utf8_len(s), payload);
 }
 
 static inline void *

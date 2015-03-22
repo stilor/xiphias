@@ -72,6 +72,12 @@ enum xml_reader_cbtype_e {
     /// End of the DTD (no token; no extra data)
     XML_READER_CB_DTD_END,
 
+    /// Definition of an entity started (token: entity name; extra data in .entitydef)
+    XML_READER_CB_ENTITY_DEF_START,
+
+    /// Definition of an entity finished (no token; no extra data)
+    XML_READER_CB_ENTITY_DEF_END,
+
     /// Start of element (token: element type; no extra data)
     XML_READER_CB_STAG,
 
@@ -131,6 +137,11 @@ typedef struct {
     enum xml_info_standalone_e standalone;   ///< Is the document is declared standalone
 } xml_reader_cbparam_xmldecl_t;
 
+/// Parameter for entity definition start
+typedef struct {
+    bool parameter;                          ///< True if this is a parameter entity
+} xml_reader_cbparam_entitydef_t;
+
 /// Parameter for completion of the start of the element callback
 typedef struct {
     bool is_empty;                           ///< Whether this was STag or EmptyElemTag production
@@ -154,6 +165,7 @@ typedef struct {
         xml_reader_cbparam_entity_t entity;       ///< Reference to an entity
         xml_reader_cbparam_append_t append;       ///< Text appended to a node
         xml_reader_cbparam_xmldecl_t xmldecl;     ///< XML or text declaration
+        xml_reader_cbparam_entitydef_t entitydef; ///< XML or text declaration
         xml_reader_cbparam_stag_end_t stag_end;   ///< Start of element (STag) complete
         xml_reader_cbparam_attr_t attr;           ///< Attribute name
         struct {} __dummy;                        ///< For macro initializers of types with no extra

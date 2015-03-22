@@ -63,10 +63,14 @@ enum xml_errcode_e {
     XMLERR_XML_P_doctypedecl,
     XMLERR_XML_P_SystemLiteral,
     XMLERR_XML_P_PubidLiteral,
+    XMLERR_XML_P_ExternalID,
+    XMLERR_XML_P_EntityDecl,
 
     // Other errors and recommendations (spelled in text of the spec)
     XMLERR_XML_OTHER_BASE          = 0x0100,
     XMLERR_XML_ENCODING_ERROR,
+    XMLERR_XML_PREDEFINED_ENTITY,
+    XMLERR_XML_ENTITY_REDECLARED,
     XMLERR_XML_FUTURE_VERSION,
 
     // Well-formedness constraints (spelled in production comments)

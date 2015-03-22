@@ -14,6 +14,9 @@
 /// Calculate the number of elements in an array
 #define sizeofarray(a) ((size_t)(sizeof(a) / sizeof(*a)))
 
+/// Produce a pointer right past the end of the array
+#define endofarray(a) (&(a)[sizeofarray(a)])
+
 /// Strip 'const' qualifier from a pointer.
 #define DECONST(v)  ((void *)(uintptr_t)(v))
 
@@ -28,6 +31,9 @@
 
 /// Denote a function taking printf-style argument
 #define __printflike(f,a) __attribute__((__format__(__printf__,f,a)))
+
+/// Denote an unreachable point in a program
+#define __unreachable() __builtin_unreachable()
 
 /// Return the least of two values
 #define min(a,b)    ({ \

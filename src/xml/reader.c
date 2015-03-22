@@ -90,24 +90,26 @@ typedef struct xml_reader_xmldecl_declinfo_s {
     const xml_reader_xmldecl_attrdesc_t *attrlist; ///< Allowed/required attributes
 } xml_reader_xmldecl_declinfo_t;
 
+/// Information on a pre-defined entity.
+typedef struct {
+    const utf8_t *name;     ///< Entity name
+    size_t namelen;         ///< Length of the entity name
+    const char *rplc[4];    ///< Replacement text; 1st is default.
+} xml_predefined_entity_t;
+
 /// Entity information
 typedef struct xml_reader_entity_s {
-    enum xml_reader_reference_e type;   ///< Entity type
-    const char *system_id;              ///< System ID of the entity (NULL for internal)
-    const char *location;               ///< How input from this entity will be reported
-    bool being_parsed;                  ///< Recursion detection: this entity is being parsed
-    union {
-        // Internal entity
-        struct {
-            const ucs4_t *rplc;         ///< Replacement text
-            size_t rplclen;             ///< Length of the replacement text
-        };
-        // External entity
-        struct {
-            const char *public_id;      ///< Public ID of the entity
-            const char *notation;       ///< Notation name (unparsed entity)
-        };
-    };
+    const utf8_t *name;                     ///< Entity name
+    enum xml_reader_reference_e type;       ///< Entity type
+    const char *system_id;                  ///< System ID of the entity (NULL for internal)
+    const char *public_id;                  ///< Public ID of the entity
+    const char *notation;                   ///< Notation name (unparsed entity)
+    const char *location;                   ///< How input from this entity will be reported
+    bool being_parsed;                      ///< Recursion detection: this entity is being parsed
+    const ucs4_t *rplc;                     ///< Replacement text
+    size_t rplclen;                         ///< Length of the replacement text
+    xmlerr_loc_t declared;                  ///< Location of the declaration
+    const xml_predefined_entity_t *predef;  ///< The definition came from a predefined entity
 } xml_reader_entity_t;
 
 /// Input method: either strbuf for the main document, or diversion from a ucs4_t buffer in memory
@@ -617,11 +619,28 @@ xml_entity_destroy(void *arg)
     xfree(e);
 }
 
-/// Information on a pre-defined entity.
-typedef struct {
-    const utf8_t *name;     ///< Entity name
-    const char *rplc[4];    ///< Replacement text; 1st is default.
-} xml_predefined_entity_t;
+/**
+    Allocate a new entity.
+
+    @param ehash Entity hash
+    @param name Entity name
+    @param namelen Entity name length
+    @return Newly allocated initialized entity
+*/
+static xml_reader_entity_t *
+xml_entity_new(strhash_t *ehash, const utf8_t *name, size_t namelen)
+{
+    xml_reader_entity_t *e;
+    const char *s;
+
+    e = xmalloc(sizeof(xml_reader_entity_t));
+    memset(e, 0, sizeof(xml_reader_entity_t));
+    e->name = strhash_setn(ehash, name, namelen, e);
+    s = utf8_strtolocal(e->name);
+    e->location = xasprintf("entity(%s)", s);
+    utf8_strfreelocal(s);
+    return e;
+}
 
 /**
     Pre-defined entities.
@@ -647,11 +666,11 @@ typedef struct {
     and with upper/lower case in hex character reference.
 */
 static const xml_predefined_entity_t predefined_entities[] = {
-    { .name = U"lt",    .rplc = { "&#60;",  "&#x3C;",   "&#x3c;",   NULL,       }, },
-    { .name = U"gt",    .rplc = { ">",      "&#62;",    "&#x3E;",   "&#x3e;",   }, },
-    { .name = U"amp",   .rplc = { "&#38;",  "&#x26;",   NULL,       NULL,       }, },
-    { .name = U"apos",  .rplc = { "'",      "&#39;",    "&#x27;",   NULL,       }, },
-    { .name = U"quot",  .rplc = { "\"",     "&#34;",    "&#x22;",   NULL,       }, },
+    { .name = U"lt",    .namelen = 2, .rplc = { "&#60;",  "&#x3C;",   "&#x3c;",   NULL,       }, },
+    { .name = U"gt",    .namelen = 2, .rplc = { ">",      "&#62;",    "&#x3E;",   "&#x3e;",   }, },
+    { .name = U"amp",   .namelen = 3, .rplc = { "&#38;",  "&#x26;",   NULL,       NULL,       }, },
+    { .name = U"apos",  .namelen = 4, .rplc = { "'",      "&#39;",    "&#x27;",   NULL,       }, },
+    { .name = U"quot",  .namelen = 4, .rplc = { "\"",     "&#34;",    "&#x22;",   NULL,       }, },
 };
 
 /**
@@ -672,11 +691,8 @@ xml_entity_populate(strhash_t *ehash)
     for (i = 0, predef = predefined_entities; i < sizeofarray(predefined_entities);
             i++, predef++) {
         s = predef->rplc[0];
-        /// @todo Create xml_entity_internal() for this - to be used when we parse \<!ENTITY>
-        e = xmalloc(sizeof(xml_reader_entity_t));
+        e = xml_entity_new(ehash, predef->name, predef->namelen);
         e->type = XML_READER_REF_INTERNAL;
-        e->being_parsed = false;
-        e->system_id = NULL;    // internal entity
         nchars = strlen(s);
         e->rplclen = nchars * sizeof(ucs4_t);
         rplc = xmalloc(e->rplclen);
@@ -684,10 +700,7 @@ xml_entity_populate(strhash_t *ehash)
             rplc[j] = ucs4_fromlocal(s[j]);
         }
         e->rplc = rplc;
-        s = utf8_strtolocal(predef->name);
-        e->location = xasprintf("entity(%s)", s);
-        utf8_strfreelocal(s);
-        strhash_set(ehash, predef->name, e);
+        e->predef = predef;
     }
 }
 
@@ -1831,7 +1844,7 @@ entity_input_end(xml_reader_t *h, void *arg)
     cbp.loc = h->curloc;
     cbp.entity.type = e->type;
     cbp.entity.system_id = e->system_id;
-    cbp.entity.public_id = e->system_id ? e->public_id : NULL; // Only for external entities
+    cbp.entity.public_id = e->public_id;
     cbp.entity.baton = inp->baton;
 
     /// @todo Ideally, this initialization should look something like:
@@ -2144,6 +2157,7 @@ static const xml_reference_ops_t reference_ops_pseudo = {
 };
 
 /// Virtual methods for reading attribute values (AttValue production)
+/// @todo: .condread must check for forbidden character ('<')
 static const xml_reference_ops_t reference_ops_AttValue = {
     .errinfo = XMLERR(ERROR, XML, P_Attribute),
     .condread = xml_cb_literal,
@@ -2746,6 +2760,100 @@ xml_parse_CDSect(xml_reader_t *h)
 }
 
 /**
+    Parse an ExternalID or PublicID production preceded by a whitespace (S).
+
+    @param h Reader handle
+    @param allowed_PublicID If true, PublicID production is allowed. In that case, this
+        function may also consume the whitespace following the PubidLiteral.
+    @param pub_func Callback if PubidLiteral is parsed
+    @param sys_func Callback if SysidLiteral is parsed
+    @param arg Argument to @a pub_func and @a sys_func
+
+    @return PR_OK if parsed either of these productions; PR_FAIL if parsing error was
+        detected or PR_NOMATCH if there was no whitespace or it was not followed by 'S'
+        or 'P' characters. In case of PR_NOMATCH, whitespace is consumed.
+*/
+static prodres_t
+xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
+        void (*pub_func)(void *, const utf8_t *, size_t),
+        void (*sys_func)(void *, const utf8_t *, size_t),
+        void *arg)
+{
+    xml_reader_cbparam_t cbp;
+    bool has_system_id = false;
+    bool has_public_id = false;
+
+    // After whitespace, 'SYSTEM' ... or 'PUBLIC' ...
+    if (xml_parse_whitespace(h) != PR_OK) {
+        return PR_NOMATCH;
+    }
+    if (ucs4_cheq(h->rejected, 'S')) {
+        if (xml_read_string(h, "SYSTEM", XMLERR(ERROR, XML, P_ExternalID)) != PR_OK) {
+            return PR_FAIL;
+        }
+        has_system_id = true;
+    }
+    else if (ucs4_cheq(h->rejected, 'P')) {
+        if (xml_read_string(h, "PUBLIC", XMLERR(ERROR, XML, P_ExternalID)) != PR_OK) {
+            return PR_FAIL;
+        }
+        has_system_id = true;
+        has_public_id = true;
+    }
+    else {
+        return PR_NOMATCH;
+    }
+
+    if (has_public_id) {
+        // Had external ID with PUBLIC: S PubidLiteral
+        if (xml_parse_whitespace(h) != PR_OK) {
+            xml_reader_message_current(h, XMLERR(ERROR, XML, P_ExternalID),
+                    "Expect whitespace here");
+            return PR_FAIL;
+        }
+        if (xml_parse_literal(h, &reference_ops_PubidLiteral) != PR_OK) {
+            return PR_FAIL;
+        }
+        if (pub_func) {
+            pub_func(arg, h->tokenbuf, h->tokenlen);
+        }
+        cbp.cbtype = XML_READER_CB_PUBID;
+        cbp.loc = h->lastreadloc;
+        cbp.token.str = h->tokenbuf;
+        cbp.token.len = h->tokenlen;
+        xml_reader_invoke_callback(h, &cbp);
+    }
+    if (has_system_id) {
+        // Had any external ID, or (if allowed) PublicID
+        if (allowed_PublicID) {
+            if (xml_parse_whitespace(h) != PR_OK
+                    || !(ucs4_cheq(h->rejected, '"') || ucs4_cheq(h->rejected, '\''))) {
+                return PR_OK; // Missing second (system) literal, but it's ok
+            }
+        }
+        else {
+            if (xml_parse_whitespace(h) != PR_OK) {
+                xml_reader_message_current(h, XMLERR(ERROR, XML, P_ExternalID),
+                        "Expect whitespace here");
+                return PR_FAIL;
+            }
+        }
+        if (xml_parse_literal(h, &reference_ops_SystemLiteral) != PR_OK) {
+            return PR_FAIL;
+        }
+        if (sys_func) {
+            sys_func(arg, h->tokenbuf, h->tokenlen);
+        }
+        cbp.cbtype = XML_READER_CB_SYSID;
+        cbp.loc = h->lastreadloc;
+        cbp.token.str = h->tokenbuf;
+        cbp.token.len = h->tokenlen;
+        xml_reader_invoke_callback(h, &cbp);
+    }
+    return PR_OK;
+}
+
+/**
     Parse element declaration (elementdecl).
 
     @verbatim
@@ -2793,6 +2901,42 @@ xml_parse_AttlistDecl(xml_reader_t *h)
 }
 
 /**
+    Helper function: record public ID for an entity.
+
+    @param arg Entity pointer (cast to void)
+    @param s String with public ID
+    @param len Length of the public ID string
+    @return Nothing
+*/
+static void
+entity_set_pubid(void *arg, const utf8_t *s, size_t len)
+{
+    xml_reader_entity_t *e = arg;
+
+    if (e) { // May get NULL if redefining an entity
+        e->public_id = utf8_ndup(s, len);
+    }
+}
+
+/**
+    Helper function: record system ID for an entity.
+
+    @param arg Entity pointer (cast to void)
+    @param s String with system ID
+    @param len Length of the system ID string
+    @return Nothing
+*/
+static void
+entity_set_sysid(void *arg, const utf8_t *s, size_t len)
+{
+    xml_reader_entity_t *e = arg;
+
+    if (e) { // May get NULL if redefining an entity
+        e->system_id = utf8_ndup(s, len);
+    }
+}
+
+/**
     Parse general or parameter entity declaration (EntityDecl).
 
     @verbatim
@@ -2803,6 +2947,8 @@ xml_parse_AttlistDecl(xml_reader_t *h)
     PEDef      ::= EntityValue | ExternalID
     ExternalID ::= 'SYSTEM' S SystemLiteral | 'PUBLIC' S PubidLiteral S SystemLiteral
     NDataDecl  ::= S 'NDATA' S Name
+    EntityValue::= '"' ([^%&"] | PEReference | Reference)* '"' |
+                   "'" ([^%&'] | PEReference | Reference)* "'"
     @endverbatim
 
     @param h Reader handle
@@ -2811,7 +2957,117 @@ xml_parse_AttlistDecl(xml_reader_t *h)
 static prodres_t
 xml_parse_EntityDecl(xml_reader_t *h)
 {
-    return PR_FAIL; // TBD
+    xml_reader_cbparam_t cbp;
+    xml_reader_entity_t *e, *eold;
+    strhash_t *ehash = h->share->entities_gen;
+    bool parameter = false;
+
+    // ['<!ENTITY' S]
+    xml_read_string_assert(h, "<!ENTITY");
+    cbp.cbtype = XML_READER_CB_ENTITY_DEF_START;
+    cbp.loc = h->lastreadloc;
+
+    if (xml_parse_whitespace(h) != PR_OK) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
+                "Expect whitespace here");
+        goto malformed;
+    }
+
+    // If ['%' S] follows, it is a parameter entity
+    if (ucs4_cheq(h->rejected, '%')) {
+        xml_read_string_assert(h, "%");
+        ehash = h->share->entities_param;
+        parameter = true;
+        if (xml_parse_whitespace(h) != PR_OK) {
+            xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
+                    "Expect whitespace here");
+            goto malformed;
+        }
+    }
+
+    // General or parameter, it is followed by [Name S]
+    if (xml_read_Name(h) != PR_OK) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
+                "Expect entity name here");
+        goto malformed;
+    }
+
+    // If the same entity is declared more than once, the first declaration encountered
+    // is binding; at user option, an XML processor MAY issue a warning if entities are
+    // declared multiple times.
+    // ...
+    //  For interoperability, valid XML documents SHOULD declare these [predefined]
+    // entities, like any others, before using them.
+    if ((eold = strhash_getn(ehash, h->tokenbuf, h->tokenlen)) != NULL) {
+        // We have a previous definition. If it is predefined, we'll verify validity
+        // of the replacement text later; predefined entities may be re-declared once
+        // by the document without warning. 
+        if (!eold->predef && eold->declared.src) {
+            xml_reader_message(h, &cbp.loc, XMLERR(WARN, XML, ENTITY_REDECLARED),
+                    "Redefinition of an entity");
+            xml_reader_message(h, &eold->declared, XMLERR_NOTE,
+                    "This is the location of a previous definition");
+        }
+        e = NULL; // Will not create a new definition
+    }
+    else {
+        e = xml_entity_new(ehash, h->tokenbuf, h->tokenlen);
+    }
+    cbp.entitydef.parameter = parameter;
+    xml_reader_invoke_callback(h, &cbp);
+
+    if (xml_parse_whitespace(h) != PR_OK) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
+                "Expect whitespace here");
+        goto malformed;
+    }
+
+    // This may be followed by either [ExternalID], [ExternalID NDataDecl]
+    // (only for general entities) or [EntityValue]
+    switch (xml_parse_ExternalID(h, false, entity_set_pubid, entity_set_sysid, e)) {
+    case PR_FAIL:
+        goto malformed;
+
+    case PR_OK:
+        // Predefined entities cannot be declared as external entities:
+        // "If the entities [...] are declared, they MUST be declared as internal entities..."
+        if (eold && eold->predef) {
+            xml_reader_message_current(h, XMLERR(ERROR, XML, PREDEFINED_ENTITY),
+                    "Predefined entity may only be declared as internal entity");
+            goto malformed;
+        }
+        // Optional NDatadecl if it is not a parameter entity
+        // TBD set entity type (PARAMETER/EXTERNAL/UNPARSED)
+        // TBD
+        break;
+
+    case PR_NOMATCH:
+        // Must have EntityValue then
+        // TBD implement
+        // TBD for built-in entities, check for compatible definition. If compatible, update
+        //     e->declared to this entities location (so that further checks for redefinition
+        //     issue a warning)
+        break;
+
+    default:
+        OOPS_UNREACHABLE;
+        break;
+    }
+
+    // Optional whitespace and closing angle bracket
+    (void)xml_parse_whitespace(h);
+    if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_EntityDecl)) != PR_OK) {
+        goto malformed;
+    }
+    cbp.cbtype = XML_READER_CB_ENTITY_DEF_END;
+    cbp.loc = h->lastreadloc;
+    return PR_OK;
+
+malformed:
+    if (e) {
+        // Remove the entity from the hash
+    }
+    return xml_read_until_gt(h);
 }
 
 /**
@@ -2925,8 +3181,7 @@ static prodres_t
 xml_parse_doctypedecl(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
-    bool has_system_id = false;
-    bool has_public_id = false;
+    prodres_t rv;
 
     // Expanding doctypedecl production, we get these possible variants:
     //   '<!DOCTYPE' S Name S? '>'
@@ -2955,43 +3210,10 @@ xml_parse_doctypedecl(xml_reader_t *h)
     cbp.token.len = h->tokenlen;
     xml_reader_invoke_callback(h, &cbp);
 
-    // Optional external subset: 'SYSTEM' ... or 'PUBLIC' ...
-    if (xml_parse_whitespace(h) == PR_OK) {
-        if (ucs4_cheq(h->rejected, 'S')) {
-            if (xml_read_string(h, "SYSTEM", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
-                return PR_FAIL;
-            }
-            has_system_id = true;
-        }
-        else if (ucs4_cheq(h->rejected, 'P')) {
-            if (xml_read_string(h, "PUBLIC", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
-                return PR_FAIL;
-            }
-            has_system_id = true;
-            has_public_id = true;
-        }
-    }
-    if (has_public_id) {
-        // Had external subset with PUBLIC: S PubidLiteral
-        if (xml_parse_whitespace(h) != PR_OK
-                || xml_parse_literal(h, &reference_ops_PubidLiteral) != PR_OK) {
-            return PR_FAIL;
-        }
-        cbp.cbtype = XML_READER_CB_PUBID;
-        cbp.token.str = h->tokenbuf;
-        cbp.token.len = h->tokenlen;
-        xml_reader_invoke_callback(h, &cbp);
-    }
-    if (has_system_id) {
-        // Had any external subset: S SystemLiteral
-        if (xml_parse_whitespace(h) != PR_OK
-                || xml_parse_literal(h, &reference_ops_SystemLiteral) != PR_OK) {
-            return PR_FAIL;
-        }
-        cbp.cbtype = XML_READER_CB_SYSID;
-        cbp.token.str = h->tokenbuf;
-        cbp.token.len = h->tokenlen;
-        xml_reader_invoke_callback(h, &cbp);
+    // Just notify the app, no callback
+    rv = xml_parse_ExternalID(h, false, NULL, NULL, NULL);
+    if (rv != PR_OK && rv != PR_NOMATCH) {
+        return rv;
     }
 
     // Two other remaining messages bear no tokens
