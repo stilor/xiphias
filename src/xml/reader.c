@@ -3191,7 +3191,7 @@ compatible:
             memcpy(rplc, h->share->rplc, h->share->rplclen);
             e->rplc = rplc;
             e->rplclen = h->share->rplclen;
-            e->type = XML_READER_REF_INTERNAL;
+            e->type = parameter ? XML_READER_REF_PARAMETER : XML_READER_REF_INTERNAL;
         }
         break;
 
@@ -3207,6 +3207,9 @@ compatible:
     }
     cbp.cbtype = XML_READER_CB_ENTITY_DEF_END;
     cbp.loc = h->lastreadloc;
+    cbp.token.str = NULL;
+    cbp.token.len = 0;
+    xml_reader_invoke_callback(h, &cbp);
     return PR_OK;
 
 malformed:
