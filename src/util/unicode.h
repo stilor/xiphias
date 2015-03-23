@@ -16,16 +16,19 @@
 #define UCS4_REPLACEMENT_CHARACTER   0xFFFD
 
 /// Used as a sentinel code
-#define UCS4_STOPCHAR    (0xFFFFFFFF)
+#define UCS4_STOPCHAR   (0xFFFFFFFF)
 
 /// Absence of a character; may be OR'ed with UCS4_LASTCHAR
-#define UCS4_NOCHAR      (0x0FFFFFFF)
+#define UCS4_NOCHAR     (0x00FFFFFF)
 
 /// OR'ed by conditional read functions to indicate a stop after the current character
-#define UCS4_LASTCHAR    (0x80000000)
+#define UCS4_LASTCHAR   (0x80000000)
+
+/// Codepoint mask 
+#define UCS4_CODEPOINT  (0x00FFFFFF)
 
 /// Maximum allowed UCS-4 codepoint
-#define UCS4_MAX         (0x0010FFFF)
+#define UCS4_MAX        (0x0010FFFF)
 
 /// Surrogates: first
 #define UCS4_SURROGATE_MIN  (0xD800)

@@ -156,6 +156,23 @@ evequal_xmldecl(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 }
 
 static void
+evprint_entitydef(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_entitydef_t *x = &cbparam->entitydef;
+
+    printf("%s entity", x->parameter ? "parameter" : "general");
+}
+
+static bool
+evequal_entitydef(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    const xml_reader_cbparam_entitydef_t *x1 = &e1->entitydef;
+    const xml_reader_cbparam_entitydef_t *x2 = &e2->entitydef;
+
+    return x1->parameter == x2->parameter;
+}
+
+static void
 evprint_append(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_append_t *x = &cbparam->append;
@@ -272,6 +289,14 @@ static const event_t events[] = {
     },
     [XML_READER_CB_DTD_END] = {
         .desc = "DTD end",
+    },
+    [XML_READER_CB_ENTITY_DEF_START] = {
+        .desc = "Start entity definition",
+        .print = evprint_entitydef,
+        .equal = evequal_entitydef,
+    },
+    [XML_READER_CB_ENTITY_DEF_END] = {
+        .desc = "End entity definition",
     },
     [XML_READER_CB_STAG] = {
         .desc = "Start tag",

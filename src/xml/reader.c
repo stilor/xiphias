@@ -132,6 +132,7 @@ typedef struct xml_reader_input_s {
 } xml_reader_input_t;
 
 /// Structure shared between master and subordinate documents
+/// @todo measure rplclen/rplcsz in ucs4_t units? here and in xml_reader_entity_t?
 typedef struct xml_reader_shared_s {
     int refcnt;                     ///< Number of xml_reader_t handles referencing this
 
@@ -140,6 +141,10 @@ typedef struct xml_reader_shared_s {
 
     strhash_t *entities_param;      ///< Parameter entities
     strhash_t *entities_gen;        ///< General entities
+
+    ucs4_t *rplc;                   ///< Buffer for replacement text for entity
+    size_t rplclen;                 ///< Length of replacement text in the buffer
+    size_t rplcsz;                  ///< Size of the replacement text buffer
 } xml_reader_shared_t;
 
 /// XML reader structure
@@ -1947,6 +1952,36 @@ reference_included_if_validating(xml_reader_t *h, xml_reader_entity_t *e)
 }
 
 /**
+    Entity handler: 'Bypassed'
+
+    @param h Reader handle
+    @param e Entity information
+    @return Nothing
+*/
+static void
+reference_bypassed(xml_reader_t *h, xml_reader_entity_t *e)
+{
+    /// @todo Implement
+}
+
+/**
+    Entity handler: 'Error'
+
+    @param h Reader handle
+    @param e Entity information
+    @return Nothing
+*/
+static void
+reference_error(xml_reader_t *h, xml_reader_entity_t *e)
+{
+    const xml_reference_info_t *ri;
+
+    ri = xml_entity_type_info(e->type);
+    xml_reader_message_lastread(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
+            "%s reference here is an error", ri->desc);
+}
+
+/**
     Character reference handler: 'Included' (for character references,
     the rules are slightly different).
 
@@ -2148,6 +2183,36 @@ xml_cb_literal(void *arg, ucs4_t cp)
     }
 }
 
+/**
+    Slightly different variant of literal handler for entities: in addition to
+    regular literal checks, also save the replacement text as we go to avoid
+    recoding back to UCS-4.
+
+    @param arg Current state
+    @param cp Codepoint
+    @return true if this character is rejected
+*/
+static ucs4_t
+xml_cb_literal_entity(void *arg, ucs4_t cp)
+{
+    xml_cb_literal_state_t *st = arg;
+    xml_reader_t *h = st->h;
+    ucs4_t rv, rvcp;
+
+    rv = xml_cb_literal(arg, cp);
+    if ((rvcp = (rv & UCS4_CODEPOINT)) <= UCS4_MAX) {
+        // add cp to the cached replacement text
+        if (h->share->rplclen == h->share->rplcsz) {
+            // current buffer all used up; double it
+            h->share->rplcsz = h->share->rplcsz ? 2 * h->share->rplcsz : 256 * sizeof(ucs4_t);
+            h->share->rplc = xrealloc(h->share->rplc, h->share->rplcsz);
+        }
+        h->share->rplc[h->share->rplclen / sizeof(ucs4_t)] = rvcp;
+        h->share->rplclen += sizeof(ucs4_t);
+    }
+    return rv;
+}
+
 /// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
 static const xml_reference_ops_t reference_ops_pseudo = {
     .errinfo = XMLERR(ERROR, XML, P_XMLDecl),
@@ -2159,7 +2224,7 @@ static const xml_reference_ops_t reference_ops_pseudo = {
 /// Virtual methods for reading attribute values (AttValue production)
 /// @todo: .condread must check for forbidden character ('<')
 static const xml_reference_ops_t reference_ops_AttValue = {
-    .errinfo = XMLERR(ERROR, XML, P_Attribute),
+    .errinfo = XMLERR(ERROR, XML, P_AttValue),
     .condread = xml_cb_literal,
     .flags = RECOGNIZE_REF,
     .textblock = textblock_append_literal,
@@ -2189,6 +2254,21 @@ static const xml_reference_ops_t reference_ops_PubidLiteral = {
     .condread = xml_cb_literal,
     .flags = 0,
     .hnd = { /* No entities expected */ },
+};
+
+/// Virtual methods for reading entity value (EntityValue production)
+static const xml_reference_ops_t reference_ops_EntityValue = {
+    .errinfo = XMLERR(ERROR, XML, P_EntityValue),
+    .condread = xml_cb_literal_entity,
+    .flags = RECOGNIZE_REF | RECOGNIZE_PEREF,
+    .textblock = textblock_append_literal,
+    .hnd = {
+        [XML_READER_REF_PARAMETER] = reference_included_in_literal,
+        [XML_READER_REF_INTERNAL] = reference_bypassed,
+        [XML_READER_REF_EXTERNAL] = reference_bypassed,
+        [XML_READER_REF_UNPARSED] = reference_error,
+        [XML_READER_REF__CHAR] = reference_included_charref,
+    },
 };
 
 /**
@@ -2760,7 +2840,8 @@ xml_parse_CDSect(xml_reader_t *h)
 }
 
 /**
-    Parse an ExternalID or PublicID production preceded by a whitespace (S).
+    Parse an ExternalID or PublicID production preceded by a whitespace (S). Upon entry,
+    h->rejected must contain the first character of (presumably) external ID.
 
     @param h Reader handle
     @param allowed_PublicID If true, PublicID production is allowed. In that case, this
@@ -2783,10 +2864,7 @@ xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
     bool has_system_id = false;
     bool has_public_id = false;
 
-    // After whitespace, 'SYSTEM' ... or 'PUBLIC' ...
-    if (xml_parse_whitespace(h) != PR_OK) {
-        return PR_NOMATCH;
-    }
+    // 'SYSTEM' ... or 'PUBLIC' ...
     if (ucs4_cheq(h->rejected, 'S')) {
         if (xml_read_string(h, "SYSTEM", XMLERR(ERROR, XML, P_ExternalID)) != PR_OK) {
             return PR_FAIL;
@@ -2958,9 +3036,14 @@ static prodres_t
 xml_parse_EntityDecl(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
-    xml_reader_entity_t *e, *eold;
+    xml_reader_entity_t *e = NULL;
+    xml_reader_entity_t *eold;
+    const xml_predefined_entity_t *predef;
     strhash_t *ehash = h->share->entities_gen;
     bool parameter = false;
+    size_t i, j;
+    const char *s;
+    ucs4_t *rplc;
 
     // ['<!ENTITY' S]
     xml_read_string_assert(h, "<!ENTITY");
@@ -3002,7 +3085,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
         // We have a previous definition. If it is predefined, we'll verify validity
         // of the replacement text later; predefined entities may be re-declared once
         // by the document without warning. 
-        if (!eold->predef && eold->declared.src) {
+        if ((predef = eold->predef) == NULL || eold->declared.src) {
             xml_reader_message(h, &cbp.loc, XMLERR(WARN, XML, ENTITY_REDECLARED),
                     "Redefinition of an entity");
             xml_reader_message(h, &eold->declared, XMLERR_NOTE,
@@ -3011,8 +3094,11 @@ xml_parse_EntityDecl(xml_reader_t *h)
         e = NULL; // Will not create a new definition
     }
     else {
+        predef = NULL;
         e = xml_entity_new(ehash, h->tokenbuf, h->tokenlen);
     }
+    cbp.token.str = h->tokenbuf;
+    cbp.token.len = h->tokenlen;
     cbp.entitydef.parameter = parameter;
     xml_reader_invoke_callback(h, &cbp);
 
@@ -3036,17 +3122,77 @@ xml_parse_EntityDecl(xml_reader_t *h)
                     "Predefined entity may only be declared as internal entity");
             goto malformed;
         }
-        // Optional NDatadecl if it is not a parameter entity
-        // TBD set entity type (PARAMETER/EXTERNAL/UNPARSED)
-        // TBD
+        if (!parameter) {
+            // Optional NDatadecl in general entities
+            if (xml_parse_whitespace(h) == PR_OK && ucs4_cheq(h->rejected, 'N')) {
+                if (xml_read_string(h, "NDATA", XMLERR(ERROR, XML, P_EntityDecl)) != PR_OK) {
+                    goto malformed;
+                }
+                if (xml_read_Name(h) != PR_OK) {
+                    xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
+                            "Expect notation name here");
+                    goto malformed;
+                }
+                if (e) {
+                    e->notation = utf8_ndup(h->tokenbuf, h->tokenlen);
+                    e->type = XML_READER_REF_UNPARSED;
+                }
+            }
+            else {
+                if (e) {
+                    e->type = XML_READER_REF_EXTERNAL;
+                }
+            }
+        }
+        else {
+            // Parameter entity cannot have notation declaration
+            if (e) {
+                e->type = XML_READER_REF_PARAMETER;
+            }
+        }
         break;
 
     case PR_NOMATCH:
         // Must have EntityValue then
-        // TBD implement
-        // TBD for built-in entities, check for compatible definition. If compatible, update
-        //     e->declared to this entities location (so that further checks for redefinition
-        //     issue a warning)
+        h->share->rplclen = 0;
+        if (xml_parse_literal(h, &reference_ops_EntityValue) != PR_OK) {
+            goto malformed;
+        }
+        if (predef) {
+            // Predefined entity: the definition must be compatible
+            /// @todo Some function to compare UCS-4 string to local string? Or use UCS-4 in array
+            /// of predefined entities?
+            for (i = 0;
+                    i < sizeofarray(predef->rplc) && (s = predef->rplc[i]) != NULL;
+                    i++) {
+                for (j = 0; j < h->share->rplclen / sizeof(ucs4_t); j++) {
+                    // s is nul-terminated, so end of string is caught here
+                    if (ucs4_fromlocal(s[j]) != h->share->rplc[j]) {
+                        break;
+                    }
+                }
+                // matched so far, check that it's the end of expected replacement text
+                if (j == h->share->rplclen / sizeof(ucs4_t) && !s[j]) {
+                    goto compatible;
+                }
+                // otherwise, check the next definition if there's any
+            }
+            // Did not find a compatible definition
+            xml_reader_message_lastread(h, XMLERR(ERROR, XML, PREDEFINED_ENTITY),
+                    "Incompatible redefinition of a predefined entity");
+            goto malformed;
+
+compatible:
+            // Save location, so that redefinitions of this entity trigger a warning
+            eold->declared = cbp.loc;
+        }
+        if (e) {
+            rplc = xmalloc(h->share->rplclen);
+            memcpy(rplc, h->share->rplc, h->share->rplclen);
+            e->rplc = rplc;
+            e->rplclen = h->share->rplclen;
+            e->type = XML_READER_REF_INTERNAL;
+        }
         break;
 
     default:
@@ -3066,6 +3212,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
 malformed:
     if (e) {
         // Remove the entity from the hash
+        strhash_set(ehash, e->name, NULL);
     }
     return xml_read_until_gt(h);
 }
@@ -3104,6 +3251,9 @@ xml_parse_NotationDecl(xml_reader_t *h)
 static prodres_t
 xml_parse_DeclSep(xml_reader_t *h)
 {
+    /// @todo This is not sufficient: it will exit at the beginning of an entity reference
+    /// but will not expand that reference. Need to call xml_read_until_parseref(), with
+    /// proper reference operations.
     (void)xml_parse_whitespace_internal(h, RECOGNIZE_PEREF);
     return PR_OK;
 }
@@ -3210,10 +3360,12 @@ xml_parse_doctypedecl(xml_reader_t *h)
     cbp.token.len = h->tokenlen;
     xml_reader_invoke_callback(h, &cbp);
 
-    // Just notify the app, no callback
-    rv = xml_parse_ExternalID(h, false, NULL, NULL, NULL);
-    if (rv != PR_OK && rv != PR_NOMATCH) {
-        return rv;
+    if (xml_parse_whitespace(h) == PR_OK) {
+        // Just notify the app, no callback
+        rv = xml_parse_ExternalID(h, false, NULL, NULL, NULL);
+        if (rv != PR_OK && rv != PR_NOMATCH) {
+            return rv;
+        }
     }
 
     // Two other remaining messages bear no tokens

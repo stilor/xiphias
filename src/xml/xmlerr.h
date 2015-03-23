@@ -52,6 +52,7 @@ enum xml_errcode_e {
     XMLERR_XML_P_STag,             // STag or EmptyElemTag
     XMLERR_XML_P_ETag,
     XMLERR_XML_P_Attribute,
+    XMLERR_XML_P_AttValue,
     XMLERR_XML_P_Reference,
     XMLERR_XML_P_CharRef,
     XMLERR_XML_P_EntityRef,
@@ -65,6 +66,7 @@ enum xml_errcode_e {
     XMLERR_XML_P_PubidLiteral,
     XMLERR_XML_P_ExternalID,
     XMLERR_XML_P_EntityDecl,
+    XMLERR_XML_P_EntityValue,
 
     // Other errors and recommendations (spelled in text of the spec)
     XMLERR_XML_OTHER_BASE          = 0x0100,
