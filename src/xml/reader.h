@@ -45,6 +45,9 @@ enum xml_reader_cbtype_e {
     /// System ID (DTD, entity or notation) (token: system ID; no extra data)
     XML_READER_CB_SYSID,
 
+    /// Notation data (entity) (token: notation name; no extra data)
+    XML_READER_CB_NDATA,
+
     /// Append text to current node (token: appended string; extra data in .append)
     XML_READER_CB_APPEND,
 

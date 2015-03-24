@@ -147,48 +147,6 @@ typedef struct xml_reader_shared_s {
     size_t rplcsz;                  ///< Size of the replacement text buffer
 } xml_reader_shared_t;
 
-/// XML reader structure
-struct xml_reader_s {
-    xml_reader_shared_t *share;     ///< Structure shared with subordinate documents
-
-    const char *enc_transport;      ///< Encoding reported by transport protocol
-    const char *enc_detected;       ///< Encoding detected by BOM or start characters
-    const char *enc_xmldecl;        ///< Encoding declared in <?xml ... ?>
-
-    encoding_handle_t *enc;         ///< Encoding used to transcode input
-    strbuf_t *buf;                  ///< Raw input buffer (in document's encoding)
-
-    uint32_t flags;                 ///< Reader flags
-    xmlerr_loc_t curloc;            ///< Current reader's position
-    size_t tabsize;
-
-    const xml_reader_xmldecl_declinfo_t *declinfo;  ///< Expected declaration
-    enum xml_info_version_e version;                ///< Version assumed when parsing
-    enum xml_info_standalone_e standalone;          ///< Document's standalone status
-    enum xml_reader_normalization_e normalization;  ///< Desired normalization behavior
-
-    uint32_t nestlvl;               ///< Element nesting level
-
-    utf8_t *tokenbuf;               ///< Token buffer
-    utf8_t *tokenbuf_end;           ///< End of the token buffer
-    size_t tokenlen;                ///< Length of the token in the buffer
-
-    ucs4_t backtrack[MAX_BACKTRACK];///< Buffer for "ungot" characters
-    size_t backtrack_cnt;           ///< Number of characters to get from backtrack buffer
-
-    xmlerr_loc_t lastreadloc;       ///< Reader's position at the beginning of last token
-    ucs4_t rejected;                ///< Next character (rejected by xml_read_until_*)
-    ucs4_t charrefval;              ///< When parsing character reference: stored value
-
-    uint32_t srcid;                 ///< Source ID, incremented for each new input
-    SLIST_HEAD(,xml_reader_input_s) active_input;   ///< Currently active inputs
-    SLIST_HEAD(,xml_reader_input_s) free_input;     ///< Free list of input structures
-
-    xml_reader_t *master;           ///< Master document, if any
-    SLIST_HEAD(,xml_reader_s) sub;  ///< Subordinate document list
-    SLIST_ENTRY(xml_reader_s) link; ///< Link in subordinate list
-};
-
 /// Function for conditional read termination: returns true if the character is rejected
 /// @todo Change the API so that this function can look at arbitrary length of ucs4_t
 /// codepoints and tell how many it will consume - to avoid calling it for each character.
@@ -220,6 +178,49 @@ typedef struct {
     const char *desc;           ///< How this reference is called in error messages
     uint32_t ecode;             ///< Error code associated with this type of references
 } xml_reference_info_t;
+
+/// XML reader structure
+struct xml_reader_s {
+    xml_reader_shared_t *share;     ///< Structure shared with subordinate documents
+
+    const char *enc_transport;      ///< Encoding reported by transport protocol
+    const char *enc_detected;       ///< Encoding detected by BOM or start characters
+    const char *enc_xmldecl;        ///< Encoding declared in <?xml ... ?>
+
+    encoding_handle_t *enc;         ///< Encoding used to transcode input
+    strbuf_t *buf;                  ///< Raw input buffer (in document's encoding)
+
+    uint32_t flags;                 ///< Reader flags
+    xmlerr_loc_t curloc;            ///< Current reader's position
+    size_t tabsize;
+
+    const xml_reader_xmldecl_declinfo_t *declinfo;  ///< Expected declaration
+    const xml_reference_ops_t *entity_value_parser; ///< What is allowed in EntityValue
+    enum xml_info_version_e version;                ///< Version assumed when parsing
+    enum xml_info_standalone_e standalone;          ///< Document's standalone status
+    enum xml_reader_normalization_e normalization;  ///< Desired normalization behavior
+
+    uint32_t nestlvl;               ///< Element nesting level
+
+    utf8_t *tokenbuf;               ///< Token buffer
+    utf8_t *tokenbuf_end;           ///< End of the token buffer
+    size_t tokenlen;                ///< Length of the token in the buffer
+
+    ucs4_t backtrack[MAX_BACKTRACK];///< Buffer for "ungot" characters
+    size_t backtrack_cnt;           ///< Number of characters to get from backtrack buffer
+
+    xmlerr_loc_t lastreadloc;       ///< Reader's position at the beginning of last token
+    ucs4_t rejected;                ///< Next character (rejected by xml_read_until_*)
+    ucs4_t charrefval;              ///< When parsing character reference: stored value
+
+    uint32_t srcid;                 ///< Source ID, incremented for each new input
+    SLIST_HEAD(,xml_reader_input_s) active_input;   ///< Currently active inputs
+    SLIST_HEAD(,xml_reader_input_s) free_input;     ///< Free list of input structures
+
+    xml_reader_t *master;           ///< Master document, if any
+    SLIST_HEAD(,xml_reader_s) sub;  ///< Subordinate document list
+    SLIST_ENTRY(xml_reader_s) link; ///< Link in subordinate list
+};
 
 /// Return status for production parser
 typedef enum {
@@ -2256,8 +2257,23 @@ static const xml_reference_ops_t reference_ops_PubidLiteral = {
     .hnd = { /* No entities expected */ },
 };
 
-/// Virtual methods for reading entity value (EntityValue production)
-static const xml_reference_ops_t reference_ops_EntityValue = {
+/// Virtual methods for reading entity value (EntityValue production) in internal subset
+static const xml_reference_ops_t reference_ops_EntityValue_internal = {
+    .errinfo = XMLERR(ERROR, XML, P_EntityValue),
+    .condread = xml_cb_literal_entity,
+    .flags = RECOGNIZE_REF | RECOGNIZE_PEREF,
+    .textblock = textblock_append_literal,
+    .hnd = {
+        [XML_READER_REF_PARAMETER] = reference_forbidden,
+        [XML_READER_REF_INTERNAL] = reference_bypassed,
+        [XML_READER_REF_EXTERNAL] = reference_bypassed,
+        [XML_READER_REF_UNPARSED] = reference_error,
+        [XML_READER_REF__CHAR] = reference_included_charref,
+    },
+};
+
+/// Virtual methods for reading entity value (EntityValue production) in external subset
+static const xml_reference_ops_t reference_ops_EntityValue_external = {
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
     .condread = xml_cb_literal_entity,
     .flags = RECOGNIZE_REF | RECOGNIZE_PEREF,
@@ -3133,6 +3149,10 @@ xml_parse_EntityDecl(xml_reader_t *h)
                             "Expect notation name here");
                     goto malformed;
                 }
+                cbp.cbtype = XML_READER_CB_NDATA;
+                cbp.loc = h->lastreadloc;
+                cbp.token.str = h->tokenbuf;
+                cbp.token.len = h->tokenlen;
                 if (e) {
                     e->notation = utf8_ndup(h->tokenbuf, h->tokenlen);
                     e->type = XML_READER_REF_UNPARSED;
@@ -3155,7 +3175,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     case PR_NOMATCH:
         // Must have EntityValue then
         h->share->rplclen = 0;
-        if (xml_parse_literal(h, &reference_ops_EntityValue) != PR_OK) {
+        if (xml_parse_literal(h, h->entity_value_parser) != PR_OK) {
             goto malformed;
         }
         if (predef) {
@@ -3761,6 +3781,7 @@ void
 xml_reader_process_document_entity(xml_reader_t *h)
 {
     h->declinfo = &declinfo_xmldecl;
+    h->entity_value_parser = &reference_ops_EntityValue_internal;
 
     /// @todo Return PR_FAIL from xml_reader_start for fatal errors
     xml_reader_start(h);
@@ -3787,6 +3808,7 @@ void
 xml_reader_process_external_entity(xml_reader_t *h)
 {
     h->declinfo = &declinfo_textdecl;
+    h->entity_value_parser = NULL; // Will not encounter entity definitions
     xml_reader_start(h);
     if (h->flags & READER_FATAL) {
         return; /// @todo Signal error somehow? or XMLERR(ERROR, ...) is enough?
@@ -3804,6 +3826,7 @@ void
 xml_reader_process_external_subset(xml_reader_t *h)
 {
     h->declinfo = &declinfo_textdecl;
+    h->entity_value_parser = &reference_ops_EntityValue_external;
     xml_reader_start(h);
     if (h->flags & READER_FATAL) {
         return; /// @todo Signal error somehow? or XMLERR(ERROR, ...) is enough?
