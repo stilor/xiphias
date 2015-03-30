@@ -66,9 +66,11 @@ enum {
 };
 
 /// Reference recognition
+/// @todo rename to read flags
 enum {
     RECOGNIZE_REF   = 0x0001,       ///< Reading next token will expand Reference production
     RECOGNIZE_PEREF = 0x0002,       ///< Reading next token will expand PEReference production
+    SAVE_UCS4       = 0x0010,       ///< Also save UCS-4 codepoints
 };
 
 /**
@@ -100,6 +102,7 @@ typedef struct {
 /// Entity information
 typedef struct xml_reader_entity_s {
     const utf8_t *name;                     ///< Entity name
+    size_t namelen;                         ///< Entity name length in bytes
     enum xml_reader_reference_e type;       ///< Entity type
     const char *system_id;                  ///< System ID of the entity (NULL for internal)
     const char *public_id;                  ///< Public ID of the entity
@@ -107,7 +110,9 @@ typedef struct xml_reader_entity_s {
     const char *location;                   ///< How input from this entity will be reported
     bool being_parsed;                      ///< Recursion detection: this entity is being parsed
     const ucs4_t *rplc;                     ///< Replacement text
-    size_t rplclen;                         ///< Length of the replacement text
+    size_t rplclen;                         ///< Length of the replacement text in bytes
+    const ucs4_t *refrplc;                  ///< Reference replacement text
+    size_t refrplclen;                      ///< Length of the reference replacement text in bytes
     xmlerr_loc_t declared;                  ///< Location of the declaration
     const xml_predefined_entity_t *predef;  ///< The definition came from a predefined entity
 } xml_reader_entity_t;
@@ -124,7 +129,7 @@ typedef struct xml_reader_input_s {
 
     // Other fields
     uint32_t srcid;                 ///< Source ID to check for proper nesting
-    bool inc_in_literal;            ///<'included in literal' - special handling of quotes
+    bool inc_in_literal;            ///< 'included in literal' - special handling of quotes
     bool charref;                   ///< Input originated from a character reference
     bool backtrack;                 ///< Input for backtracking (does not terminate read loop)
     xml_reader_entity_t *entity;    ///< Associated entity if any
@@ -132,7 +137,7 @@ typedef struct xml_reader_input_s {
 } xml_reader_input_t;
 
 /// Structure shared between master and subordinate documents
-/// @todo measure rplclen/rplcsz in ucs4_t units? here and in xml_reader_entity_t?
+/// @todo move ->tokenbuf/->ucs4buf to ->share
 typedef struct xml_reader_shared_s {
     int refcnt;                     ///< Number of xml_reader_t handles referencing this
 
@@ -142,9 +147,9 @@ typedef struct xml_reader_shared_s {
     strhash_t *entities_param;      ///< Parameter entities
     strhash_t *entities_gen;        ///< General entities
 
-    ucs4_t *rplc;                   ///< Buffer for replacement text for entity
-    size_t rplclen;                 ///< Length of replacement text in the buffer
-    size_t rplcsz;                  ///< Size of the replacement text buffer
+    ucs4_t *ucs4buf;                ///< Buffer for saved UCS-4 text
+    size_t ucs4len;                 ///< Count of UCS-4 characters
+    size_t ucs4sz;                  ///< Size of UCS-4 buffer, in characters
 } xml_reader_shared_t;
 
 /// Function for conditional read termination: returns true if the character is rejected
@@ -180,6 +185,9 @@ typedef struct {
 } xml_reference_info_t;
 
 /// XML reader structure
+/// @todo make xml_reader_shared the master structure passed everywhere and check "current
+/// document" where needed? Move most stuff to shared then (->tokenbuf, ->backtrack,
+/// ->free_input). Wouldn't need master/sub links then.
 struct xml_reader_s {
     xml_reader_shared_t *share;     ///< Structure shared with subordinate documents
 
@@ -516,6 +524,40 @@ xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
 }
 
 /**
+    Reallocate token buffer.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_tokenbuf_realloc(xml_reader_t *h)
+{
+    size_t newsz = 2 * (h->tokenbuf_end - h->tokenbuf);
+
+    h->tokenbuf = xrealloc(h->tokenbuf, newsz);
+    h->tokenbuf_end = h->tokenbuf + newsz;
+}
+
+/**
+    Store a UCS-4 codepoint. Used for entities where we'd need to re-parse the
+    replacement value (or entity reference) later.
+
+    @param h Reader handle
+    @param cp Codepoint
+    @return Nothing
+*/
+static void
+xml_ucs4_store(xml_reader_t *h, ucs4_t cp)
+{
+    if (h->share->ucs4len == h->share->ucs4sz) {
+        h->share->ucs4sz = h->share->ucs4sz ? 2 * h->share->ucs4sz : 256;
+        h->share->ucs4buf = xrealloc(h->share->ucs4buf,
+                h->share->ucs4sz * sizeof(ucs4_t));
+    }
+    h->share->ucs4buf[h->share->ucs4len++] = cp;
+}
+
+/**
     Get read pointers, either from a strbuf or from an input diversion.
 
     @param h Reader handle
@@ -642,6 +684,7 @@ xml_entity_new(strhash_t *ehash, const utf8_t *name, size_t namelen)
     e = xmalloc(sizeof(xml_reader_entity_t));
     memset(e, 0, sizeof(xml_reader_entity_t));
     e->name = strhash_setn(ehash, name, namelen, e);
+    e->namelen = namelen;
     s = utf8_strtolocal(e->name);
     e->location = xasprintf("entity(%s)", s);
     utf8_strfreelocal(s);
@@ -699,6 +742,7 @@ xml_entity_populate(strhash_t *ehash)
         s = predef->rplc[0];
         e = xml_entity_new(ehash, predef->name, predef->namelen);
         e->type = XML_READER_REF_INTERNAL;
+        // Only ASCII replacements here, 1 byte per character
         nchars = strlen(s);
         e->rplclen = nchars * sizeof(ucs4_t);
         rplc = xmalloc(e->rplclen);
@@ -706,6 +750,15 @@ xml_entity_populate(strhash_t *ehash)
             rplc[j] = ucs4_fromlocal(s[j]);
         }
         e->rplc = rplc;
+        nchars = predef->namelen + 2;
+        e->refrplclen = nchars * sizeof(ucs4_t);
+        rplc = xmalloc(e->refrplclen);
+        rplc[0] = ucs4_fromlocal('&');
+        for (j = 0; j < predef->namelen; j++) {
+            rplc[j + 1] = predef->name[j];
+        }
+        rplc[nchars - 1] = ucs4_fromlocal(';');
+        e->refrplc = rplc;
         e->predef = predef;
     }
 }
@@ -1145,7 +1198,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
     const void *begin, *end;
     const ucs4_t *ptr;
     ucs4_t cp, cp0;
-    size_t clen, offs, bufsz, total;
+    size_t clen, total;
     utf8_t *bufptr;
     xru_t rv = XRU_CONTINUE;
     bool saw_cr = false;
@@ -1157,7 +1210,12 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
 
     while (rv == XRU_CONTINUE) { // First check the status from inner for-loop...
         // ... and only if we're not terminating yet, try to get next read pointers
-        if ((rv = xml_reader_input_rptr(h, &begin, &end)) != XRU_CONTINUE) {
+        rv = xml_reader_input_rptr(h, &begin, &end);
+        if (!total && rv == XRU_INPUT_BOUNDARY) {
+            // (if we haven't read anything and removed input that ended, that's fine)
+            rv = XRU_CONTINUE;
+        }
+        else if (rv != XRU_CONTINUE) {
             break;
         }
         inp = SLIST_FIRST(&h->active_input);
@@ -1242,14 +1300,14 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 clen = utf8_clen(cp);
                 if (bufptr + clen > h->tokenbuf_end) {
                     // Double token storage
-                    offs = bufptr - h->tokenbuf;
-                    bufsz = 2 * (h->tokenbuf_end - h->tokenbuf);
-                    h->tokenbuf = xrealloc(h->tokenbuf, bufsz);
-                    h->tokenbuf_end = h->tokenbuf + bufsz;
-                    bufptr = h->tokenbuf + offs;
+                    xml_tokenbuf_realloc(h);
+                    bufptr = h->tokenbuf + total;
                 }
                 utf8_store(&bufptr, cp);
                 total += clen;
+                if (recognize & SAVE_UCS4) {
+                    xml_ucs4_store(h, cp);
+                }
             }
 
             // If backtracking, go to the outer loop to setup new input. Do not count this
@@ -1428,15 +1486,16 @@ xml_cb_not_name(void *arg, ucs4_t cp)
     Read a Name production.
 
     @param h Reader handle
+    @param flags Reading flags
     @return PR_OK if Name production has been read, PR_NOMATCH otherwise
 */
 static prodres_t
-xml_read_Name(xml_reader_t *h)
+xml_read_Name(xml_reader_t *h, uint32_t flags)
 {
     bool startchar = true;
 
     // May stop at either non-Name character, or input boundary
-    (void)xml_read_until(h, xml_cb_not_name, &startchar, 0);
+    (void)xml_read_until(h, xml_cb_not_name, &startchar, flags);
     if (!h->tokenlen) {
         // No error: this is an auxillary function often used to differentiate between
         // Name or some alternative (e.g. entity vs char references)
@@ -1735,7 +1794,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
         // This may be either entity or character reference
         xml_read_string_assert(h, "&");
         saveloc = h->lastreadloc;
-        if (xml_read_Name(h) == PR_OK) {
+        if (xml_read_Name(h, 0) == PR_OK) {
             // EntityRef
             *reftype = XML_READER_REF_GENERAL;
             goto read_content;
@@ -1772,7 +1831,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
         xml_read_string_assert(h, "%");
         saveloc = h->lastreadloc;
         *reftype = XML_READER_REF_PARAMETER;
-        if (xml_read_Name(h) == PR_OK) {
+        if (xml_read_Name(h, 0) == PR_OK) {
             goto read_content;
         }
         goto malformed;
@@ -1845,8 +1904,8 @@ entity_input_end(xml_reader_t *h, void *arg)
     /// for that, strhash_set/setn need to return a pointer to permanent key string, which
     /// needs to be stored back into xml_reader_entity_t.
     cbp.cbtype = XML_READER_CB_ENTITY_END;
-    cbp.token.str = NULL;
-    cbp.token.len = 0;
+    cbp.token.str = e->name;
+    cbp.token.len = e->namelen;
     cbp.loc = h->curloc;
     cbp.entity.type = e->type;
     cbp.entity.system_id = e->system_id;
@@ -1874,7 +1933,7 @@ reference_forbidden(xml_reader_t *h, xml_reader_entity_t *e)
 
     ri = xml_entity_type_info(e->type);
     xml_reader_message_lastread(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
-            "%s reference is forbidden here", ri->desc);
+            "Reference to %s is forbidden here", ri->desc);
 }
 
 /**
@@ -1894,10 +1953,10 @@ reference_included_common(xml_reader_t *h, xml_reader_entity_t *e, bool inc_in_l
     cbp.cbtype = XML_READER_CB_ENTITY_START;
     cbp.loc = h->lastreadloc;
     cbp.entity.type = e->type;
-    cbp.token.str = h->tokenbuf;
-    cbp.token.len = h->tokenlen;
+    cbp.token.str = e->name;
+    cbp.token.len = e->namelen;
     cbp.entity.system_id = e->system_id;
-    cbp.entity.public_id = e->system_id ? e->public_id : NULL; // Only for external entities
+    cbp.entity.public_id = e->public_id;
     cbp.entity.baton = NULL;
     xml_reader_invoke_callback(h, &cbp);
 
@@ -1906,6 +1965,7 @@ reference_included_common(xml_reader_t *h, xml_reader_entity_t *e, bool inc_in_l
     inp = xml_reader_input_new(h, e->location);
     strbuf_set_input(inp->buf, e->rplc, e->rplclen);
     inp->entity = e;
+    /// @todo replace with a srcid or inp pointer check? nested entities are not handled properly
     inp->inc_in_literal = inc_in_literal;
     inp->baton = cbp.entity.baton;
 
@@ -1962,7 +2022,11 @@ reference_included_if_validating(xml_reader_t *h, xml_reader_entity_t *e)
 static void
 reference_bypassed(xml_reader_t *h, xml_reader_entity_t *e)
 {
-    /// @todo Implement
+    xml_reader_input_t *inp;
+
+    inp = xml_reader_input_new(h, e->location);
+    strbuf_set_input(inp->buf, e->refrplc, e->refrplclen);
+    inp->charref = true; ///< @todo rename; what this does is to prevent recognition of entities
 }
 
 /**
@@ -1995,13 +2059,16 @@ reference_included_charref(xml_reader_t *h, xml_reader_entity_t *e)
 {
     xml_reader_input_t *inp;
 
+    /// @todo with h->tokenlen/tokenbuf check from the handler - perhaps, avoid
+    /// setting a new input and just append the character directly? That will forgo
+    /// any normalization if it is performed by the xml_read_until, however.
     inp = xml_reader_input_new(h, e->location);
     strbuf_set_input(inp->buf, e->rplc, e->rplclen);
 
     // Character reference behavior is close to what's described in XML spec as
     // 'Included in literal' (i.e., in literal the character reference to the quote
     // character does not terminate the literal). They also can represent references
-    // to start characters which will not be recognized by xml_read_internal.
+    // to start characters which will not be recognized by xml_read_until.
     inp->inc_in_literal = true;
     inp->charref = true;
 }
@@ -2184,36 +2251,6 @@ xml_cb_literal(void *arg, ucs4_t cp)
     }
 }
 
-/**
-    Slightly different variant of literal handler for entities: in addition to
-    regular literal checks, also save the replacement text as we go to avoid
-    recoding back to UCS-4.
-
-    @param arg Current state
-    @param cp Codepoint
-    @return true if this character is rejected
-*/
-static ucs4_t
-xml_cb_literal_entity(void *arg, ucs4_t cp)
-{
-    xml_cb_literal_state_t *st = arg;
-    xml_reader_t *h = st->h;
-    ucs4_t rv, rvcp;
-
-    rv = xml_cb_literal(arg, cp);
-    if ((rvcp = (rv & UCS4_CODEPOINT)) <= UCS4_MAX) {
-        // add cp to the cached replacement text
-        if (h->share->rplclen == h->share->rplcsz) {
-            // current buffer all used up; double it
-            h->share->rplcsz = h->share->rplcsz ? 2 * h->share->rplcsz : 256 * sizeof(ucs4_t);
-            h->share->rplc = xrealloc(h->share->rplc, h->share->rplcsz);
-        }
-        h->share->rplc[h->share->rplclen / sizeof(ucs4_t)] = rvcp;
-        h->share->rplclen += sizeof(ucs4_t);
-    }
-    return rv;
-}
-
 /// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
 static const xml_reference_ops_t reference_ops_pseudo = {
     .errinfo = XMLERR(ERROR, XML, P_XMLDecl),
@@ -2260,8 +2297,8 @@ static const xml_reference_ops_t reference_ops_PubidLiteral = {
 /// Virtual methods for reading entity value (EntityValue production) in internal subset
 static const xml_reference_ops_t reference_ops_EntityValue_internal = {
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
-    .condread = xml_cb_literal_entity,
-    .flags = RECOGNIZE_REF | RECOGNIZE_PEREF,
+    .condread = xml_cb_literal,
+    .flags = RECOGNIZE_REF | RECOGNIZE_PEREF | SAVE_UCS4,
     .textblock = textblock_append_literal,
     .hnd = {
         [XML_READER_REF_PARAMETER] = reference_forbidden,
@@ -2275,8 +2312,8 @@ static const xml_reference_ops_t reference_ops_EntityValue_internal = {
 /// Virtual methods for reading entity value (EntityValue production) in external subset
 static const xml_reference_ops_t reference_ops_EntityValue_external = {
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
-    .condread = xml_cb_literal_entity,
-    .flags = RECOGNIZE_REF | RECOGNIZE_PEREF,
+    .condread = xml_cb_literal,
+    .flags = RECOGNIZE_REF | RECOGNIZE_PEREF | SAVE_UCS4,
     .textblock = textblock_append_literal,
     .hnd = {
         [XML_READER_REF_PARAMETER] = reference_included_in_literal,
@@ -2537,7 +2574,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
         }
         // We may have no whitespace before final ?>, but must get some before
         // pseudo-attributes.
-        if (!had_ws || xml_read_Name(h) != PR_OK) {
+        if (!had_ws || xml_read_Name(h, 0) != PR_OK) {
             goto malformed;
         }
 
@@ -2776,7 +2813,7 @@ xml_parse_PI(xml_reader_t *h)
     xml_read_string_assert(h, "<?");
     cbp.cbtype = XML_READER_CB_PI_TARGET;
     cbp.loc = h->lastreadloc;
-    if (xml_read_Name(h) != PR_OK) {
+    if (xml_read_Name(h, 0) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                 "Expected PI target here");
         return xml_read_until_gt(h);
@@ -3084,11 +3121,22 @@ xml_parse_EntityDecl(xml_reader_t *h)
         }
     }
 
+    // Parameter entities do not have 'bypassed' behavior in any context, for which
+    // we'd need the name
+    h->share->ucs4len = 0;
+    if (!parameter) {
+        xml_ucs4_store(h, ucs4_fromlocal('&'));
+    }
+
     // General or parameter, it is followed by [Name S]
-    if (xml_read_Name(h) != PR_OK) {
+    if (xml_read_Name(h, parameter ? 0 : SAVE_UCS4) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                 "Expect entity name here");
         goto malformed;
+    }
+
+    if (!parameter) {
+        xml_ucs4_store(h, ucs4_fromlocal(';'));
     }
 
     // If the same entity is declared more than once, the first declaration encountered
@@ -3118,6 +3166,13 @@ xml_parse_EntityDecl(xml_reader_t *h)
     cbp.entitydef.parameter = parameter;
     xml_reader_invoke_callback(h, &cbp);
 
+    if (e) {
+        e->refrplclen = h->share->ucs4len * sizeof(ucs4_t);
+        rplc = xmalloc(e->refrplclen);
+        memcpy(rplc, h->share->ucs4buf, e->refrplclen);
+        e->refrplc = rplc;
+    }
+
     if (xml_parse_whitespace(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                 "Expect whitespace here");
@@ -3144,7 +3199,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
                 if (xml_read_string(h, "NDATA", XMLERR(ERROR, XML, P_EntityDecl)) != PR_OK) {
                     goto malformed;
                 }
-                if (xml_read_Name(h) != PR_OK) {
+                if (xml_read_Name(h, 0) != PR_OK) {
                     xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                             "Expect notation name here");
                     goto malformed;
@@ -3174,7 +3229,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
 
     case PR_NOMATCH:
         // Must have EntityValue then
-        h->share->rplclen = 0;
+        h->share->ucs4len = 0;
         if (xml_parse_literal(h, h->entity_value_parser) != PR_OK) {
             goto malformed;
         }
@@ -3185,14 +3240,14 @@ xml_parse_EntityDecl(xml_reader_t *h)
             for (i = 0;
                     i < sizeofarray(predef->rplc) && (s = predef->rplc[i]) != NULL;
                     i++) {
-                for (j = 0; j < h->share->rplclen / sizeof(ucs4_t); j++) {
+                for (j = 0; j < h->share->ucs4len; j++) {
                     // s is nul-terminated, so end of string is caught here
-                    if (ucs4_fromlocal(s[j]) != h->share->rplc[j]) {
+                    if (ucs4_fromlocal(s[j]) != h->share->ucs4buf[j]) {
                         break;
                     }
                 }
                 // matched so far, check that it's the end of expected replacement text
-                if (j == h->share->rplclen / sizeof(ucs4_t) && !s[j]) {
+                if (j == h->share->ucs4len && !s[j]) {
                     goto compatible;
                 }
                 // otherwise, check the next definition if there's any
@@ -3207,10 +3262,10 @@ compatible:
             eold->declared = cbp.loc;
         }
         if (e) {
-            rplc = xmalloc(h->share->rplclen);
-            memcpy(rplc, h->share->rplc, h->share->rplclen);
+            e->rplclen = h->share->ucs4len * sizeof(ucs4_t);
+            rplc = xmalloc(e->rplclen);
+            memcpy(rplc, h->share->ucs4buf, e->rplclen);
             e->rplc = rplc;
-            e->rplclen = h->share->rplclen;
             e->type = parameter ? XML_READER_REF_PARAMETER : XML_READER_REF_INTERNAL;
         }
         break;
@@ -3374,7 +3429,7 @@ xml_parse_doctypedecl(xml_reader_t *h)
                 "Expect whitespace here");
         return PR_FAIL;
     }
-    if (xml_read_Name(h) != PR_OK) {
+    if (xml_read_Name(h, 0) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_doctypedecl),
                 "Expect root element type here");
         return PR_FAIL;
@@ -3446,7 +3501,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     cbp.cbtype = XML_READER_CB_STAG;
     cbp.loc = h->lastreadloc;
 
-    if (xml_read_Name(h) != PR_OK) {
+    if (xml_read_Name(h, 0) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_STag),
                 "Expected element type");
@@ -3473,7 +3528,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
             h->nestlvl++; // Opened element
             break;
         }
-        else if (had_ws && xml_read_Name(h) == PR_OK) {
+        else if (had_ws && xml_read_Name(h, 0) == PR_OK) {
             // Attribute, if any, must be preceded by S (whitespace).
             cbp.cbtype = XML_READER_CB_ATTR;
             cbp.loc = h->lastreadloc;
@@ -3534,7 +3589,7 @@ xml_parse_ETag(xml_reader_t *h)
     xml_read_string_assert(h, "</");
     cbp.cbtype = XML_READER_CB_ETAG;
     cbp.loc = h->lastreadloc;
-    if (xml_read_Name(h) != PR_OK) {
+    if (xml_read_Name(h, 0) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_ETag),
                 "Expected element type");

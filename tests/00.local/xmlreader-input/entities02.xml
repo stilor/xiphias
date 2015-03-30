@@ -1,0 +1,7 @@
+<!DOCTYPE a [
+<!ENTITY bar "&#x22;>">
+<!ENTITY baz "&quot;>">
+<!ENTITY foo1 "a&bar;b">
+<!ENTITY foo2 "a&baz;b">
+]>
+<a attr1="&foo1;" attr2="&foo2;"/>

@@ -1,0 +1,5 @@
+<!DOCTYPE a [
+<!ENTITY % bar "b">
+<!ENTITY foo "a%bar;c">
+]>
+<a>&foo;</a>

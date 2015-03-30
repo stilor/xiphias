@@ -165,6 +165,8 @@ run_testcase(const void *arg)
 #define FL_DTD_BEGIN        __dummy
 #define FL_DTD_INTERNAL     __dummy
 #define FL_DTD_END          __dummy
+#define FL_ENTITY_DEF_START entitydef
+#define FL_ENTITY_DEF_END   __dummy
 #define FL_STAG             __dummy
 #define FL_STAG_END         stag_end
 #define FL_ETAG             __dummy
