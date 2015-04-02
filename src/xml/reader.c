@@ -129,6 +129,7 @@ typedef struct xml_reader_input_s {
 
     // Other fields
     uint32_t srcid;                 ///< Source ID to check for proper nesting
+    uint32_t locked;                ///< Number of productions 'locking' this input
     bool inc_in_literal;            ///< 'included in literal' - special handling of quotes
     bool charref;                   ///< Input originated from a character reference
     bool backtrack;                 ///< Input for backtracking (does not terminate read loop)
@@ -283,11 +284,12 @@ typedef struct xml_reader_settings_s {
 
 /// xml_read_until_* return codes
 typedef enum {
-    XRU_CONTINUE,          ///< Internal value: do not return yet
-    XRU_EOF,               ///< Reach end of input
-    XRU_STOP,              ///< Callback indicated end of a token
-    XRU_REFERENCE,         ///< Recognized entity/character reference
-    XRU_INPUT_BOUNDARY,    ///< Encountered input (entity) boundary
+    XRU_CONTINUE,           ///< Internal value: do not return yet
+    XRU_EOF,                ///< Reach end of input
+    XRU_STOP,               ///< Callback indicated end of a token
+    XRU_REFERENCE,          ///< Recognized entity/character reference
+    XRU_INPUT_BOUNDARY,     ///< Encountered input (entity) boundary
+    XRU_INPUT_LOCKED,       ///< Some production wanted to end in this input
 } xru_t;
 
 /// Convenience macro: report an error at the start of the last token
@@ -456,6 +458,7 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz, bool *peof)
     if (peof) {
         *peof = true;
     }
+    // TBD do we need to advance the input? or only if backtracking?
     SLIST_FOREACH(inp, &h->active_input, link) {
         nread = strbuf_lookahead(inp->buf, ptr, bufsz * sizeof(ucs4_t));
         if (peof && nread) {
@@ -576,8 +579,12 @@ xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
         if (strbuf_rptr(inp->buf, begin, end) != 0) {
             return rv;
         }
+        if (inp->locked) {
+            // Can't remove this input yet
+            // @todo Create an error message
+            return XRU_INPUT_LOCKED;
+        }
         // This input is done with: dequeue, notify and try next
-        SLIST_REMOVE_HEAD(&h->active_input, link);
         h->curloc = inp->saveloc;
         if (inp->complete) {
             inp->complete(h, inp->complete_arg);
@@ -585,9 +592,48 @@ xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
         if (!inp->backtrack) {
             rv = XRU_INPUT_BOUNDARY; // No longer reading from the same input
         }
+        SLIST_REMOVE_HEAD(&h->active_input, link);
         SLIST_INSERT_HEAD(&h->free_input, inp, link);
     }
     return XRU_EOF; // All inputs consumed, EOF
+}
+
+/**
+    Lock current input.
+
+    @param h Reader handle
+    @return Input pointer
+*/
+static xml_reader_input_t *
+xml_reader_input_lock(xml_reader_t *h)
+{
+    xml_reader_input_t *inp;
+
+    inp = SLIST_FIRST(&h->active_input);
+    OOPS_ASSERT(inp);
+    inp->locked++;
+    return inp;
+}
+
+/**
+    Unlock a previously locked input.
+
+    @param h Reader handle
+    @param inp Input to be unlocked
+    @return Nothing
+*/
+static void
+xml_reader_input_unlock(xml_reader_t *h, xml_reader_input_t *inp)
+{
+    // TBD xml_reader_input_checklock() to verify that current input is the one locked?
+    // TBD lock token to verify this unlock is from the same context as the lock?
+    if (inp == SLIST_FIRST(&h->active_input)) {
+        OOPS_ASSERT(inp->locked);
+        inp->locked--;
+    }
+    else {
+        OOPS; // TBD error message
+    }
 }
 
 /**
@@ -1208,10 +1254,12 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
     h->lastreadloc = h->curloc;
     h->rejected = UCS4_NOCHAR;
 
+    // TBD change to do {} while (rv == XRU_CONTINUE)
     while (rv == XRU_CONTINUE) { // First check the status from inner for-loop...
         // ... and only if we're not terminating yet, try to get next read pointers
         rv = xml_reader_input_rptr(h, &begin, &end);
         if (!total && rv == XRU_INPUT_BOUNDARY) {
+            // TBD needed if we lock inputs?
             // (if we haven't read anything and removed input that ended, that's fine)
             rv = XRU_CONTINUE;
         }
@@ -2202,6 +2250,8 @@ typedef struct xml_cb_literal_state_s {
     ucs4_t quote;
     /// Reader handle (need to check the state of the current input
     xml_reader_t *h;
+    /// Locked input
+    xml_reader_input_t *locked_input;
 } xml_cb_literal_state_t;
 
 /**
@@ -2239,6 +2289,7 @@ xml_cb_literal(void *arg, ucs4_t cp)
             return UCS4_STOPCHAR; // Rejected before even started
         }
         st->quote = cp;
+        st->locked_input = xml_reader_input_lock(st->h);
         return UCS4_NOCHAR; // Remember the quote, but do not store it
     }
     else {
@@ -2247,6 +2298,7 @@ xml_cb_literal(void *arg, ucs4_t cp)
         }
         // Consume the closing quote and stop at the next character
         st->quote = UCS4_STOPCHAR;
+        xml_reader_input_unlock(st->h, st->locked_input);
         return UCS4_NOCHAR | UCS4_LASTCHAR;
     }
 }
@@ -2342,11 +2394,15 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     // xml_read_until() may return 0 (empty literal), which is valid
     st.quote = UCS4_NOCHAR;
     st.h = h;
+    st.locked_input = NULL;
     if (xml_read_until_parseref(h, refops, &st) != XRU_STOP
             || st.quote != UCS4_STOPCHAR) {
         xml_reader_message_lastread(h, refops->errinfo,
                 st.quote == UCS4_NOCHAR ?
                 "Quoted literal expected" : "Unterminated literal");
+        if (st.locked_input) {
+            xml_reader_input_unlock(h, st.locked_input);
+        }
         return PR_FAIL;
     }
     return PR_OK;
@@ -2543,6 +2599,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     const xml_reader_xmldecl_declinfo_t *declinfo = h->declinfo;
     const xml_reader_xmldecl_attrdesc_t *attrlist = declinfo->attrlist;
     xml_reader_cbparam_t cbp;
+    xml_reader_input_t *locked;
     utf8_t labuf[6]; // ['<?xml' + whitespace] or [?>]
     bool had_ws;
 
@@ -2554,6 +2611,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
 
     // We know it's there, checked above
     xml_read_string_assert(h, "<?xml");
+    locked = xml_reader_input_lock(h);
     cbp.cbtype = XML_READER_CB_XMLDECL;
     cbp.token.str = NULL;
     cbp.token.len = 0;
@@ -2638,6 +2696,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     cbp.xmldecl.version = h->version;
     cbp.xmldecl.standalone = h->standalone;
     xml_reader_invoke_callback(h, &cbp);
+    xml_reader_input_unlock(h, locked);
 
     return PR_OK;
 
@@ -2645,6 +2704,7 @@ malformed: // Any fatal malformedness: report location where actual error was
     h->flags |= READER_FATAL;
     xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
             "Malformed %s", declinfo->name);
+    xml_reader_input_unlock(h, locked);
     return PR_FAIL;
 }
 
@@ -2767,9 +2827,11 @@ static prodres_t
 xml_parse_Comment(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
+    xml_reader_input_t *locked;
     comment_backtrack_handler_t cbh;
 
     xml_read_string_assert(h, "<!--");
+    locked = xml_reader_input_lock(h);
     cbp.cbtype = XML_READER_CB_COMMENT;
     cbp.loc = h->lastreadloc;
 
@@ -2779,11 +2841,13 @@ xml_parse_Comment(xml_reader_t *h)
         // no need to recover (EOF)
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_Comment),
                 "Unterminated comment");
+        xml_reader_input_unlock(h, locked);
         return PR_STOP;
     }
     cbp.token.str = h->tokenbuf;
     cbp.token.len = h->tokenlen;
     xml_reader_invoke_callback(h, &cbp);
+    xml_reader_input_unlock(h, locked);
     return PR_OK;
 }
 
@@ -2809,8 +2873,10 @@ static prodres_t
 xml_parse_PI(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
+    xml_reader_input_t *locked;
 
     xml_read_string_assert(h, "<?");
+    locked = xml_reader_input_lock(h);
     cbp.cbtype = XML_READER_CB_PI_TARGET;
     cbp.loc = h->lastreadloc;
     if (xml_read_Name(h, 0) != PR_OK) {
@@ -2832,22 +2898,26 @@ xml_parse_PI(xml_reader_t *h)
             cbp.token.str = h->tokenbuf;
             cbp.token.len = h->tokenlen;
             xml_reader_invoke_callback(h, &cbp);
+            xml_reader_input_unlock(h, locked);
             return PR_OK;
         }
         else {
             // no need to recover (EOF)
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                     "Unterminated processing instruction");
+            xml_reader_input_unlock(h, locked);
             return PR_STOP;
         }
     }
     else if (xml_read_string(h, "?>", XMLERR(ERROR, XML, P_PI)) == PR_OK) {
         // We could only have closing ?> if there's no whitespace after PI target.
         // There is no content in this case.
+        xml_reader_input_unlock(h, locked);
         return PR_OK;
     }
 
     // Recover by skipping until closing angle bracket
+    xml_reader_input_unlock(h, locked);
     return xml_read_until_gt(h);
 }
 
@@ -2874,8 +2944,10 @@ static prodres_t
 xml_parse_CDSect(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
+    xml_reader_input_t *locked;
 
     xml_read_string_assert(h, "<![CDATA[");
+    locked = xml_reader_input_lock(h);
     cbp.cbtype = XML_READER_CB_CDSECT;
     cbp.loc = h->lastreadloc;
     if (xml_read_termstring(h, "]]>", NULL, NULL) != PR_OK) {
@@ -2883,12 +2955,14 @@ xml_parse_CDSect(xml_reader_t *h)
         /// @todo Test unterminated comments/PIs/CDATA in entities - is PR_STOP proper here?
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_CDSect),
                 "Unterminated CDATA section");
+        xml_reader_input_unlock(h, locked);
         return PR_STOP;
     }
     cbp.token.str = h->tokenbuf;
     cbp.token.len = h->tokenlen;
     cbp.append.ws = false;
     xml_reader_invoke_callback(h, &cbp);
+    xml_reader_input_unlock(h, locked);
     return PR_OK;
 }
 
@@ -3494,10 +3568,12 @@ static prodres_t
 xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
+    xml_reader_input_t *locked;
     bool had_ws;
     bool is_empty;
 
     xml_read_string_assert(h, "<");
+    locked = xml_reader_input_lock(h);
     cbp.cbtype = XML_READER_CB_STAG;
     cbp.loc = h->lastreadloc;
 
@@ -3562,10 +3638,13 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     cbp.loc = h->lastreadloc;
     cbp.stag_end.is_empty = is_empty;
     xml_reader_invoke_callback(h, &cbp);
+    // TBD do not unlock until a matching ETag
+    xml_reader_input_unlock(h, locked);
     return PR_OK;
 
 malformed:
     // Try to recover by reading till end of opening tag
+    xml_reader_input_unlock(h, locked);
     return xml_read_until_gt(h);
 }
 
@@ -3585,14 +3664,17 @@ static prodres_t
 xml_parse_ETag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
+    xml_reader_input_t *locked;
 
     xml_read_string_assert(h, "</");
+    locked = xml_reader_input_lock(h);
     cbp.cbtype = XML_READER_CB_ETAG;
     cbp.loc = h->lastreadloc;
     if (xml_read_Name(h, 0) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_ETag),
                 "Expected element type");
+        xml_reader_input_unlock(h, locked);
         return xml_read_until_gt(h);
     }
 
@@ -3603,6 +3685,7 @@ xml_parse_ETag(xml_reader_t *h)
     (void)xml_parse_whitespace(h); // optional whitespace
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag)) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
+        xml_reader_input_unlock(h, locked);
         return xml_read_until_gt(h);
     }
 
@@ -3611,6 +3694,7 @@ xml_parse_ETag(xml_reader_t *h)
     if (h->nestlvl) {
         h->nestlvl--;
     }
+    xml_reader_input_unlock(h, locked);
     return PR_OK;
 }
 
