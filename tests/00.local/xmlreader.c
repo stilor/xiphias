@@ -26,10 +26,7 @@ typedef struct testcase_s {
     const char *input;                      ///< Input file name
     bool use_bom;                           ///< Prepend byte order mark to this file?
     const char *encoding;                   ///< Transcode the file to this encoding
-
-    /// Allow to take some extra setup steps
-    result_t (*pretest)(xml_reader_t *h, const void *arg);
-    const void *pretest_arg;                ///< Argument to pretest function
+    const char *transport_encoding;         ///< Encoding from transport layer
 
     /// Extra checks in the test event callback
     result_t (*checkevt)(xml_reader_t *h, xml_reader_cbparam_t *e, const void *arg);
@@ -92,6 +89,7 @@ test_cb(void *arg, xml_reader_cbparam_t *cbparam)
 static result_t
 run_testcase(const void *arg)
 {
+    xml_reader_options_t opts;
     const testcase_t *tc = arg;
     xml_reader_t *reader;
     strbuf_t *sbuf;
@@ -126,26 +124,27 @@ run_testcase(const void *arg)
 
     // Run the test
     printf("XML reader events:\n");
-    reader = xml_reader_new(sbuf, tc->input);
 
+    xml_reader_opts_default(&opts);
+    opts.func = test_cb;
+    opts.arg = &cbarg;
+
+    reader = xml_reader_new(&opts);
     cbarg.expect = tc->events;
     cbarg.failed = false;
     cbarg.h = reader;
     cbarg.tc = tc;
-    xml_reader_set_callback(reader, test_cb, &cbarg);
 
-    rc = tc->pretest ? tc->pretest(reader, tc->pretest_arg) : PASS;
+    xml_reader_add_parsed_entity(reader, sbuf, tc->input, tc->transport_encoding);
+    xml_reader_process(reader); // Emits the events
 
-    if (rc == PASS) {
-        xml_reader_process_document_entity(reader);
-        while (cbarg.expect->cbtype != XML_READER_CB_NONE) {
-            printf("  (not seen) FAIL: ");
-            xmlreader_event_print(cbarg.expect);
-            cbarg.expect += 1;
-            cbarg.failed = true;
-        }
-        rc = cbarg.failed ? FAIL : PASS;
+    while (cbarg.expect->cbtype != XML_READER_CB_NONE) {
+        printf("  (not seen) FAIL: ");
+        xmlreader_event_print(cbarg.expect);
+        cbarg.expect += 1;
+        cbarg.failed = true;
     }
+    rc = cbarg.failed ? FAIL : PASS;
 
     xml_reader_delete(reader);
     xfree(path);

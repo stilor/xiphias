@@ -188,18 +188,27 @@ typedef struct xml_reader_s xml_reader_t;
 /// Reader callback function type
 typedef void (*xml_reader_cb_t)(void *arg, xml_reader_cbparam_t *cbparam);
 
-xml_reader_t *xml_reader_new(struct strbuf_s *buf, const char *location);
+/// Options for XML reader
+typedef struct {
+    /// Unicode normalization behavior
+    enum xml_reader_normalization_e normalization;
+    bool loctrack;                   ///< Whether location tracking is enabled
+    size_t tabsize;                  ///< Tabulation size for location tracking
+    xml_reader_cb_t func;            ///< Callback function
+    void *arg;                       ///< Argument to callback function
+} xml_reader_options_t;
+
+void xml_reader_opts_default(xml_reader_options_t *opts);
+
+xml_reader_t *xml_reader_new(const xml_reader_options_t *opts);
 void xml_reader_delete(xml_reader_t *h);
-bool xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname);
-bool xml_reader_set_normalization(xml_reader_t *h, enum xml_reader_normalization_e norm);
-bool xml_reader_set_location_tracking(xml_reader_t *h, bool onoff, size_t tabsz);
-void xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg);
 
 void xml_reader_message(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
         const char *fmt, ...) __printflike(4,5);
 
-void xml_reader_process_document_entity(xml_reader_t *h);
-void xml_reader_process_external_entity(xml_reader_t *h);
-void xml_reader_process_external_subset(xml_reader_t *h);
+bool xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
+        const char *location, const char *transport_encoding);
+
+void xml_reader_process(xml_reader_t *h);
 
 #endif

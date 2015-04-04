@@ -56,10 +56,6 @@
 
 /// Reader flags
 enum {
-    /// @todo Instead, pass an options structure to xml_reader_new/xml_reader_subordinate?
-    READER_STARTED  = 0x0001,       ///< Reader has started the operation
-    /// @todo Get rid of READER_FATAL in favor of PR_FAIL?
-    READER_FATAL    = 0x0002,       ///< Reader encountered a fatal error
     /// @todo Change to RECOGNIZE_ASCII, pass from XMLDecl parser?
     READER_ASCII    = 0x0004,       ///< Only ASCII characters allowed while reading declaration
     READER_LOCTRACK = 0x0008,       ///< Track the current position for error reporting
@@ -73,24 +69,12 @@ enum {
     SAVE_UCS4       = 0x0010,       ///< Also save UCS-4 codepoints
 };
 
-/**
-    XML declaration comes in two flavors, XMLDecl and TextDecl, with different
-    set of allowed/mandatory/optional attributes. This structure describes an
-    attribute in the expected list.
-*/
-typedef struct xml_reader_xmldecl_attrdesc_s {
-    const char *name;       ///< Name of the attribute
-    bool mandatory;         ///< True if the attribute is mandatory
-
-    /// Value validation function
-    void (*check)(xml_reader_t *h);
-} xml_reader_xmldecl_attrdesc_t;
-
-/// Declaration info for XMLDecl/TextDecl:
-typedef struct xml_reader_xmldecl_declinfo_s {
-    const char *name;           ///< Declaration name in XML grammar
-    const xml_reader_xmldecl_attrdesc_t *attrlist; ///< Allowed/required attributes
-} xml_reader_xmldecl_declinfo_t;
+/// Context for adding new external entity to the document
+enum xml_reader_external_context_e {
+    CTXT_DOCUMENT_ENTITY,
+    CTXT_DTD_EXTERNAL_SUBSET,
+    CTXT_EXTERNAL_PARSED_ENTITY,
+};
 
 /// Information on a pre-defined entity.
 typedef struct {
@@ -116,42 +100,6 @@ typedef struct xml_reader_entity_s {
     xmlerr_loc_t declared;                  ///< Location of the declaration
     const xml_predefined_entity_t *predef;  ///< The definition came from a predefined entity
 } xml_reader_entity_t;
-
-/// Input method: either strbuf for the main document, or diversion from a ucs4_t buffer in memory
-typedef struct xml_reader_input_s {
-    SLIST_ENTRY(xml_reader_input_s) link;   ///< Stack of diversions
-    strbuf_t *buf;                  ///< String buffer to use
-    xmlerr_loc_t saveloc;           ///< Saved location when this input is added
-
-    /// Notification when this input is consumed
-    void (*complete)(struct xml_reader_s *, void *);
-    void *complete_arg;             ///< Argument to completion notification
-
-    // Other fields
-    uint32_t srcid;                 ///< Source ID to check for proper nesting
-    uint32_t locked;                ///< Number of productions 'locking' this input
-    bool inc_in_literal;            ///< 'included in literal' - special handling of quotes
-    bool charref;                   ///< Input originated from a character reference
-    bool backtrack;                 ///< Input for backtracking (does not terminate read loop)
-    xml_reader_entity_t *entity;    ///< Associated entity if any
-    void *baton;                    ///< Saved user data for entity being parsed
-} xml_reader_input_t;
-
-/// Structure shared between master and subordinate documents
-/// @todo move ->tokenbuf/->ucs4buf to ->share
-typedef struct xml_reader_shared_s {
-    int refcnt;                     ///< Number of xml_reader_t handles referencing this
-
-    xml_reader_cb_t func;           ///< Callback function
-    void *arg;                      ///< Argument to callback function
-
-    strhash_t *entities_param;      ///< Parameter entities
-    strhash_t *entities_gen;        ///< General entities
-
-    ucs4_t *ucs4buf;                ///< Buffer for saved UCS-4 text
-    size_t ucs4len;                 ///< Count of UCS-4 characters
-    size_t ucs4sz;                  ///< Size of UCS-4 buffer, in characters
-} xml_reader_shared_t;
 
 /// Function for conditional read termination: returns true if the character is rejected
 /// @todo Change the API so that this function can look at arbitrary length of ucs4_t
@@ -185,29 +133,87 @@ typedef struct {
     uint32_t ecode;             ///< Error code associated with this type of references
 } xml_reference_info_t;
 
-/// XML reader structure
-/// @todo make xml_reader_shared the master structure passed everywhere and check "current
-/// document" where needed? Move most stuff to shared then (->tokenbuf, ->backtrack,
-/// ->free_input). Wouldn't need master/sub links then.
-struct xml_reader_s {
-    xml_reader_shared_t *share;     ///< Structure shared with subordinate documents
-
+/**
+    External entity information (including main document entity).
+*/
+typedef struct xml_reader_external_s {
+    SLIST_ENTRY(xml_reader_external_s) link;    ///< List pointer
+    enum xml_info_version_e version;            ///< Entity's declared version
+    const char *location;           ///< Location string for messages
     const char *enc_transport;      ///< Encoding reported by transport protocol
     const char *enc_detected;       ///< Encoding detected by BOM or start characters
-    const char *enc_xmldecl;        ///< Encoding declared in <?xml ... ?>
+    const char *enc_declared;       ///< Encoding declared in <?xml ... ?>
 
+    xml_reader_t *h;                ///< Reader handle (for error reporting)
     encoding_handle_t *enc;         ///< Encoding used to transcode input
     strbuf_t *buf;                  ///< Raw input buffer (in document's encoding)
 
+    /// Expected XMLDecl/TextDecl declaration
+    const struct xml_reader_xmldecl_declinfo_s *declinfo;
+
+    /// What is allowed in EntityValue
+    const struct xml_reference_ops_s *entity_value_parser;
+} xml_reader_external_t;
+
+/**
+    XML declaration comes in two flavors, XMLDecl and TextDecl, with different
+    set of allowed/mandatory/optional attributes. This structure describes an
+    attribute in the expected list.
+*/
+typedef struct xml_reader_xmldecl_attrdesc_s {
+    const char *name;       ///< Name of the attribute
+    bool mandatory;         ///< True if the attribute is mandatory
+
+    /// Value validation function
+    void (*check)(xml_reader_external_t *ex);
+} xml_reader_xmldecl_attrdesc_t;
+
+/// Declaration info for XMLDecl/TextDecl:
+typedef struct xml_reader_xmldecl_declinfo_s {
+    const char *name;           ///< Declaration name in XML grammar
+    const xml_reader_xmldecl_attrdesc_t *attrlist; ///< Allowed/required attributes
+} xml_reader_xmldecl_declinfo_t;
+
+/**
+    Input method: either strbuf for an external entity, replacement text for an internal
+    entity or internal memory buffer (for backtracking or character references).
+*/
+typedef struct xml_reader_input_s {
+    SLIST_ENTRY(xml_reader_input_s) link;   ///< Stack of diversions
+    strbuf_t *buf;                  ///< String buffer to use
+    xmlerr_loc_t saveloc;           ///< Saved location when this input is added
+
+    /// Notification when this input is consumed
+    void (*complete)(struct xml_reader_s *, void *);
+    void *complete_arg;             ///< Argument to completion notification
+
+    // Other fields
+    uint32_t locked;                ///< Number of productions 'locking' this input
+    bool inc_in_literal;            ///< 'included in literal' - special handling of quotes
+    bool charref;                   ///< Input originated from a character reference
+    bool backtrack;                 ///< Input for backtracking (does not terminate read loop)
+    xml_reader_entity_t *entity;    ///< Associated entity if any
+    xml_reader_external_t *external;///< External entity information
+    void *baton;                    ///< Saved user data for entity being parsed
+} xml_reader_input_t;
+
+/// XML reader structure
+struct xml_reader_s {
+    xml_reader_cb_t func;           ///< Callback function
+    void *arg;                      ///< Argument to callback function
+
+    ucs4_t *ucs4buf;                ///< Buffer for saved UCS-4 text
+    size_t ucs4len;                 ///< Count of UCS-4 characters
+    size_t ucs4sz;                  ///< Size of UCS-4 buffer, in characters
+
     uint32_t flags;                 ///< Reader flags
     xmlerr_loc_t curloc;            ///< Current reader's position
-    size_t tabsize;
+    size_t tabsize;                 ///< Tabulation character equal to these many spaces
 
-    const xml_reader_xmldecl_declinfo_t *declinfo;  ///< Expected declaration
-    const xml_reference_ops_t *entity_value_parser; ///< What is allowed in EntityValue
-    enum xml_info_version_e version;                ///< Version assumed when parsing
     enum xml_info_standalone_e standalone;          ///< Document's standalone status
     enum xml_reader_normalization_e normalization;  ///< Desired normalization behavior
+    enum xml_reader_external_context_e ext_ctxt;    ///< Context for external entities
+    xml_reader_external_t *current_entity;          ///< Entity being parsed    
 
     uint32_t nestlvl;               ///< Element nesting level
 
@@ -222,13 +228,12 @@ struct xml_reader_s {
     ucs4_t rejected;                ///< Next character (rejected by xml_read_until_*)
     ucs4_t charrefval;              ///< When parsing character reference: stored value
 
-    uint32_t srcid;                 ///< Source ID, incremented for each new input
+    strhash_t *entities_param;      ///< Parameter entities
+    strhash_t *entities_gen;        ///< General entities
+
     SLIST_HEAD(,xml_reader_input_s) active_input;   ///< Currently active inputs
     SLIST_HEAD(,xml_reader_input_s) free_input;     ///< Free list of input structures
-
-    xml_reader_t *master;           ///< Master document, if any
-    SLIST_HEAD(,xml_reader_s) sub;  ///< Subordinate document list
-    SLIST_ENTRY(xml_reader_s) link; ///< Link in subordinate list
+    SLIST_HEAD(,xml_reader_external_s) external;    ///< All external entities
 };
 
 /// Return status for production parser
@@ -305,12 +310,12 @@ typedef enum {
     completely illegal in XML1.0 (directly inserted and inserted as character reference).
     They are allowed in character references in XML1.1 documents.
 
-    @param h Reader handle
     @param cp Codepoint
+    @param xmlv XML version
     @return true if @a cp is a restricted character
 */
 static inline bool
-xml_is_restricted(xml_reader_t *h, ucs4_t cp)
+xml_is_restricted(ucs4_t cp, enum xml_info_version_e xmlv)
 {
     static const bool restricted_chars[] = {
 #define R(x)    [x] = true
@@ -326,7 +331,7 @@ xml_is_restricted(xml_reader_t *h, ucs4_t cp)
 
     // Different in XML1.0 and XML1.1: XML1.0 did not exclude 0x7F..0x84 and
     // 0x85..0x9F blocks; these were valid characters.
-    exclusion_limit = h->version == XML_INFO_VERSION_1_0 ? 0x20 : sizeofarray(restricted_chars);
+    exclusion_limit = xmlv == XML_INFO_VERSION_1_0 ? 0x20 : sizeofarray(restricted_chars);
     if (cp < exclusion_limit) {
         return restricted_chars[cp];
     }
@@ -397,39 +402,39 @@ xml_is_NameChar(ucs4_t cp)
 /**
     Replace encoding translator in a handle.
 
-    @param h Reader handle
+    @param ex External parsed entity
     @param encname Encoding to be set, NULL to clear current encoding processor
     @return true if successful, false otherwise
 */
 static bool
-xml_reader_set_encoding(xml_reader_t *h, const char *encname)
+xml_reader_set_encoding(xml_reader_external_t *ex, const char *encname)
 {
     encoding_handle_t *hndnew;
 
     if (encname != NULL) {
         if ((hndnew = encoding_open(encname)) == NULL) {
             // XMLDecl location passed via h->lastreadloc
-            xml_reader_message_lastread(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+            xml_reader_message_lastread(ex->h, XMLERR(ERROR, XML, ENCODING_ERROR),
                     "Unsupported encoding '%s'", encname);
             return false;
         }
-        if (!h->enc) {
-            h->enc = hndnew;
+        if (!ex->enc) {
+            ex->enc = hndnew;
             return true;
         }
-        if (!encoding_switch(&h->enc, hndnew)) {
+        if (!encoding_switch(&ex->enc, hndnew)) {
             // Replacing with an incompatible encoding is not possible;
             // the data that has been read previously cannot be trusted.
-            xml_reader_message_lastread(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+            xml_reader_message_lastread(ex->h, XMLERR(ERROR, XML, ENCODING_ERROR),
                     "Incompatible encodings: '%s' and '%s'",
-                    encoding_name(h->enc), encname);
+                    encoding_name(ex->enc), encname);
             return false;
         }
         return true;
     }
-    else if (h->enc) {
-        encoding_close(h->enc);
-        h->enc = NULL;
+    else if (ex->enc) {
+        encoding_close(ex->enc);
+        ex->enc = NULL;
     }
     return true;
 }
@@ -458,7 +463,7 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz, bool *peof)
     if (peof) {
         *peof = true;
     }
-    // TBD do we need to advance the input? or only if backtracking?
+    // TBD do we need to advance the input? or only if backtracking? or not at all?
     SLIST_FOREACH(inp, &h->active_input, link) {
         nread = strbuf_lookahead(inp->buf, ptr, bufsz * sizeof(ucs4_t));
         if (peof && nread) {
@@ -542,8 +547,9 @@ xml_tokenbuf_realloc(xml_reader_t *h)
 }
 
 /**
-    Store a UCS-4 codepoint. Used for entities where we'd need to re-parse the
-    replacement value (or entity reference) later.
+    Store a UCS-4 codepoint, reallocating the storage buffer if necessary. Used
+    for entities where we'd need to re-parse the replacement value (or entity
+    reference) later.
 
     @param h Reader handle
     @param cp Codepoint
@@ -552,12 +558,90 @@ xml_tokenbuf_realloc(xml_reader_t *h)
 static void
 xml_ucs4_store(xml_reader_t *h, ucs4_t cp)
 {
-    if (h->share->ucs4len == h->share->ucs4sz) {
-        h->share->ucs4sz = h->share->ucs4sz ? 2 * h->share->ucs4sz : 256;
-        h->share->ucs4buf = xrealloc(h->share->ucs4buf,
-                h->share->ucs4sz * sizeof(ucs4_t));
+    if (h->ucs4len == h->ucs4sz) {
+        h->ucs4sz = h->ucs4sz ? 2 * h->ucs4sz : 256;
+        h->ucs4buf = xrealloc(h->ucs4buf, h->ucs4sz * sizeof(ucs4_t));
     }
-    h->share->ucs4buf[h->share->ucs4len++] = cp;
+    h->ucs4buf[h->ucs4len++] = cp;
+}
+
+/**
+    Allocate a new input structure for reader.
+
+    @param h Reader handle
+    @param location Location string for this input
+    @return Allocated input structure
+*/
+static xml_reader_input_t *
+xml_reader_input_new(xml_reader_t *h, const char *location)
+{
+    xml_reader_input_t *inp;
+    strbuf_t *buf;
+
+    if ((inp = SLIST_FIRST(&h->free_input)) != NULL) {
+        SLIST_REMOVE_HEAD(&h->free_input, link);
+        buf = inp->buf; // Buffer retained
+    }
+    else {
+        inp = xmalloc(sizeof(xml_reader_input_t));
+        buf = strbuf_new(0); // New buffer for static input
+    }
+
+    memset(inp, 0, sizeof(xml_reader_input_t));
+    inp->buf = buf;
+    inp->saveloc = h->curloc;
+    if (location) {
+        h->curloc.src = location;
+        h->curloc.line = 1;
+        h->curloc.pos = 1;
+        h->lastreadloc = h->curloc;
+    }
+
+    SLIST_INSERT_HEAD(&h->active_input, inp, link);
+    return inp;
+}
+
+/**
+    Destroy input structure.
+
+    @param inp Input to be destroyed
+    @return Nothing
+*/
+static void
+xml_reader_input_destroy(xml_reader_input_t *inp)
+{
+    strbuf_delete(inp->buf);
+    xfree(inp);
+}
+
+/**
+    Housekeeping after input parsing is completed.
+
+    @param h Reader handle
+    @param inp Input structure; must be current active input.
+    @return Nothing
+*/
+static void
+xml_reader_input_complete(xml_reader_t *h, xml_reader_input_t *inp)
+{
+    xml_reader_input_t *next;
+
+    OOPS_ASSERT(inp == SLIST_FIRST(&h->active_input));
+
+    SLIST_REMOVE_HEAD(&h->active_input, link);
+    if (inp->complete) {
+        inp->complete(h, inp->complete_arg);
+    }
+    if (inp->external) {
+        h->current_entity = NULL;
+        SLIST_FOREACH(next, &h->active_input, link) {
+            if (next->external) {
+                h->current_entity = next->external;
+                break;
+            }
+        }
+    }
+    SLIST_INSERT_HEAD(&h->free_input, inp, link);
 }
 
 /**
@@ -584,16 +668,13 @@ xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
             // @todo Create an error message
             return XRU_INPUT_LOCKED;
         }
-        // This input is done with: dequeue, notify and try next
+        // This input is done with: dequeue, notify and try next.
+        /// @todo Keep track in input's location rather than in handle (only keep h->lastreadloc)?
         h->curloc = inp->saveloc;
-        if (inp->complete) {
-            inp->complete(h, inp->complete_arg);
-        }
         if (!inp->backtrack) {
             rv = XRU_INPUT_BOUNDARY; // No longer reading from the same input
         }
-        SLIST_REMOVE_HEAD(&h->active_input, link);
-        SLIST_INSERT_HEAD(&h->free_input, inp, link);
+        xml_reader_input_complete(h, inp);
     }
     return XRU_EOF; // All inputs consumed, EOF
 }
@@ -654,66 +735,6 @@ xml_reader_input_radvance(xml_reader_t *h, size_t sz)
 }
 
 /**
-    Allocate a new input structure for reader.
-
-    @param h Reader handle
-    @param location Location string for this input
-    @return Allocated input structure
-*/
-static xml_reader_input_t *
-xml_reader_input_new(xml_reader_t *h, const char *location)
-{
-    xml_reader_input_t *inp;
-
-    if ((inp = SLIST_FIRST(&h->free_input)) != NULL) {
-        SLIST_REMOVE_HEAD(&h->free_input, link);
-    }
-    else {
-        inp = xmalloc(sizeof(xml_reader_input_t));
-    }
-
-    memset(inp, 0, sizeof(xml_reader_input_t));
-    inp->srcid = h->srcid++;
-    inp->buf = strbuf_new(0); // Most of these buffers will use static strings
-    inp->saveloc = h->curloc;
-    if (location) {
-        h->curloc.src = location;
-        h->curloc.line = 1;
-        h->curloc.pos = 1;
-    }
-
-    // To catch if this is used without initialization
-    SLIST_INSERT_HEAD(&h->active_input, inp, link);
-
-    return inp;
-}
-
-/**
-    Free an entity information structure.
-
-    @param arg Pointer to entity information structure
-    @return Nothing
-*/
-static void
-xml_entity_destroy(void *arg)
-{
-    xml_reader_entity_t *e = arg;
-
-    if (e->system_id) {
-        // external entity
-        xfree(e->notation);
-        xfree(e->public_id);
-        xfree(e->system_id);
-    }
-    else {
-        // internal entity
-        xfree(e->rplc);
-    }
-    xfree(e->location);
-    xfree(e);
-}
-
-/**
     Allocate a new entity.
 
     @param ehash Entity hash
@@ -735,6 +756,26 @@ xml_entity_new(strhash_t *ehash, const utf8_t *name, size_t namelen)
     e->location = xasprintf("entity(%s)", s);
     utf8_strfreelocal(s);
     return e;
+}
+
+/**
+    Free an entity information structure.
+
+    @param arg Pointer to entity information structure
+    @return Nothing
+*/
+static void
+xml_entity_destroy(void *arg)
+{
+    xml_reader_entity_t *e = arg;
+
+    xfree(e->notation);
+    xfree(e->public_id);
+    xfree(e->system_id);
+    xfree(e->refrplc);
+    xfree(e->rplc);
+    xfree(e->location);
+    xfree(e);
 }
 
 /**
@@ -810,6 +851,59 @@ xml_entity_populate(strhash_t *ehash)
 }
 
 /**
+    Destroy external entity information structure.
+
+    @param ex External entity
+    @return Nothing
+*/
+static void
+xml_reader_external_destroy(xml_reader_external_t *ex)
+{
+    (void)xml_reader_set_encoding(ex, NULL);
+    strbuf_delete(ex->buf);
+    xfree(ex->location);
+    xfree(ex->enc_transport);
+    xfree(ex->enc_detected);
+    xfree(ex->enc_declared);
+    xfree(ex);
+}
+
+
+/**
+    Dummy callback function.
+
+    @param arg Arbitrary argument
+    @param cbparam Callback parameter structure
+    @return Nothing
+*/
+static void
+dummy_callback(void *arg, xml_reader_cbparam_t *cbparam)
+{
+    // No-op
+}
+
+/// Default XML reader options
+static const xml_reader_options_t opts_default = {
+    .normalization = XML_READER_NORM_DEFAULT,
+    .loctrack = true,
+    .tabsize = 8,
+    .func = dummy_callback,
+    .arg = NULL,
+};
+
+/**
+    Initialize XML reader's settings to default values.
+
+    @param opts Options structure to be initialized
+    @return Nothing
+*/
+void
+xml_reader_opts_default(xml_reader_options_t *opts)
+{
+    memcpy(opts, &opts_default, sizeof(xml_reader_options_t));
+}
+
+/**
     Create an XML reading handle.
 
     @param master Master handle (NULL if master document is created)
@@ -818,66 +912,41 @@ xml_entity_populate(strhash_t *ehash)
     @param location Location that will be used for reporting errors
     @return Handle
 */
-static xml_reader_t *
-xml_reader_new_internal(xml_reader_t *master, strbuf_t *buf, const char *location)
+// TBD run 'make docs'
+xml_reader_t *
+xml_reader_new(const xml_reader_options_t *opts)
 {
     xml_reader_t *h;
 
+    if (!opts) {
+        opts = &opts_default;
+    }
     h = xmalloc(sizeof(xml_reader_t));
     memset(h, 0, sizeof(xml_reader_t));
-    h->buf = buf;
+    h->func = opts->func;
+    h->arg = opts->arg;
+    h->tabsize = opts->tabsize;
+    if (opts->loctrack) {
+        h->flags |= READER_LOCTRACK;
+    }
 
-    h->flags = READER_LOCTRACK;
-    h->curloc.src = xstrdup(location);
-    h->curloc.line = 1;
-    h->curloc.pos = 1;
-    h->tabsize = 8;
-
-    h->version = XML_INFO_VERSION_NO_VALUE;
+    h->ext_ctxt = CTXT_DOCUMENT_ENTITY;
     h->standalone = XML_INFO_STANDALONE_NO_VALUE;
-    h->normalization = XML_READER_NORM_DEFAULT;
+    h->normalization = opts->normalization;
 
-    h->lastreadloc = h->curloc; // Shares reference to copy of location
     h->tokenbuf = xmalloc(INITIAL_TOKENBUF_SIZE);
     h->tokenbuf_end = h->tokenbuf + INITIAL_TOKENBUF_SIZE;
     h->tokenlen = 0;
 
     SLIST_INIT(&h->active_input);
     SLIST_INIT(&h->free_input);
+    SLIST_INIT(&h->external);
 
-    SLIST_INIT(&h->sub);
-
-    // Subordinate document inherits callback info, entity storage
-    if (master) {
-        h->share = master->share;
-        master->share->refcnt++;
-        SLIST_INSERT_HEAD(&master->sub, h, link);
-        h->master = master;
-    }
-    else {
-        h->share = xmalloc(sizeof(xml_reader_shared_t));
-        memset(h->share, 0, sizeof(xml_reader_shared_t));
-        h->share->refcnt = 1;
-        h->share->entities_param = strhash_create(ENTITY_HASH_ORDER, xml_entity_destroy);
-        h->share->entities_gen = strhash_create(ENTITY_HASH_ORDER, xml_entity_destroy);
-        xml_entity_populate(h->share->entities_gen);
-    }
+    h->entities_param = strhash_create(ENTITY_HASH_ORDER, xml_entity_destroy);
+    h->entities_gen = strhash_create(ENTITY_HASH_ORDER, xml_entity_destroy);
+    xml_entity_populate(h->entities_gen);
 
     return h;
-}
-
-/**
-    Create an XML reading handle.
-
-    @param buf String buffer to read the input from; will be destroyed along with
-          the handle returned by this function.
-    @param location Location that will be used for reporting errors
-    @return Handle
-*/
-xml_reader_t *
-xml_reader_new(strbuf_t *buf, const char *location)
-{
-    return xml_reader_new_internal(NULL, buf, location);
 }
 
 /**
@@ -890,130 +959,25 @@ void
 xml_reader_delete(xml_reader_t *h)
 {
     xml_reader_input_t *inp;
-    xml_reader_t *hs;
+    xml_reader_external_t *ex;
 
-    if (h->share->refcnt-- == 1) {
-        // This is the last close
-        strhash_destroy(h->share->entities_param);
-        strhash_destroy(h->share->entities_gen);
-        xfree(h->share);
-    }
-    if (h->master) {
-        SLIST_REMOVE(&h->master->sub, h, xml_reader_s, link);
-    }
-    while ((hs = SLIST_FIRST(&h->sub)) != NULL) {
-        // Destroy subordinates
-        xml_reader_delete(hs);
-    }
+    strhash_destroy(h->entities_param);
+    strhash_destroy(h->entities_gen);
+
     while ((inp = SLIST_FIRST(&h->active_input)) != NULL) {
-        SLIST_REMOVE_HEAD(&h->active_input, link);
-        if (inp->complete) {
-            inp->complete(h, inp->complete_arg);
-        }
-        strbuf_delete(inp->buf);
-        xfree(inp);
+        xml_reader_input_complete(h, inp);
     }
     while ((inp = SLIST_FIRST(&h->free_input)) != NULL) {
         SLIST_REMOVE_HEAD(&h->free_input, link);
-        strbuf_delete(inp->buf);
-        xfree(inp);
+        xml_reader_input_destroy(inp);
     }
-    (void)xml_reader_set_encoding(h, NULL);
-    strbuf_delete(h->buf);
-    xfree(h->enc_transport);
-    xfree(h->enc_detected);
-    xfree(h->enc_xmldecl);
-    xfree(h->curloc.src);
-    // h->lastreadloc.src not freed - it is sharing a reference with h->curloc.src
+    while ((ex = SLIST_FIRST(&h->external)) != NULL) {
+        SLIST_REMOVE_HEAD(&h->external, link);
+        xml_reader_external_destroy(ex);
+    }
     xfree(h->tokenbuf);
+    xfree(h->ucs4buf);
     xfree(h);
-}
-
-/**
-    Set transport encoding.
-
-    @param h Reader handle
-    @param encname Encoding reported by higher-level protocol
-               (e.g. Content-Type header in HTTP).
-    @return true if encoding set successfully, false otherwise
-*/
-bool
-xml_reader_set_transport_encoding(xml_reader_t *h, const char *encname)
-{
-    if (h->flags & READER_STARTED) {
-        // Will have no effect once the parsing begins
-        return false;
-    }
-
-    // Delete old encoding so that compatibility check is not performed:
-    // we have not read any data yet
-    (void)xml_reader_set_encoding(h, NULL);
-    if (!xml_reader_set_encoding(h, encname)) {
-        return false;
-    }
-    xfree(h->enc_transport);
-    h->enc_transport = xstrdup(encname);
-    return true;
-}
-
-/**
-    Set desired normalization checking.
-
-    @param h Reader handle
-    @param norm Normalization check behavior (on/off/default)
-    @return true if reader's normalization behavior was set, false if failed
-*/
-bool
-xml_reader_set_normalization(xml_reader_t *h, enum xml_reader_normalization_e norm)
-{
-    if (h->flags & READER_STARTED) {
-        // May have missed denormalized characters once the parsing begins
-        return false;
-    }
-
-    h->normalization = norm;
-    return true;
-}
-
-/**
-    Turn location tracking on/off.
-
-    @param h Reader handle
-    @param onoff True if locations shall be tracked
-    @param tabsz If location is tracked, size of a tabstop
-        (1 to count tabs as a single character)
-    @return false if parser is already active, true if location tracking is modified
-*/
-bool
-xml_reader_set_location_tracking(xml_reader_t *h, bool onoff, size_t tabsz)
-{
-    if (h->flags & READER_STARTED) {
-        return false;
-    }
-
-    if (onoff) {
-        h->flags |= READER_LOCTRACK;
-        h->tabsize = tabsz;
-    }
-    else {
-        h->flags &= ~READER_LOCTRACK;
-    }
-    return true;
-}
-
-/**
-    Set callback functions for the reader.
-
-    @param h Reader handle
-    @param func Function to be called
-    @param arg Argument to callback function
-    @return None
-*/
-void
-xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg)
-{
-    h->share->func = func;
-    h->share->arg = arg;
 }
 
 /**
@@ -1023,14 +987,10 @@ xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg)
     @param cbparam Parameter for the callback
     @return None
 */
-static void
+static inline void
 xml_reader_invoke_callback(xml_reader_t *h, xml_reader_cbparam_t *cbparam)
 {
-    xml_reader_cb_t func;
-
-    if ((func = h->share->func) != NULL) {
-        func(h->share->arg, cbparam);
-    }
+    h->func(h->arg, cbparam);
 }
 
 /**
@@ -1060,37 +1020,9 @@ xml_reader_update_position(xml_reader_t *h, ucs4_t cp)
     }
 }
 
-/**
-    Report an error/warning/note for an arbitrary location in a handle.
-
-    @param h Reader handle
-    @param loc Location in the document
-    @param info Error code
-    @param fmt Message format
-    @return Nothing
-*/
-void
-xml_reader_message(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
-        const char *fmt, ...)
-{
-    xml_reader_cbparam_t cbparam;
-    va_list ap;
-
-    cbparam.cbtype = XML_READER_CB_MESSAGE;
-    cbparam.token.str = NULL;
-    cbparam.token.len = 0;
-    cbparam.loc = *loc;
-    cbparam.message.info = info;
-    va_start(ap, fmt);
-    cbparam.message.msg = xvasprintf(fmt, ap);
-    va_end(ap);
-    xml_reader_invoke_callback(h, &cbparam);
-    xfree(cbparam.message.msg);
-}
-
 /// State structure for input ops while parsing the declaration
 typedef struct xml_reader_initial_xcode_s {
-    xml_reader_t *h;            ///< Reader handle
+    xml_reader_external_t *ex;  ///< Reader handle
     utf8_t *la_start;           ///< Start of the lookahead buffer
     size_t la_size;             ///< Size of the lookahead buffer
     size_t la_avail;            ///< Size of data available in buffer
@@ -1115,7 +1047,7 @@ static size_t
 xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
 {
     xml_reader_initial_xcode_t *xc = arg;
-    xml_reader_t *h = xc->h;
+    xml_reader_external_t *ex = xc->ex;
     ucs4_t *cptr, *bptr;
 
     OOPS_ASSERT(sz >= 4 && (sz & 3) == 0); // Reading in 32-bit blocks
@@ -1132,13 +1064,13 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
                 xc->la_size *= 2;
                 xc->la_start = xmalloc(xc->la_size);
             }
-            xc->la_avail = strbuf_lookahead(h->buf, xc->la_start, xc->la_size);
+            xc->la_avail = strbuf_lookahead(ex->buf, xc->la_start, xc->la_size);
             if (xc->la_offs == xc->la_avail) {
                 return 0; // Despite our best efforts... got no new data
             }
         }
         // Transcode a single UCS-4 code point
-        xc->la_offs += encoding_in(h->enc, xc->la_start + xc->la_offs,
+        xc->la_offs += encoding_in(ex->enc, xc->la_start + xc->la_offs,
                 xc->la_start + xc->la_avail, &cptr, bptr + 1);
 
         // If reading did not produce a character (was absorbed by encoding
@@ -1165,12 +1097,12 @@ static const strbuf_ops_t xml_reader_initial_ops = {
 static size_t
 xml_reader_transcode_op_more(void *arg, void *begin, size_t sz)
 {
-    xml_reader_t *h = arg;
+    xml_reader_external_t *ex = arg;
     ucs4_t *bptr, *cptr, *eptr;
 
     bptr = cptr = begin;
     eptr = bptr + sz / sizeof(ucs4_t);
-    encoding_in_from_strbuf(h->enc, h->buf, &cptr, eptr);
+    encoding_in_from_strbuf(ex->enc, ex->buf, &cptr, eptr);
     return (cptr - bptr) * sizeof(ucs4_t);
 }
 
@@ -1328,9 +1260,9 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 // Only complain once
                 h->flags &= ~READER_ASCII;
                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
-                        "Non-ASCII characters in %s", h->declinfo->name);
+                        "Non-ASCII characters in %s", inp->external->declinfo->name);
             }
-            else if (!inp->charref && xml_is_restricted(h, cp0)) {
+            else if (!inp->charref && xml_is_restricted(cp0, h->current_entity->version)) {
                 // Ignore if it came from character reference (if it is prohibited,
                 // the character reference parser already complained)
                 // Non-fatal: just let the app figure what to do with it
@@ -1925,13 +1857,10 @@ xml_valid_char_reference(xml_reader_t *h, ucs4_t cp)
         return false;
     }
 
-    // The rest is allowed in XML 1.1
-    if (h->version == XML_INFO_VERSION_1_1) {
-        return true;
-    }
-
-    // In XML 1.0, restricted characters are prohibited even via character references
-    return !xml_is_restricted(h, cp);
+    // The rest is allowed in XML 1.1. In XML 1.0, restricted characters
+    // are prohibited even via character references.
+    return (h->current_entity->version == XML_INFO_VERSION_1_1) ?
+            true : !xml_is_restricted(cp, XML_INFO_VERSION_1_0);
 }
 
 /**
@@ -2189,11 +2118,11 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
 
         case XML_READER_REF_GENERAL:
             // Clarify the type
-            e = strhash_getn(h->share->entities_gen, h->tokenbuf, h->tokenlen);
+            e = strhash_getn(h->entities_gen, h->tokenbuf, h->tokenlen);
             break;
 
         case XML_READER_REF_PARAMETER:
-            e = strhash_getn(h->share->entities_param, h->tokenbuf, h->tokenlen);
+            e = strhash_getn(h->entities_param, h->tokenbuf, h->tokenlen);
             break;
 
         default:
@@ -2420,19 +2349,20 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     @return Nothing
 */
 static void
-check_VersionInfo(xml_reader_t *h)
+check_VersionInfo(xml_reader_external_t *ex)
 {
+    xml_reader_t *h = ex->h;
     const utf8_t *str = h->tokenbuf;
     size_t sz = h->tokenlen;
     size_t i;
 
     if (sz == 3) {
         if (utf8_eqn(str, "1.0", 3)) {
-            h->version = XML_INFO_VERSION_1_0;
+            ex->version = XML_INFO_VERSION_1_0;
             return;
         }
         else if (utf8_eqn(str, "1.1", 3)) {
-            h->version = XML_INFO_VERSION_1_1;
+            ex->version = XML_INFO_VERSION_1_1;
             return;
         }
     }
@@ -2455,7 +2385,7 @@ check_VersionInfo(xml_reader_t *h)
         document. This means that an XML 1.0 processor will accept 1.x
         documents provided they do not use any non-1.0 features.
     */
-    h->version = XML_INFO_VERSION_1_0;
+    ex->version = XML_INFO_VERSION_1_0;
     xml_reader_message_lastread(h, XMLERR(WARN, XML, FUTURE_VERSION),
             "Document specifies unknown 1.x XML version");
     return; // Normal return
@@ -2478,8 +2408,9 @@ bad_version:
     @return Nothing
 */
 static void
-check_EncName(xml_reader_t *h)
+check_EncName(xml_reader_external_t *ex)
 {
+    xml_reader_t *h = ex->h;
     const utf8_t *str = h->tokenbuf;
     const utf8_t *s;
     size_t sz = h->tokenlen;
@@ -2500,7 +2431,7 @@ check_EncName(xml_reader_t *h)
         }
     }
 
-    h->enc_xmldecl = utf8_ndup(str, sz);
+    ex->enc_declared = utf8_ndup(str, sz);
     return; // Normal return
 
 bad_encoding:
@@ -2522,11 +2453,14 @@ bad_encoding:
     @return Nothing
 */
 static void
-check_SD_YesNo(xml_reader_t *h)
+check_SD_YesNo(xml_reader_external_t *ex)
 {
+    xml_reader_t *h = ex->h;
     const utf8_t *str = h->tokenbuf;
     size_t sz = h->tokenlen;
 
+    // Standalone status applies to the whole document and can only be set
+    // in XMLDecl (i.e., in document entity).
     if (sz == 2 && utf8_eqn(str, "no", 2)) {
         h->standalone = XML_INFO_STANDALONE_NO;
     }
@@ -2596,7 +2530,7 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
 static prodres_t
 xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
 {
-    const xml_reader_xmldecl_declinfo_t *declinfo = h->declinfo;
+    const xml_reader_xmldecl_declinfo_t *declinfo = h->current_entity->declinfo;
     const xml_reader_xmldecl_attrdesc_t *attrlist = declinfo->attrlist;
     xml_reader_cbparam_t cbp;
     xml_reader_input_t *locked;
@@ -2670,7 +2604,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
 
         if (attrlist->name) {
             // Check/get value and advance to the next attribute
-            attrlist->check(h);
+            attrlist->check(h->current_entity);
             attrlist++;
         }
     }
@@ -2692,16 +2626,17 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     h->lastreadloc = cbp.loc;
 
     // Emit an event (callback) for XML declaration
-    cbp.xmldecl.encoding = h->enc_xmldecl;
-    cbp.xmldecl.version = h->version;
-    cbp.xmldecl.standalone = h->standalone;
+    cbp.xmldecl.encoding = h->current_entity->enc_declared;
+    cbp.xmldecl.version = h->current_entity->version;
+    cbp.xmldecl.standalone = h->standalone; // TBD do away with XML declaration reporting? doesn't seem
+                                            // to have any value for consumer, and standalone status
+                                            // does not make sense except in doc entity
     xml_reader_invoke_callback(h, &cbp);
     xml_reader_input_unlock(h, locked);
 
     return PR_OK;
 
 malformed: // Any fatal malformedness: report location where actual error was
-    h->flags |= READER_FATAL;
     xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
             "Malformed %s", declinfo->name);
     xml_reader_input_unlock(h, locked);
@@ -3077,7 +3012,8 @@ xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
 static prodres_t
 xml_parse_elementdecl(xml_reader_t *h)
 {
-    return PR_FAIL; // TBD
+    /// @todo Implement
+    return PR_FAIL;
 }
 
 /**
@@ -3102,7 +3038,8 @@ xml_parse_elementdecl(xml_reader_t *h)
 static prodres_t
 xml_parse_AttlistDecl(xml_reader_t *h)
 {
-    return PR_FAIL; // TBD
+    /// @todo Implement
+    return PR_FAIL;
 }
 
 /**
@@ -3166,7 +3103,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     xml_reader_entity_t *e = NULL;
     xml_reader_entity_t *eold;
     const xml_predefined_entity_t *predef;
-    strhash_t *ehash = h->share->entities_gen;
+    strhash_t *ehash = h->entities_gen;
     bool parameter = false;
     size_t i, j;
     const char *s;
@@ -3186,7 +3123,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     // If ['%' S] follows, it is a parameter entity
     if (ucs4_cheq(h->rejected, '%')) {
         xml_read_string_assert(h, "%");
-        ehash = h->share->entities_param;
+        ehash = h->entities_param;
         parameter = true;
         if (xml_parse_whitespace(h) != PR_OK) {
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
@@ -3197,7 +3134,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
 
     // Parameter entities do not have 'bypassed' behavior in any context, for which
     // we'd need the name
-    h->share->ucs4len = 0;
+    h->ucs4len = 0;
     if (!parameter) {
         xml_ucs4_store(h, ucs4_fromlocal('&'));
     }
@@ -3241,9 +3178,9 @@ xml_parse_EntityDecl(xml_reader_t *h)
     xml_reader_invoke_callback(h, &cbp);
 
     if (e) {
-        e->refrplclen = h->share->ucs4len * sizeof(ucs4_t);
+        e->refrplclen = h->ucs4len * sizeof(ucs4_t);
         rplc = xmalloc(e->refrplclen);
-        memcpy(rplc, h->share->ucs4buf, e->refrplclen);
+        memcpy(rplc, h->ucs4buf, e->refrplclen);
         e->refrplc = rplc;
     }
 
@@ -3303,8 +3240,8 @@ xml_parse_EntityDecl(xml_reader_t *h)
 
     case PR_NOMATCH:
         // Must have EntityValue then
-        h->share->ucs4len = 0;
-        if (xml_parse_literal(h, h->entity_value_parser) != PR_OK) {
+        h->ucs4len = 0;
+        if (xml_parse_literal(h, h->current_entity->entity_value_parser) != PR_OK) {
             goto malformed;
         }
         if (predef) {
@@ -3314,14 +3251,14 @@ xml_parse_EntityDecl(xml_reader_t *h)
             for (i = 0;
                     i < sizeofarray(predef->rplc) && (s = predef->rplc[i]) != NULL;
                     i++) {
-                for (j = 0; j < h->share->ucs4len; j++) {
+                for (j = 0; j < h->ucs4len; j++) {
                     // s is nul-terminated, so end of string is caught here
-                    if (ucs4_fromlocal(s[j]) != h->share->ucs4buf[j]) {
+                    if (ucs4_fromlocal(s[j]) != h->ucs4buf[j]) {
                         break;
                     }
                 }
                 // matched so far, check that it's the end of expected replacement text
-                if (j == h->share->ucs4len && !s[j]) {
+                if (j == h->ucs4len && !s[j]) {
                     goto compatible;
                 }
                 // otherwise, check the next definition if there's any
@@ -3336,9 +3273,9 @@ compatible:
             eold->declared = cbp.loc;
         }
         if (e) {
-            e->rplclen = h->share->ucs4len * sizeof(ucs4_t);
+            e->rplclen = h->ucs4len * sizeof(ucs4_t);
             rplc = xmalloc(e->rplclen);
-            memcpy(rplc, h->share->ucs4buf, e->rplclen);
+            memcpy(rplc, h->ucs4buf, e->rplclen);
             e->rplc = rplc;
             e->type = parameter ? XML_READER_REF_PARAMETER : XML_READER_REF_INTERNAL;
         }
@@ -3384,7 +3321,8 @@ malformed:
 static prodres_t
 xml_parse_NotationDecl(xml_reader_t *h)
 {
-    return PR_FAIL; // TBD
+    /// @todo Implement
+    return PR_FAIL;
 }
 
 /**
@@ -3532,10 +3470,13 @@ xml_parse_doctypedecl(xml_reader_t *h)
         cbp.cbtype = XML_READER_CB_DTD_INTERNAL;
         xml_reader_invoke_callback(h, &cbp);
 
-        // Parse internal subset
+        // Parse internal subset. Any external entities therein are
+        // interpreted as external DTD subset.
+        h->ext_ctxt = CTXT_DTD_EXTERNAL_SUBSET;
         if (xml_parse_by_ctx(h, &parser_internal_subset) != PR_STOP) {
             return PR_FAIL;
         }
+        h->ext_ctxt = CTXT_EXTERNAL_PARSED_ENTITY;
     }
 
     // Ignore optional whitespace before closing angle bracket
@@ -3771,15 +3712,21 @@ static const xml_reader_context_t parser_document_entity = {
 };
 
 /**
-    Start parsing an input stream: detect initial encoding, read
-    the XML/text declaration, determine final encodings (or err out).
+    Add an entity with the specified context.
 
     @param h Reader handle
-    @return None
+    @param buf Buffer to read
+    @param location Location string to be used in messages
+    @param transport_encoding Encoding from the transport layer
+    @param context Content for this new entity
+    @return Nothing
 */
-static void
-xml_reader_start(xml_reader_t *h)
+static bool
+xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
+        const char *location, const char *transport_encoding,
+        enum xml_reader_external_context_e context)
 {
+    xml_reader_external_t *ex;
     xml_reader_input_t *inp;
     xml_reader_initial_xcode_t xc;
     utf8_t adbuf[4];       // 4 bytes for encoding detection, per XML spec suggestion
@@ -3787,82 +3734,124 @@ xml_reader_start(xml_reader_t *h)
     const char *encname;
     bool rv;
 
-    // No more setup changes
-    h->flags |= READER_STARTED;
+    ex = xmalloc(sizeof(xml_reader_external_t));
+    memset(ex, 0, sizeof(xml_reader_external_t));
+    ex->h = h;
+    ex->buf = buf;
+    ex->location = xstrdup(location);
+
+    SLIST_INSERT_HEAD(&h->external, ex, link);
+    h->current_entity = ex;
+
+    inp = xml_reader_input_new(h, ex->location);
+    inp->external = ex;
+
+    // TBD set completion handler to close everything associated with the entity and check
+    // partial characters
+
+    switch (context) {
+    case CTXT_DOCUMENT_ENTITY:
+        ex->declinfo = &declinfo_xmldecl;
+        ex->entity_value_parser = &reference_ops_EntityValue_internal;
+        break;
+    case CTXT_DTD_EXTERNAL_SUBSET:
+        ex->declinfo = &declinfo_textdecl;
+        ex->entity_value_parser = &reference_ops_EntityValue_external;
+        break;
+    case CTXT_EXTERNAL_PARSED_ENTITY:
+        ex->declinfo = &declinfo_textdecl;
+        // ex->entity_value_parser has no meaning here (DTD is not recognized)
+        break;
+    default:
+        OOPS_UNREACHABLE;
+        break;
+    }
+
+    if (transport_encoding) {
+        if (!xml_reader_set_encoding(ex, transport_encoding)) {
+            goto failed;
+        }
+        ex->enc_transport = xstrdup(transport_encoding);
+    }
 
     // Try to get the encoding from stream and check for BOM
     memset(adbuf, 0, sizeof(adbuf));
-    adsz = strbuf_lookahead(h->buf, adbuf, sizeof(adbuf));
+    adsz = strbuf_lookahead(buf, adbuf, sizeof(adbuf));
     if ((encname = encoding_detect(adbuf, adsz, &bom_len)) != NULL) {
-        if (!xml_reader_set_encoding(h, encname)) {
+        if (!xml_reader_set_encoding(ex, encname)) {
             xml_reader_message_current(h, XMLERR_NOTE, "(autodetected from %s)",
                     bom_len ? "Byte-order Mark" : "content");
-            h->flags |= READER_FATAL;
-            return;
+            goto failed;
         }
-        xfree(h->enc_detected);
-        h->enc_detected = xstrdup(encname);
+        ex->enc_detected = xstrdup(encname);
     }
 
     // If byte order mark (BOM) was detected, consume it
     if (bom_len) {
-        strbuf_radvance(h->buf, bom_len);
+        strbuf_radvance(buf, bom_len);
     }
 
     // If no encoding passed from the transport layer, and autodetect didn't help,
     // try UTF-8. UTF-8 is built-in, so it should always work.
-    if (!h->enc) {
-        rv = xml_reader_set_encoding(h, "UTF-8");
+    if (!ex->enc) {
+        rv = xml_reader_set_encoding(ex, "UTF-8");
         OOPS_ASSERT(rv);
     }
 
     // Temporary reader state
-    xc.h = h;
+    xc.ex = ex;
     xc.la_start = xc.initial;
     xc.la_size = sizeof(xc.initial);
     xc.la_avail = 0;
     xc.la_offs = 0;
 
-    // Main document input: using the input strbuf. It shares the location string;
-    // also, set the position to EOF - once the created input is exhausted, we're at
-    // the end of the document.
-    h->curloc.line = XMLERR_EOF;
-    h->curloc.pos = XMLERR_EOF;
-    inp = xml_reader_input_new(h, h->curloc.src);
     strbuf_realloc(inp->buf, INITIAL_TOKENBUF_SIZE * sizeof(ucs4_t));
     strbuf_setops(inp->buf, &xml_reader_initial_ops, &xc);
 
     // Parse the declaration; expect only ASCII
     h->flags |= READER_ASCII;
-    if (xml_parse_XMLDecl_TextDecl(h) != PR_NOMATCH) {
+    switch (xml_parse_XMLDecl_TextDecl(h)) {
+    case PR_OK:
         // Consumed declaration from the raw buffer; advance before setting
         // permanent transcoding operations
-        strbuf_radvance(h->buf, xc.la_offs);
+        strbuf_radvance(buf, xc.la_offs);
+        break;
+    case PR_NOMATCH:
+        // Nothing to do - just a document without declaration
+        break;
+    case PR_FAIL:
+        // Entity failed to parse in the declaration. Parsing the declaration
+        // shouldn't have created any new inputs or loaded new external entities.
+        // Keep the entity on the list of inputs which have been parsed.
+        goto failed;
+    default:
+        OOPS_UNREACHABLE;
+        break;
     }
     h->flags &= ~READER_ASCII;
 
     // If there was no XML declaration, assume 1.0 (where XMLDecl is optional)
     /// @todo For external parsed entities, need to inherit version from including document
-    if (h->version == XML_INFO_VERSION_NO_VALUE) {
-        h->version = XML_INFO_VERSION_1_0;
+    if (ex->version == XML_INFO_VERSION_NO_VALUE) {
+        ex->version = XML_INFO_VERSION_1_0;
     }
+
     // Default normalization behavior depends on version: off in 1.0, on in 1.1
-    if (h->normalization == XML_READER_NORM_DEFAULT) {
-        h->normalization = (h->version == XML_INFO_VERSION_1_0) ?
+    if (h->normalization == XML_READER_NORM_DEFAULT && context == CTXT_DOCUMENT_ENTITY) {
+        h->normalization = (ex->version == XML_INFO_VERSION_1_0) ?
                 XML_READER_NORM_OFF : XML_READER_NORM_ON;
     }
 
-    // Done with the temporary buffer: free the memory buffer if it was reallocated;
-    // advance the raw buffer by the amount used by XML declaration.
+    // Done with the temporary buffer: free the memory buffer if it was reallocated
     if (xc.la_start != xc.initial) {
         xfree(xc.la_start);
     }
 
-    if (h->enc_xmldecl) {
+    if (ex->enc_declared) {
         // Encoding should be in clean state - if not, need to fix encoding to not consume
         // excess data. If this fails, the error is already reported - try to recover by
         // keeping the old encoding.
-        if (!xml_reader_set_encoding(h, h->enc_xmldecl)) {
+        if (!xml_reader_set_encoding(ex, ex->enc_declared)) {
             xml_reader_message_lastread(h, XMLERR_NOTE, "(encoding from XML declaration)");
         }
     }
@@ -3872,7 +3861,7 @@ xml_reader_start(xml_reader_t *h)
     // content as new transcoding ops will re-parse the input at the offset right past
     // the XML declaration
     strbuf_clear(inp->buf);
-    strbuf_setops(inp->buf, &xml_reader_transcode_ops, h);
+    strbuf_setops(inp->buf, &xml_reader_transcode_ops, ex);
 
     // Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
     // begin with the Byte Order Mark described in ISO/IEC 10646 [ISO/IEC
@@ -3885,8 +3874,8 @@ xml_reader_start(xml_reader_t *h)
     // Note that we don't know the final encoding from the XML declaration at this
     // point, but if it different - it must be compatible and thus must have the same
     // encoding type.
-    if (!bom_len && h->enc_xmldecl
-            && !strcmp(h->enc_xmldecl, "UTF-16")) {
+    if (!bom_len && ex->enc_declared
+            && !strcmp(ex->enc_declared, "UTF-16")) {
         // Non-fatal: managed to detect the encoding somehow
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "UTF-16 encoding without byte-order mark");
@@ -3900,75 +3889,90 @@ xml_reader_start(xml_reader_t *h)
     // Errata: The terms "UTF-8" and "UTF-16" in this specification do not apply to
     // related character encodings, including but not limited to UTF-16BE, UTF-16LE,
     // or CESU-8.
-    if (!h->enc_xmldecl && !h->enc_transport
-            && strcmp(encoding_name(h->enc), "UTF-16")
-            && strcmp(encoding_name(h->enc), "UTF-8")) {
+    if (!ex->enc_declared && !ex->enc_transport
+            && strcmp(encoding_name(ex->enc), "UTF-16")
+            && strcmp(encoding_name(ex->enc), "UTF-8")) {
         // Non-fatal: recover by using whatever encoding we detected
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "No external encoding information, no encoding in %s, content in %s encoding",
-                h->declinfo->name, encoding_name(h->enc));
+                ex->declinfo->name, encoding_name(ex->enc));
     }
+
+    return true;
+
+failed:
+    // Keep the external in the list of entities we attempted to read, so that
+    // the locations for events remain valid.
+    xml_reader_input_complete(h, inp);
+    return false;
 }
 
 /**
-    Read in the XML content from the document entity and emit the callbacks as necessary.
+    Add an external parsed entity in the current context: if not reading anything,
+    add a 'main document' entity. If expanding an external parameter entity reference,
+    add a DTD entity. If expanding an external general entity, add an external
+    entity.
 
     @param h Reader handle
-    @return None
+    @param buf Buffer to read
+    @param location Location string to be used in messages
+    @param transport_encoding Encoding from the transport layer
+    @return true if entity added to input queue, false otherwise
+*/
+bool
+xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
+        const char *location, const char *transport_encoding)
+{
+    return xml_reader_add_external(h, buf, location, transport_encoding,
+            h->ext_ctxt);
+}
+
+/**
+    Report an error/warning/note for an arbitrary location in a handle.
+
+    @param h Reader handle
+    @param loc Location in the document
+    @param info Error code
+    @param fmt Message format
+    @return Nothing
 */
 void
-xml_reader_process_document_entity(xml_reader_t *h)
+xml_reader_message(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
+        const char *fmt, ...)
 {
-    h->declinfo = &declinfo_xmldecl;
-    h->entity_value_parser = &reference_ops_EntityValue_internal;
+    xml_reader_cbparam_t cbparam;
+    va_list ap;
 
-    /// @todo Return PR_FAIL from xml_reader_start for fatal errors
-    xml_reader_start(h);
+    cbparam.cbtype = XML_READER_CB_MESSAGE;
+    cbparam.token.str = NULL;
+    cbparam.token.len = 0;
+    cbparam.loc = *loc;
+    cbparam.message.info = info;
+    va_start(ap, fmt);
+    cbparam.message.msg = xvasprintf(fmt, ap);
+    va_end(ap);
+    xml_reader_invoke_callback(h, &cbparam);
+    xfree(cbparam.message.msg);
+}
 
-    // Skip checking for certain errors if reading was aborted prematurely
-    if ((h->flags & READER_FATAL) == 0) {
-        if (xml_parse_by_ctx(h, &parser_document_entity) != PR_FAIL) {
-            if (!encoding_clean(h->enc)) {
-                xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
-                        "Partial characters at end of input");
-            }
+/**
+    Process entities in input queue.
+
+    @param h Reader handle
+    @return Nothing
+*/
+void
+xml_reader_process(xml_reader_t *h)
+{
+    // Any entities within are external parsed entities by default
+    h->ext_ctxt = CTXT_EXTERNAL_PARSED_ENTITY;
+
+    if (xml_parse_by_ctx(h, &parser_document_entity) != PR_FAIL) {
+#if 0 // TBD
+        if (!encoding_clean(h->enc)) {
+            xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                    "Partial characters at end of input");
         }
+#endif
     }
-}
-
-/**
-    Read in the XML content from an external parsed entity and emit the callbacks
-    as necessary.
-
-    @param h Reader handle
-    @return None
-*/
-void
-xml_reader_process_external_entity(xml_reader_t *h)
-{
-    h->declinfo = &declinfo_textdecl;
-    h->entity_value_parser = NULL; // Will not encounter entity definitions
-    xml_reader_start(h);
-    if (h->flags & READER_FATAL) {
-        return; /// @todo Signal error somehow? or XMLERR(ERROR, ...) is enough?
-    }
-    /// @todo Process the rest of the content
-}
-
-/**
-    Process a DTD (external subset).
-
-    @param h Reader handle
-    @return None
-*/
-void
-xml_reader_process_external_subset(xml_reader_t *h)
-{
-    h->declinfo = &declinfo_textdecl;
-    h->entity_value_parser = &reference_ops_EntityValue_external;
-    xml_reader_start(h);
-    if (h->flags & READER_FATAL) {
-        return; /// @todo Signal error somehow? or XMLERR(ERROR, ...) is enough?
-    }
-    /// @todo Process the rest of the content
 }

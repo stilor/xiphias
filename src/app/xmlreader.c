@@ -19,18 +19,25 @@ cb(void *arg, xml_reader_cbparam_t *cbparam)
 int
 main(int argc, char *argv[])
 {
+    xml_reader_options_t opts;
     xml_reader_t *reader;
     strbuf_t *sbuf;
     int exitstatus = 0;
 
+    /// @todo Allow to specify transport encoding
     if (argc != 2) {
 	    printf("Usage: %s <XML file>\n", argv[0]);
 	    return 2;
     }
     sbuf = strbuf_file_read(argv[1], 4096);
-    reader = xml_reader_new(sbuf, argv[1]);
-    xml_reader_set_callback(reader, cb, &exitstatus);
-    xml_reader_process_document_entity(reader);
+
+    xml_reader_opts_default(&opts);
+    opts.func = cb;
+    opts.arg = &exitstatus;
+
+    reader = xml_reader_new(&opts);
+    xml_reader_add_parsed_entity(reader, sbuf, argv[1], NULL);
+    xml_reader_process(reader);
     xml_reader_delete(reader);
     return exitstatus;
 }

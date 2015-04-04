@@ -23,7 +23,7 @@ WARNS					:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wmaybe-uninitialized -Wpointer-arith -Wtype-limits -Wbad-function-cast \
 						   -Wcast-qual -Wcast-align -Wwrite-strings -Wclobbered \
 						   -Wsign-compare -Wlogical-op -Waggregate-return \
-						   -Wmissing-field-initializers -Wnested-externs
+						   -Wmissing-field-initializers -Wnested-externs -Wfatal-errors
 CFLAGS_common			:= -g -fno-common -iquote src
 CFLAGS_normal			:= -O2
 CFLAGS_coverage			:= -O0 --coverage -DOOPS_COVERAGE

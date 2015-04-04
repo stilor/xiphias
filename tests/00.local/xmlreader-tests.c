@@ -1,97 +1,6 @@
 /* vi: set ts=4 sw=4 et : */
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
-static result_t
-set_reader_options_pre(xml_reader_t *h, const void *arg)
-{
-    if (!xml_reader_set_transport_encoding(h, "UTF-8")) {
-        printf("Failed to set transport encoding\n");
-        return FAIL;
-    }
-    if (!xml_reader_set_normalization(h, XML_READER_NORM_OFF)) {
-        printf("Failed to disable normalization checks\n");
-        return FAIL;
-    }
-    if (!xml_reader_set_location_tracking(h, true, 4)) {
-        printf("Failed to configure tabstop size to 4\n");
-        return FAIL;
-    }
-    printf("Pre-parsing configuration set\n");
-    return PASS;
-}
-
-static result_t
-set_reader_options_post(xml_reader_t *h, xml_reader_cbparam_t *e, const void *arg)
-{
-    if (e->cbtype == XML_READER_CB_XMLDECL) {
-        if (xml_reader_set_transport_encoding(h, "UTF-8")) {
-            printf("Succeeded to set transport encoding\n");
-            return FAIL;
-        }
-        if (xml_reader_set_normalization(h, XML_READER_NORM_ON)) {
-            printf("Succeeded to disable normalization checks\n");
-            return FAIL;
-        }
-        if (xml_reader_set_location_tracking(h, true, 2)) {
-            printf("Succeeded to configure tabstop size to 2\n");
-            return FAIL;
-        }
-        printf("Configuration immutable during parsing.\n");
-    }
-    else if (e->cbtype == XML_READER_CB_STAG) {
-        xml_reader_set_callback(h, NULL, NULL);
-    }
-    return PASS;
-}
-
-static result_t
-disable_location_tracking(xml_reader_t *h, const void *arg)
-{
-    if (!xml_reader_set_location_tracking(h, false, 0)) {
-        printf("Failed to disable location tracking\n");
-        return FAIL;
-    }
-    return PASS;
-}
-
-static const testcase_t testcases_api[] = {
-    {
-        TC("Setting reader options before/after parsing start"),
-        .input = "simple-utf8.xml",
-        .pretest = set_reader_options_pre,
-        .checkevt = set_reader_options_post,
-        .events = (const xml_reader_cbparam_t[]){
-            E(XMLDECL, LOC("simple-utf8.xml", 1, 1),
-                    NOTOK,
-                    .encoding = "UTF-8",
-                    .standalone = XML_INFO_STANDALONE_NO_VALUE,
-                    .version = XML_INFO_VERSION_1_0,
-            ),
-            E(STAG, LOC("simple-utf8.xml", 3, 5), TOK("a")),
-            END,
-        },
-    },
-    {
-        TC("Disable location tracking"),
-        .input = "simple-utf8.xml",
-        .pretest = disable_location_tracking,
-        .events = (const xml_reader_cbparam_t[]){
-            E(XMLDECL, LOC("simple-utf8.xml", 1, 1),
-                    NOTOK,
-                    .encoding = "UTF-8",
-                    .standalone = XML_INFO_STANDALONE_NO_VALUE,
-                    .version = XML_INFO_VERSION_1_0,
-            ),
-            E(STAG, LOC("simple-utf8.xml", 1, 1), TOK("a")),
-            E(STAG_END, LOC("simple-utf8.xml", 1, 1),
-                    NOTOK,
-                    .is_empty = true,
-            ),
-            END,
-        },
-    },
-};
-
 /**
     Tests for XMLDecl conditions all use dummy \<a/> element as document
     content.
@@ -99,28 +8,6 @@ static const testcase_t testcases_api[] = {
 #define E_EMPTY_A(s, l, p) \
         E(STAG, LOC(s, l, p), TOK("a")), \
         E(STAG_END, LOC(s, l, p + 2), NOTOK, .is_empty = true)
-
-struct test_set_transport_encoding_s {
-    const char *enc;
-    bool expected;
-};
-
-static result_t
-test_set_transport_encoding(xml_reader_t *h, const void *arg)
-{
-    const struct test_set_transport_encoding_s *sts = arg;
-
-    printf("- Setting transport encoding to '%s'\n", sts->enc);
-    return xml_reader_set_transport_encoding(h, sts->enc) == sts->expected ?
-            PASS : FAIL;
-}
-
-#define TEST_TRANSPORT_ENCODING(e, r) \
-        .pretest = test_set_transport_encoding, \
-        .pretest_arg = &(const struct test_set_transport_encoding_s){ \
-            .enc = (e), \
-            .expected = (r), \
-        },
 
 static const testcase_t testcases_encoding[] = {
     {
@@ -308,20 +195,13 @@ static const testcase_t testcases_encoding[] = {
         .input = "simple-utf16.xml",
         .use_bom = true,
         .encoding = "UTF-16BE",
-        TEST_TRANSPORT_ENCODING("INVALID_ENCODING", false)
+        .transport_encoding = "INVALID_ENCODING",
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-utf16.xml", 1, 1),
                     NOTOK,
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
                     .msg = "Unsupported encoding 'INVALID_ENCODING'",
             ),
-            E(XMLDECL, LOC("simple-utf16.xml", 1, 1),
-                    NOTOK,
-                    .encoding = "UTF-16",
-                    .standalone = XML_INFO_STANDALONE_NO_VALUE,
-                    .version = XML_INFO_VERSION_1_0,
-            ),
-            E_EMPTY_A("simple-utf16.xml", 2, 1),
             END,
         },
     },
@@ -358,7 +238,7 @@ static const testcase_t testcases_encoding[] = {
         TC("Incompatible encodings from transport layer and from autodetection"),
         .input = "simple-utf8.xml",
         .use_bom = true,
-        TEST_TRANSPORT_ENCODING("UTF-16BE", true)
+        .transport_encoding = "UTF-16BE",
         .events = (const xml_reader_cbparam_t[]){
             E(MESSAGE, LOC("simple-utf8.xml", 1, 1),
                     NOTOK,
@@ -398,6 +278,7 @@ static const testcase_t testcases_encoding[] = {
             END,
         },
     },
+#if 0 // TBD reenable
     {
         TC("Partial character at end of input"),
         .input = "partial-chars.xml",
@@ -411,6 +292,7 @@ static const testcase_t testcases_encoding[] = {
             END,
         },
     },
+#endif
     {
         TC("Invalid character at top level"),
         .input = "invalid-chars-top-level.xml",
@@ -792,7 +674,7 @@ static const testcase_t testcases_xmldecl[] = {
                 "(has transport encoding)",
         .input = "simple-no-decl.xml",
         .encoding = "IBM037",
-        TEST_TRANSPORT_ENCODING("IBM500", true)
+        .transport_encoding = "IBM500",
         .events = (const xml_reader_cbparam_t[]){
             E_EMPTY_A("simple-no-decl.xml", 1, 1),
             END,
@@ -2147,7 +2029,6 @@ static const testcase_t testcases_structure[] = {
 };
 
 static const testset_t testsets[] = {
-    TEST_SET(run_testcase, "Various API tests", testcases_api),
     TEST_SET(run_testcase, "Encoding tests", testcases_encoding),
     TEST_SET(run_testcase, "XML/Text declaration tests", testcases_xmldecl),
     TEST_SET(run_testcase, "XML structures", testcases_structure),
