@@ -1,0 +1,7 @@
+<!DOCTYPE a [
+<!ENTITY x 'foo'>
+<!ENTITY y '&#x26;'>
+<!ENTITY z '&y;x;'>
+]>
+<!-- Currently parsed incorrectly: evaluates to 'foo' -->
+<a>&z;</a>
