@@ -278,13 +278,12 @@ static const testcase_t testcases_encoding[] = {
             END,
         },
     },
-#if 0 // TBD reenable
     {
         TC("Partial character at end of input"),
         .input = "partial-chars.xml",
         .events = (const xml_reader_cbparam_t[]){
             E_EMPTY_A("partial-chars.xml", 1, 1),
-            E(MESSAGE, LOC("partial-chars.xml", XMLERR_EOF, XMLERR_EOF),
+            E(MESSAGE, LOC("partial-chars.xml", 3, 2),
                     NOTOK,
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
                     .msg = "Partial characters at end of input",
@@ -292,7 +291,6 @@ static const testcase_t testcases_encoding[] = {
             END,
         },
     },
-#endif
     {
         TC("Invalid character at top level"),
         .input = "invalid-chars-top-level.xml",

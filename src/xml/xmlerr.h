@@ -10,13 +10,6 @@
 
 #include <stdint.h>
 
-/// Marker used in line/pos fields to indicate "error at end of input"
-/// @todo remove once all errors are raised at the end of locked input
-/// (currently, the check for partial characters is using XMLERR_EOF -
-/// lock every input before submitting it to processing and raise the error
-/// at a position one-past-the-last character?)
-#define XMLERR_EOF       ((uint32_t)-1)
-
 /// Description of the error location
 typedef struct {
     const char *src;     ///< Input source (URL/file/whatever)

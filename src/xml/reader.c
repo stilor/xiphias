@@ -181,7 +181,7 @@ typedef struct xml_reader_xmldecl_declinfo_s {
 typedef struct xml_reader_input_s {
     SLIST_ENTRY(xml_reader_input_s) link;   ///< Stack of diversions
     strbuf_t *buf;                  ///< String buffer to use
-    xmlerr_loc_t saveloc;           ///< Saved location when this input is added
+    xmlerr_loc_t curloc;            ///< Current location in this input
 
     /// Notification when this input is consumed
     void (*complete)(struct xml_reader_s *, void *);
@@ -207,7 +207,6 @@ struct xml_reader_s {
     size_t ucs4sz;                  ///< Size of UCS-4 buffer, in characters
 
     uint32_t flags;                 ///< Reader flags
-    xmlerr_loc_t curloc;            ///< Current reader's position
     size_t tabsize;                 ///< Tabulation character equal to these many spaces
 
     enum xml_info_standalone_e standalone;          ///< Document's standalone status
@@ -303,7 +302,7 @@ typedef enum {
 
 /// Convenience macro: report an error at current location (i.e. after a lookahead)
 #define xml_reader_message_current(h, ...) \
-        xml_reader_message(h, &h->curloc, __VA_ARGS__)
+        xml_reader_message(h, &SLIST_FIRST(&h->active_input)->curloc, __VA_ARGS__)
 
 /**
     Determine if a character is a restricted character. Restricted characters are
@@ -580,7 +579,7 @@ xml_reader_input_new(xml_reader_t *h, const char *location)
 
     if ((inp = SLIST_FIRST(&h->free_input)) != NULL) {
         SLIST_REMOVE_HEAD(&h->free_input, link);
-        buf = inp->buf; // Buffer retained
+        buf = inp->buf; // Buffer retained when input is on free list
     }
     else {
         inp = xmalloc(sizeof(xml_reader_input_t));
@@ -589,13 +588,12 @@ xml_reader_input_new(xml_reader_t *h, const char *location)
 
     memset(inp, 0, sizeof(xml_reader_input_t));
     inp->buf = buf;
-    inp->saveloc = h->curloc;
     if (location) {
-        h->curloc.src = location;
-        h->curloc.line = 1;
-        h->curloc.pos = 1;
-        h->lastreadloc = h->curloc;
+        inp->curloc.src = location;
+        inp->curloc.line = 1;
+        inp->curloc.pos = 1;
     }
+    h->lastreadloc = inp->curloc;
 
     SLIST_INSERT_HEAD(&h->active_input, inp, link);
     return inp;
@@ -628,10 +626,10 @@ xml_reader_input_complete(xml_reader_t *h, xml_reader_input_t *inp)
 
     OOPS_ASSERT(inp == SLIST_FIRST(&h->active_input));
 
-    SLIST_REMOVE_HEAD(&h->active_input, link);
     if (inp->complete) {
         inp->complete(h, inp->complete_arg);
     }
+    SLIST_REMOVE_HEAD(&h->active_input, link);
     if (inp->external) {
         h->current_entity = NULL;
         SLIST_FOREACH(next, &h->active_input, link) {
@@ -669,8 +667,6 @@ xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
             return XRU_INPUT_LOCKED;
         }
         // This input is done with: dequeue, notify and try next.
-        /// @todo Keep track in input's location rather than in handle (only keep h->lastreadloc)?
-        h->curloc = inp->saveloc;
         if (!inp->backtrack) {
             rv = XRU_INPUT_BOUNDARY; // No longer reading from the same input
         }
@@ -1001,22 +997,22 @@ xml_reader_invoke_callback(xml_reader_t *h, xml_reader_cbparam_t *cbparam)
     @return Nothing
 */
 static void
-xml_reader_update_position(xml_reader_t *h, ucs4_t cp)
+xml_reader_update_position(xml_reader_input_t *inp, ucs4_t cp, size_t tabsize)
 {
     if (cp == 0x0A) {
         // Newline and it wasn't rejected - increment line number *after this character*
-        h->curloc.line++;
-        h->curloc.pos = 1;
+        inp->curloc.line++;
+        inp->curloc.pos = 1;
     }
     else if (cp == 0x09) {
         // Round down, move to next tabstop, account for 1-based position
-        h->curloc.pos = (h->curloc.pos / h->tabsize) * h->tabsize + h->tabsize + 1;
+        inp->curloc.pos = (inp->curloc.pos / tabsize) * tabsize + tabsize + 1;
     }
     else if (ucs4_get_ccc(cp) == 0) {
         // Do not count combining marks - supposedly they're displayed with the preceding
         // character.
         /// @todo Check UAX#19 - AFAIU, this is what "Stacked boundaries" treatment implies
-        h->curloc.pos++;
+        inp->curloc.pos++;
     }
 }
 
@@ -1172,7 +1168,7 @@ static inline xru_t
 xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
         uint32_t recognize)
 {
-    xml_reader_input_t *inp;
+    xml_reader_input_t *inp, *btinp;
     const void *begin, *end;
     const ucs4_t *ptr;
     ucs4_t cp, cp0;
@@ -1180,25 +1176,29 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
     utf8_t *bufptr;
     xru_t rv = XRU_CONTINUE;
     bool saw_cr = false;
+    bool saved_loc = false;
 
     bufptr = h->tokenbuf;
     total = 0;
-    h->lastreadloc = h->curloc;
     h->rejected = UCS4_NOCHAR;
 
     // TBD change to do {} while (rv == XRU_CONTINUE)
     while (rv == XRU_CONTINUE) { // First check the status from inner for-loop...
         // ... and only if we're not terminating yet, try to get next read pointers
         rv = xml_reader_input_rptr(h, &begin, &end);
+        inp = SLIST_FIRST(&h->active_input);
+        if (!saved_loc) {
+            saved_loc = true;
+            h->lastreadloc = inp->curloc;
+        }
         if (!total && rv == XRU_INPUT_BOUNDARY) {
-            // TBD needed if we lock inputs?
+            // TBD is it needed if we lock inputs?
             // (if we haven't read anything and removed input that ended, that's fine)
             rv = XRU_CONTINUE;
         }
         else if (rv != XRU_CONTINUE) {
             break;
         }
-        inp = SLIST_FIRST(&h->active_input);
         for (ptr = begin;
                 rv == XRU_CONTINUE && ptr < (const ucs4_t *)end;
                 ptr++) {
@@ -1300,7 +1300,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
             // the original character - cp0 - not processed, so that we update position
             // based on actual input.
             if (h->flags & READER_LOCTRACK) {
-                xml_reader_update_position(h, cp0);
+                xml_reader_update_position(inp, cp0, h->tabsize);
             }
         }
 
@@ -1314,10 +1314,12 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
             OOPS_ASSERT(!inp->backtrack); // Recursive backtracking not allowed
 
             // 1 character counted above when we broke out of the loop;
-            h->curloc.pos -= h->backtrack_cnt - 1;
-            inp = xml_reader_input_new(h, NULL);
-            strbuf_set_input(inp->buf, h->backtrack, h->backtrack_cnt * sizeof(ucs4_t));
-            inp->backtrack = true;
+            btinp = xml_reader_input_new(h, NULL);
+            btinp->curloc.src = inp->curloc.src;
+            btinp->curloc.line = inp->curloc.line;
+            btinp->curloc.pos = inp->curloc.pos - h->backtrack_cnt - 1;
+            strbuf_set_input(btinp->buf, h->backtrack, h->backtrack_cnt * sizeof(ucs4_t));
+            btinp->backtrack = true;
         }
         h->backtrack_cnt = 0;
     }
@@ -1883,7 +1885,7 @@ entity_input_end(xml_reader_t *h, void *arg)
     cbp.cbtype = XML_READER_CB_ENTITY_END;
     cbp.token.str = e->name;
     cbp.token.len = e->namelen;
-    cbp.loc = h->curloc;
+    cbp.loc = SLIST_NEXT(inp, link)->curloc;
     cbp.entity.type = e->type;
     cbp.entity.system_id = e->system_id;
     cbp.entity.public_id = e->public_id;
@@ -2852,8 +2854,9 @@ xml_parse_PI(xml_reader_t *h)
     }
 
     // Recover by skipping until closing angle bracket
+    xml_read_until_gt(h);
     xml_reader_input_unlock(h, locked);
-    return xml_read_until_gt(h);
+    return PR_OK;
 }
 
 /**
@@ -3585,8 +3588,9 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 
 malformed:
     // Try to recover by reading till end of opening tag
+    xml_read_until_gt(h);
     xml_reader_input_unlock(h, locked);
-    return xml_read_until_gt(h);
+    return PR_OK;
 }
 
 /**
@@ -3626,8 +3630,9 @@ xml_parse_ETag(xml_reader_t *h)
     (void)xml_parse_whitespace(h); // optional whitespace
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag)) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
+        xml_read_until_gt(h);
         xml_reader_input_unlock(h, locked);
-        return xml_read_until_gt(h);
+        return PR_OK;
     }
 
     // Do not decrement nest level if already at the root level. This document
@@ -3712,6 +3717,25 @@ static const xml_reader_context_t parser_document_entity = {
 };
 
 /**
+    Notification of an end of an external entity.
+
+    @param h Reader handle
+    @param arg External entity information
+    @return Nothing
+*/
+static void
+external_entity_end(xml_reader_t *h, void *arg)
+{
+    xml_reader_external_t *ex = arg;
+
+    // Only if parsing of entity went far enough to establish encoding...
+    if (ex->enc && !encoding_clean(ex->enc)) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                "Partial characters at end of input");
+    }
+}
+
+/**
     Add an entity with the specified context.
 
     @param h Reader handle
@@ -3745,9 +3769,8 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
 
     inp = xml_reader_input_new(h, ex->location);
     inp->external = ex;
-
-    // TBD set completion handler to close everything associated with the entity and check
-    // partial characters
+    inp->complete = external_entity_end;
+    inp->complete_arg = ex;
 
     switch (context) {
     case CTXT_DOCUMENT_ENTITY:
@@ -3967,12 +3990,8 @@ xml_reader_process(xml_reader_t *h)
     // Any entities within are external parsed entities by default
     h->ext_ctxt = CTXT_EXTERNAL_PARSED_ENTITY;
 
-    if (xml_parse_by_ctx(h, &parser_document_entity) != PR_FAIL) {
-#if 0 // TBD
-        if (!encoding_clean(h->enc)) {
-            xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
-                    "Partial characters at end of input");
-        }
-#endif
-    }
+    /// @todo Have 2nd argument saved in external info? Or have a separate func for pre-reading
+    /// a standalone DTD?
+    /// @todo Return the parsing success/failure?
+    (void)xml_parse_by_ctx(h, &parser_document_entity);
 }
