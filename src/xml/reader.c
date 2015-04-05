@@ -1514,12 +1514,21 @@ xml_read_string_assert(xml_reader_t *h, const char *s)
     OOPS_ASSERT(rv == PR_OK);
 }
 
+/**
+    Looking for a pattern-terminated string, using KMP (Knuth-Morris-Pratt)
+    algorithm. A failure function (or table in our case) tell how much to slide
+    the token back if we matched N characters and N+1 character didn't match.
+*/
+typedef struct {
+    const char *str;        ///< Terminator string
+    size_t len;             ///< Length of the terminator string
+    const size_t *failtab;  ///< Array of failure function values, @a termlen elements
+} xml_termstring_desc_t;
+
 /// Current state structure for xml_cb_termstring
 typedef struct xml_cb_termstring_state_s {
-    const char *term;               ///< Terminator string
-    size_t termlen;                 ///< Length of the terminator string
-    ucs4_t lastchar;                ///< Last character of the terminator string
-    xml_reader_t *h;                ///< Reader handle to backtrack if needed
+    xml_termstring_desc_t term;     ///< Terminator string description
+    size_t pos;                     ///< Currently matched position
     void *arg;                      ///< Argument to mismatch callback
 
     /// Function to call on mismatch
@@ -1537,16 +1546,17 @@ static ucs4_t
 xml_cb_termstring(void *arg, ucs4_t cp)
 {
     xml_cb_termstring_state_t *st = arg;
-    xml_reader_t *h = st->h;
 
-    /// @todo This is naive approach; reimplement with a failure function
-    // TBD this also mixes local/UTF-8 strings - but will not be an issue with failure function
-    if (h->tokenlen >= st->termlen
-            && utf8_eqn(h->tokenbuf + h->tokenlen - st->termlen, st->term, st->termlen)
-            && cp == st->lastchar) {
-        return cp | UCS4_LASTCHAR;
+    while (st->pos > 0 && ucs4_fromlocal(st->term.str[st->pos]) != cp) {
+        if (st->func) {
+            st->func(st->arg, st->pos);
+        }
+        st->pos = st->term.failtab[st->pos - 1];
     }
-    return cp;
+    if (ucs4_fromlocal(st->term.str[st->pos]) == cp) {
+        st->pos++;
+    }
+    return st->pos == st->term.len ? (cp | UCS4_LASTCHAR) : cp;
 }
 
 /**
@@ -1565,22 +1575,20 @@ xml_cb_termstring(void *arg, ucs4_t cp)
     @return PR_OK on success, PR_NOMATCH if terminator string was not found.
 */
 static prodres_t
-xml_read_termstring(xml_reader_t *h, const char *s, void (*func)(void *, size_t),
-        void *arg)
+xml_read_termstring(xml_reader_t *h, const xml_termstring_desc_t *ts,
+        void (*func)(void *, size_t), void *arg)
 {
     xml_cb_termstring_state_t st;
 
-    st.term = s;
-    st.termlen = strlen(s) - 1;
-    st.lastchar = ucs4_fromlocal(s[st.termlen]);
-    st.h = h;
+    st.term = *ts;
+    st.pos = 0;
     st.func = func;
     st.arg = arg;
     if (xml_read_until(h, xml_cb_termstring, &st, 0) != XRU_STOP) {
         return PR_NOMATCH;
     }
     // Drop match terminator from token buffer
-    h->tokenlen -= st.termlen + 1;
+    h->tokenlen -= st.term.len;
     return PR_OK;
 }
 
@@ -2676,6 +2684,13 @@ comment_backtrack_handler(void *arg, size_t nch)
     }
 }
 
+/// Terminator string description for comment closing tag: '-->'
+static const xml_termstring_desc_t termstring_comment = {
+    .str = "-->",
+    .len = 3,
+    .failtab = (const size_t[3]){ 0, 1, 0 },
+};
+
 /**
     Read and process a single XML comment, starting with <!-- and ending with -->.
 
@@ -2700,7 +2715,7 @@ xml_parse_Comment(xml_reader_t *h)
 
     cbh.h = h;
     cbh.warned = false;
-    if (xml_read_termstring(h, "-->", comment_backtrack_handler, &cbh) != PR_OK) {
+    if (xml_read_termstring(h, &termstring_comment, comment_backtrack_handler, &cbh) != PR_OK) {
         // no need to recover (EOF)
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_Comment),
                 "Unterminated comment");
@@ -2713,6 +2728,13 @@ xml_parse_Comment(xml_reader_t *h)
     xml_reader_input_unlock(h, locked);
     return PR_OK;
 }
+
+/// Terminator string description for processing instruction closing tag: '?>'
+static const xml_termstring_desc_t termstring_pi = {
+    .str = "?>",
+    .len = 2,
+    .failtab = (const size_t[2]){ 0, 0 },
+};
 
 /**
     Read and process a processing instruction, starting with <? and ending with ?>.
@@ -2756,7 +2778,7 @@ xml_parse_PI(xml_reader_t *h)
     // Content, if any, must be separated by a whitespace
     if (xml_parse_whitespace(h) == PR_OK) {
         // Whitespace; everything up to closing ?> is the content
-        if (xml_read_termstring(h, "?>", NULL, NULL) == PR_OK) {
+        if (xml_read_termstring(h, &termstring_pi, NULL, NULL) == PR_OK) {
             cbp.cbtype = XML_READER_CB_PI_CONTENT;
             cbp.token.str = h->tokenbuf;
             cbp.token.len = h->tokenlen;
@@ -2784,6 +2806,13 @@ xml_parse_PI(xml_reader_t *h)
     xml_reader_input_unlock(h, locked);
     return PR_OK;
 }
+
+/// Terminator string description for CData closing tag: ']]>'
+static const xml_termstring_desc_t termstring_cdata = {
+    .str = "]]>",
+    .len = 3,
+    .failtab = (const size_t[3]){ 0, 1, 0 },
+};
 
 /**
     Read and process a CDATA section.
@@ -2814,7 +2843,7 @@ xml_parse_CDSect(xml_reader_t *h)
     locked = xml_reader_input_lock(h);
     cbp.cbtype = XML_READER_CB_CDSECT;
     cbp.loc = h->lastreadloc;
-    if (xml_read_termstring(h, "]]>", NULL, NULL) != PR_OK) {
+    if (xml_read_termstring(h, &termstring_cdata, NULL, NULL) != PR_OK) {
         // no need to recover (EOF)
         /// @todo Test unterminated comments/PIs/CDATA in entities - is PR_STOP proper here?
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_CDSect),
