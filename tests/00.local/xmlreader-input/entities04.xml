@@ -3,5 +3,4 @@
 <!ENTITY y '&#x26;'>
 <!ENTITY z '&y;x;'>
 ]>
-<!-- Currently parsed incorrectly: evaluates to 'foo' -->
 <a>&z;</a>

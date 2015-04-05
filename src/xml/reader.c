@@ -936,9 +936,6 @@ xml_reader_delete(xml_reader_t *h)
     xml_reader_input_t *inp;
     xml_reader_external_t *ex;
 
-    strhash_destroy(h->entities_param);
-    strhash_destroy(h->entities_gen);
-
     while ((inp = SLIST_FIRST(&h->active_input)) != NULL) {
         xml_reader_input_complete(h, inp);
     }
@@ -950,6 +947,10 @@ xml_reader_delete(xml_reader_t *h)
         SLIST_REMOVE_HEAD(&h->external, link);
         xml_reader_external_destroy(ex);
     }
+
+    strhash_destroy(h->entities_param);
+    strhash_destroy(h->entities_gen);
+
     xfree(h->tokenbuf);
     xfree(h->ucs4buf);
     xfree(h);
