@@ -421,6 +421,18 @@ xml_reader_set_encoding(xml_reader_external_t *ex, const char *encname)
 }
 
 /**
+    Check if reached the end of all inputs.
+
+    @param h Reader handle
+    @return True if all input is consumed
+*/
+static bool
+xml_eof(xml_reader_t *h)
+{
+    return SLIST_EMPTY(&h->active_input);
+}
+
+/**
     Look ahead in the parsed stream without advancing the current read location.
     Stops on a non-ASCII character; all mark-up (that requires look-ahead) is
     using ASCII characters.
@@ -428,11 +440,10 @@ xml_reader_set_encoding(xml_reader_external_t *ex, const char *encname)
     @param h Reader handle
     @param buf Buffer to read into
     @param bufsz Buffer size
-    @param peof Set to true if EOF is detected
     @return Number of characters read
 */
 static size_t
-xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz, bool *peof)
+xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz)
 {
     xml_reader_input_t *inp;
     ucs4_t tmp[MAX_LOOKAHEAD_SIZE];
@@ -441,29 +452,18 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz, bool *peof)
 
     OOPS_ASSERT(bufsz <= MAX_LOOKAHEAD_SIZE);
 
-    if (peof) {
-        *peof = true;
+    if ((inp = SLIST_FIRST(&h->active_input)) == NULL) {
+        return 0;
     }
-    // TBD do we need to advance the input?
-    SLIST_FOREACH(inp, &h->active_input, link) {
-        nread = strbuf_lookahead(inp->buf, ptr, bufsz * sizeof(ucs4_t));
-        if (peof && nread) {
-            *peof = false;
+    nread = strbuf_lookahead(inp->buf, ptr, bufsz * sizeof(ucs4_t));
+    OOPS_ASSERT((nread & 3) == 0); // input buf must have an integral number of characters
+    nread /= 4;
+    for (i = 0; i < nread; i++) {
+        if (*ptr >= 0x7F) {
+            break; // Non-ASCII
         }
-        OOPS_ASSERT((nread & 3) == 0); // input buf must have an integral number of characters
-        nread /= 4;
-        for (i = 0; i < nread; i++) {
-            if (*ptr >= 0x7F) {
-                break; // Non-ASCII
-            }
-            *buf++ = *ptr++;
-            bufsz--;
-        }
-        if (!bufsz) {
-            break; // No need to look at the next input
-        }
+        *buf++ = *ptr++;
     }
-
     return ptr - tmp;
 }
 
@@ -490,11 +490,11 @@ xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
     const xml_reader_context_t *ctx;
     const xml_reader_pattern_t *pat, *end;
     size_t len;
-    bool eof;
     prodres_t rv;
 
     rv = PR_OK;
-    while (rv == PR_OK && (len = xml_lookahead(h, labuf, sizeof(labuf), &eof), !eof)) {
+    while (rv == PR_OK && !xml_eof(h)) {
+        len = xml_lookahead(h, labuf, sizeof(labuf));
         ctx = h->nestlvl ? rootctx->nonroot : rootctx;
         rv = PR_NOMATCH;
         for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS;
@@ -505,11 +505,14 @@ xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
                 break;
             }
         }
+        if (xml_eof(h)) {
+            break;
+        }
         if (rv == PR_NOMATCH && ctx->nomatch) {
             rv = ctx->nomatch(h);
         }
     }
-    return eof ? PR_STOP : rv;
+    return xml_eof(h) ? PR_STOP : rv;
 }
 
 /**
@@ -1167,7 +1170,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
         // ... and only if we're not terminating yet, try to get next read pointers
         rv = xml_reader_input_rptr(h, &begin, &end);
         inp = SLIST_FIRST(&h->active_input);
-        if (!saved_loc) {
+        if (!saved_loc && inp) {
             saved_loc = true;
             h->lastreadloc = inp->curloc;
         }
@@ -1700,6 +1703,7 @@ static prodres_t
 xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
 {
     xml_cb_charref_state_t st;
+    xml_reader_input_t *locked = NULL;
     const xml_reference_info_t *ri;
     xmlerr_loc_t saveloc;           // Report reference at the start character
     xru_t rv;
@@ -1709,6 +1713,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     if (ucs4_cheq(startchar, '&')) {
         // This may be either entity or character reference
         xml_read_string_assert(h, "&");
+        locked = xml_reader_input_lock(h);
         saveloc = h->lastreadloc;
         if (xml_read_Name(h, 0) == PR_OK) {
             // EntityRef
@@ -1745,6 +1750,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     else if (ucs4_cheq(startchar, '%')) {
         // PEReference
         xml_read_string_assert(h, "%");
+        locked = xml_reader_input_lock(h);
         saveloc = h->lastreadloc;
         *reftype = XML_READER_REF_PARAMETER;
         if (xml_read_Name(h, 0) == PR_OK) {
@@ -1764,6 +1770,7 @@ read_content:
         goto malformed;
     }
     h->lastreadloc = saveloc;
+    xml_reader_input_unlock(h, locked);
     return PR_OK;
 
 malformed:
@@ -1771,6 +1778,7 @@ malformed:
     h->lastreadloc = saveloc;
     xml_reader_message_lastread(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
             "Malformed %s reference", ri->desc);
+    xml_reader_input_unlock(h, locked);
     return PR_NOMATCH;
 }
 
@@ -2473,7 +2481,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     utf8_t labuf[6]; // ['<?xml' + whitespace] or [?>]
     bool had_ws;
 
-    if (6 != xml_lookahead(h, labuf, 6, NULL)
+    if (6 != xml_lookahead(h, labuf, 6)
             || !utf8_eqn(labuf, "<?xml", 5)
             || !xml_is_whitespace(labuf[5])) {
         return PR_NOMATCH; // Does not start with a declaration
@@ -2768,7 +2776,9 @@ xml_parse_PI(xml_reader_t *h)
     if (xml_read_Name(h, 0) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                 "Expected PI target here");
-        return xml_read_until_gt(h);
+        xml_read_until_gt(h);
+        xml_reader_input_unlock(h, locked);
+        return PR_OK;
     }
     /// @todo Check for XML-reserved names ([Xx][Mm][Ll]*)
 
