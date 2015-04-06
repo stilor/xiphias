@@ -884,10 +884,7 @@ xml_reader_opts_default(xml_reader_options_t *opts)
 /**
     Create an XML reading handle.
 
-    @param master Master handle (NULL if master document is created)
-    @param buf String buffer to read the input from; will be destroyed along with
-          the handle returned by this function.
-    @param location Location that will be used for reporting errors
+    @param opts Reader options
     @return Handle
 */
 // TBD run 'make docs'
@@ -975,8 +972,9 @@ xml_reader_invoke_callback(xml_reader_t *h, xml_reader_cbparam_t *cbparam)
 /**
     Update reader's position when reading the specified character.
 
-    @param h Reader handle
+    @param inp Input handle
     @param cp Code point being read
+    @param tabsize Number of spaces in a tabulation
     @return Nothing
 */
 static void
@@ -1570,7 +1568,7 @@ xml_cb_termstring(void *arg, ucs4_t cp)
     is very simple-minded).
 
     @param h Reader handle
-    @param s String expected as a terminator
+    @param ts Terminator string info (string, length, failure function)
     @param func Function to call in case of we need to backtrack (i.e., if a part
         of the terminator string is seen, but then a mismatch is detected). The
         function shall accept one argument, the number of characters matched before
@@ -2289,7 +2287,7 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     VersionNum ::= '1.1'          {{XML1.1}}
     @endverbatim
 
-    @param h Reader handle
+    @param ex External entity info
     @return Nothing
 */
 static void
@@ -2348,7 +2346,7 @@ bad_version:
     EncName  ::= [A-Za-z] ([A-Za-z0-9._] | '-')*
     @endverbatim
 
-    @param h Reader handle
+    @param ex External entity info
     @return Nothing
 */
 static void
@@ -2393,7 +2391,7 @@ bad_encoding:
        <anonymous> ::= 'yes' | 'no'
     @endverbatim
 
-    @param h Reader handle
+    @param ex External entity info
     @return Nothing
 */
 static void
@@ -2834,7 +2832,7 @@ static const xml_termstring_desc_t termstring_cdata = {
     (XML spec, describing validity constraints for elements with 'children'
     content).
 
-    @verbatime
+    @verbatim
     CDSect      ::= CDStart CData CDEnd
     CDStart     ::= '<![CDATA['
     CData       ::= (Char* - (Char* ']]>' Char*))
