@@ -887,7 +887,6 @@ xml_reader_opts_default(xml_reader_options_t *opts)
     @param opts Reader options
     @return Handle
 */
-// TBD run 'make docs'
 xml_reader_t *
 xml_reader_new(const xml_reader_options_t *opts)
 {
@@ -2663,7 +2662,6 @@ xml_parse_CharData(xml_reader_t *h)
     return PR_OK;
 }
 
-// TBD what to do with comments containing --?
 /// State structure for comment backtrack handler
 typedef struct {
     xml_reader_t *h;    ///< Reader handle
