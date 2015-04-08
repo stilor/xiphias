@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "util/strbuf.h"
 #include "util/unicode.h"
 
 #include "infoset.h"
@@ -155,6 +156,10 @@ typedef struct {
     enum xml_reader_attrnorm_e attrnorm;     ///< Requested attribute normalization
 } xml_reader_cbparam_attr_t;
 
+/// Dummy structure for events with no extra parameters
+typedef struct {
+} xml_reader_cbparam___dummy_t;
+
 /// Combined callback parameter type
 typedef struct {
     enum xml_reader_cbtype_e cbtype;              ///< Callback type
@@ -171,7 +176,7 @@ typedef struct {
         xml_reader_cbparam_entitydef_t entitydef; ///< XML or text declaration
         xml_reader_cbparam_stag_end_t stag_end;   ///< Start of element (STag) complete
         xml_reader_cbparam_attr_t attr;           ///< Attribute name
-        struct {} __dummy;                        ///< For macro initializers of types with no extra
+        xml_reader_cbparam___dummy_t __dummy;     ///< Dummy structure
     };
 } xml_reader_cbparam_t;
 

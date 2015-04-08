@@ -199,7 +199,7 @@ ucs4_chin(ucs4_t uc, char lb, char le)
     @param lc Locally encoded character
     @return UCS-4 codepoint for @a lc
 */
-static inline uint32_t
+static inline ucs4_t
 ucs4_fromlocal(char lc)
 {
     return (unsigned char)lc;

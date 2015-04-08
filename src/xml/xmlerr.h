@@ -32,6 +32,52 @@ enum xmlerr_spec_e {
     XMLERR_SPEC_XMLNS,   ///< W3C: Namespaces in XML 1.x
 };
 
+#define XMLERR_DEF(a, b) XMLERR_##a##_##b,
+
+#define XMLERR_XML \
+          /* Production mismatches */ \
+          XMLERR_DEF(XML, P_Char) \
+          XMLERR_DEF(XML, P_XMLDecl) /* or TextDecl */ \
+          XMLERR_DEF(XML, P_document) \
+          XMLERR_DEF(XML, P_element) \
+          XMLERR_DEF(XML, P_STag) /* or EmptyElemTag */ \
+          XMLERR_DEF(XML, P_ETag) \
+          XMLERR_DEF(XML, P_Attribute) \
+          XMLERR_DEF(XML, P_AttValue) \
+          XMLERR_DEF(XML, P_Reference) \
+          XMLERR_DEF(XML, P_CharRef) \
+          XMLERR_DEF(XML, P_EntityRef) \
+          XMLERR_DEF(XML, P_PEReference) \
+          XMLERR_DEF(XML, P_Comment) \
+          XMLERR_DEF(XML, P_PI) \
+          XMLERR_DEF(XML, P_CharData) \
+          XMLERR_DEF(XML, P_CDSect) \
+          XMLERR_DEF(XML, P_doctypedecl) \
+          XMLERR_DEF(XML, P_SystemLiteral) \
+          XMLERR_DEF(XML, P_PubidLiteral) \
+          XMLERR_DEF(XML, P_ExternalID) \
+          XMLERR_DEF(XML, P_EntityDecl) \
+          XMLERR_DEF(XML, P_EntityValue) \
+          /* Other errors and recommendations (spelled in text of the spec) */ \
+          XMLERR_DEF(XML, ENCODING_ERROR) \
+          XMLERR_DEF(XML, PREDEFINED_ENTITY) \
+          XMLERR_DEF(XML, ENTITY_REDECLARED) \
+          XMLERR_DEF(XML, FUTURE_VERSION) \
+          /* Well-formedness constraints (spelled in production comments) */ \
+          XMLERR_DEF(XML, WFC_PES_IN_INTERNAL_SUBSET) \
+          XMLERR_DEF(XML, WFC_EXTERNAL_SUBSET) \
+          XMLERR_DEF(XML, WFC_PE_BETWEEN_DECLARATIONS) \
+          XMLERR_DEF(XML, WFC_ELEMENT_TYPE_MATCH) \
+          XMLERR_DEF(XML, WFC_UNIQUE_ATT_SPEC) \
+          XMLERR_DEF(XML, WFC_NO_EXTERNAL_ENTITY_REFERENCES) \
+          XMLERR_DEF(XML, WFC_NO_LT_IN_ATTRIBUTE_VALUES) \
+          XMLERR_DEF(XML, WFC_LEGAL_CHARACTER) \
+          XMLERR_DEF(XML, WFC_ENTITY_DECLARED) \
+          XMLERR_DEF(XML, WFC_PARSED_ENTITY) \
+          XMLERR_DEF(XML, WFC_NO_RECURSION) \
+          XMLERR_DEF(XML, WFC_IN_DTD)
+          
+
 /**
     XML 1.x messages.
 
@@ -40,55 +86,7 @@ enum xmlerr_spec_e {
     @todo Sort XML 1.0 codes first, then XML 1.1 codes
 */
 enum xml_errcode_e {
-    // Production mismatches
-    XMLERR_XML_P_BASE              = 0x0000,
-    XMLERR_XML_P_Char,
-    XMLERR_XML_P_XMLDecl,          // XMLDecl or TextDecl
-    XMLERR_XML_P_document,
-    XMLERR_XML_P_element,
-    XMLERR_XML_P_STag,             // STag or EmptyElemTag
-    XMLERR_XML_P_ETag,
-    XMLERR_XML_P_Attribute,
-    XMLERR_XML_P_AttValue,
-    XMLERR_XML_P_Reference,
-    XMLERR_XML_P_CharRef,
-    XMLERR_XML_P_EntityRef,
-    XMLERR_XML_P_PEReference,
-    XMLERR_XML_P_Comment,
-    XMLERR_XML_P_PI,
-    XMLERR_XML_P_CharData,
-    XMLERR_XML_P_CDSect,
-    XMLERR_XML_P_doctypedecl,
-    XMLERR_XML_P_SystemLiteral,
-    XMLERR_XML_P_PubidLiteral,
-    XMLERR_XML_P_ExternalID,
-    XMLERR_XML_P_EntityDecl,
-    XMLERR_XML_P_EntityValue,
-
-    // Other errors and recommendations (spelled in text of the spec)
-    XMLERR_XML_OTHER_BASE          = 0x0100,
-    XMLERR_XML_ENCODING_ERROR,
-    XMLERR_XML_PREDEFINED_ENTITY,
-    XMLERR_XML_ENTITY_REDECLARED,
-    XMLERR_XML_FUTURE_VERSION,
-
-    // Well-formedness constraints (spelled in production comments)
-    XMLERR_XML_WFC_BASE            = 0x0200,
-    XMLERR_XML_WFC_PES_IN_INTERNAL_SUBSET,
-    XMLERR_XML_WFC_EXTERNAL_SUBSET,
-    XMLERR_XML_WFC_PE_BETWEEN_DECLARATIONS,
-    XMLERR_XML_WFC_ELEMENT_TYPE_MATCH,
-    XMLERR_XML_WFC_UNIQUE_ATT_SPEC,
-    XMLERR_XML_WFC_NO_EXTERNAL_ENTITY_REFERENCES,
-    XMLERR_XML_WFC_NO_LT_IN_ATTRIBUTE_VALUES,
-    XMLERR_XML_WFC_LEGAL_CHARACTER,
-    XMLERR_XML_WFC_ENTITY_DECLARED,
-    XMLERR_XML_WFC_PARSED_ENTITY,
-    XMLERR_XML_WFC_NO_RECURSION,
-    XMLERR_XML_WFC_IN_DTD,
-
-    // Validity constraints
-    XMLERR_XML_VC_BASE             = 0x0300,
+    XMLERR_XML
 };
 
 /// Error code and severity

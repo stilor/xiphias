@@ -9,33 +9,14 @@
 #include "util/encoding.h"
 #include "util/xutil.h"
 #include "xml/reader.h"
+#include "xmltest/enum.h"
+
 #include "xmltest/xmlreader-event.h"
-#include "test/testlib.h"
-
-/// Describes a single test case for XML reader
-typedef struct testcase_s {
-    const char *desc;                       ///< Description of a test case
-    const char *input;                      ///< Input file name
-    bool use_bom;                           ///< Prepend byte order mark to this file?
-    const char *encoding;                   ///< Transcode the file to this encoding
-
-    /// Allow to take some extra setup steps
-    result_t (*pretest)(xml_reader_t *h, const void *arg);
-    const void *pretest_arg;                ///< Argument to pretest function
-
-    /// Extra checks in the test event callback
-    result_t (*checkevt)(xml_reader_t *h, xml_reader_cbparam_t *e, const void *arg);
-    const void *checkevt_arg;               ///< Argument to checkevt function
-
-    // Events must be last: they're present in all tests, or warning will result
-    // from using default initializations
-    const xml_reader_cbparam_t *events;     ///< Events expected while parsing this input
-} testcase_t;
 
 /// Per-event methods
 typedef struct event_s {
-    const char *desc;                               ///< Description of an event
     void (*print)(const xml_reader_cbparam_t *e);   ///< Print a text description of an event
+    void (*gencode)(const xml_reader_cbparam_t *e); ///< Code generation for test case
     bool (*equal)(const xml_reader_cbparam_t *e1,
             const xml_reader_cbparam_t *e2);        ///< Check events for equality
 } event_t;
@@ -46,35 +27,124 @@ str_null_or_equal(const char *s1, const char *s2)
     return (!s1 && !s2) || (s1 && s2 && !strcmp(s1, s2));
 }
 
+static char *
+string_escape(const char *s)
+{
+    char *p, *px;
+    const char *sx;
+    size_t len;
+
+    len = 0;
+    for (sx = s; *sx; sx++) {
+        len += (*sx == '"' || *sx == '\\') ? 2 : 1;
+    }
+    p = px = xmalloc(len + 1);
+    while (*s) {
+        if (*s == '"' || *s == '\\') {
+            *px++ = '\\';
+        }
+        *px++ = *s++;
+    }
+    *px = '\0';
+    return p;
+}
+
+static char *
+string_escape_utf8(const utf8_t *s, size_t len)
+{
+    /// @todo Assumes 1-to-1 correspondence between UTF-8 and local charset
+    const utf8_t *sx;
+    size_t lenx, nlen;
+    char *p, *px;
+
+    nlen = 0;
+    for (sx = s, lenx = len; lenx; lenx--, sx++) {
+        if (*sx >= 0x7F) {
+            nlen += 4; // \xHH
+        }
+        else if (*sx == '"' || *sx == '\\') {
+            nlen += 2;
+        }
+        else {
+            nlen += 1;
+        }
+    }
+
+    p = px = xmalloc(nlen + 1);
+    for (sx = s, lenx = len; lenx; lenx--, sx++) {
+        if (*sx >= 0x7F) {
+            sprintf(px, "\\x%02X", *sx);
+            px += 4;
+            continue;
+        }
+        if (*sx == '"' || *sx == '\\') {
+            *px++ = '\\';
+        }
+        *px++ = *sx;
+    }
+    *px = '\0';
+    return p;
+}
+
+#define INDENT                  "    "
+
+#define FIELD_FMT(f, fmt)       INDENT INDENT "." #f " = " fmt ",\n"
+
+#define FIELD_BOOL(x,f) do { \
+    printf(FIELD_FMT(f, "%s"), (x)->f ? "true" : "false"); \
+} while (0)
+
+#define FIELD_STR_OR_NULL(x,f) do { \
+    if ((x)->f) { \
+        char *s; \
+        s = string_escape((x)->f); \
+        printf(FIELD_FMT(f, "\"%s\""), s); \
+        xfree(s); \
+    } \
+   else { \
+        printf(FIELD_FMT(f, "NULL")); \
+    } \
+} while (0)
+
+#define FIELD_ENUM(x,f,e) do { \
+    printf(FIELD_FMT(f, "%s"), enum2id((x)->f, &enum_##e, NULL)); \
+} while (0)
+
 // Supporting functions: print event data
-static void
-evprint_none(const xml_reader_cbparam_t *cbparam)
-{
-}
-
-static bool
-evequal_none(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    return false;
-}
-
 static void
 evprint_message(const xml_reader_cbparam_t *cbparam)
 {
-    static const char * const severity[] = {
-        [XMLERR__NONE]  = "????",
-        [XMLERR_INFO]  = "INFO",
-        [XMLERR_WARN]  = "WARN",
-        [XMLERR_ERROR] = "ERR",
-    };
     const xml_reader_cbparam_message_t *x = &cbparam->message;
-    uint32_t s = XMLERR_SEVERITY(x->info);
+    xmlerr_info_t spec_code = XMLERR_MK(XMLERR__NONE,
+            XMLERR_SPEC(x->info), XMLERR_CODE(x->info));
 
-    printf("%s [%s %03u:%04u]",
+    printf("%s [%s %s:%s]",
             x->msg ? x->msg : "<no message>",
-            s < sizeofarray(severity) ? severity[s] : "???",
-            XMLERR_SPEC(x->info),
-            XMLERR_CODE(x->info));
+            enum2str(XMLERR_SEVERITY(x->info), &enum_xmlerr_severity),
+            enum2str(XMLERR_SPEC(x->info), &enum_xmlerr_spec),
+            enum2str(spec_code, &enum_xmlerr_code));
+}
+
+static void
+evgenc_message(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_message_t *x = &cbparam->message;
+    xmlerr_info_t spec_code = XMLERR_MK(XMLERR__NONE,
+            XMLERR_SPEC(x->info), XMLERR_CODE(x->info));
+
+    if (x->info == XMLERR_NOTE) {
+        printf(FIELD_FMT(info, "XMLERR_NOTE"));
+    }
+    else if (x->info == XMLERR_INTERNAL) {
+        printf(FIELD_FMT(info, "XMLERR_INTERNAL"));
+    }
+    else {
+        printf(FIELD_FMT(info, "XMLERR(%s, %s, %s)"),
+                enum2id(XMLERR_SEVERITY(x->info), &enum_xmlerr_severity, "XMLERR_"),
+                enum2id(XMLERR_SPEC(x->info), &enum_xmlerr_spec, "XMLERR_SPEC_"),
+                enum2id(spec_code, &enum_xmlerr_code, NULL));
+    }
+    FIELD_STR_OR_NULL(x, msg);
 }
 
 static bool
@@ -87,29 +157,28 @@ evequal_message(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
             && x1->info == x2->info;
 }
 
-static const char * const reftypename[] = {
-    [XML_READER_REF_PARAMETER] = "Parameter entity",
-    [XML_READER_REF_INTERNAL] = "Internal general entity",
-    [XML_READER_REF_EXTERNAL] = "External parsed general entity",
-    [XML_READER_REF_UNPARSED] = "External unparsed general entity",
-    [XML_READER_REF__CHAR] = "Bad value (CHAR)",
-    [XML_READER_REF__MAX] = "Bad value (MAX)",
-    [XML_READER_REF_GENERAL] = "Undetermined general entity",
-    [XML_READER_REF__UNKNOWN] = "Bad value (UNKNOWN)",
-};
-
 static void
 evprint_entity(const xml_reader_cbparam_t *cbparam)
 {
     const xml_reader_cbparam_entity_t *x = &cbparam->entity;
 
-    printf("%s", x->type < sizeofarray(reftypename) ? reftypename[x->type] : "<unknown>");
+    printf("%s", enum2str(x->type, &enum_reftype));
     if (x->system_id) {
         printf(", system ID '%s'", x->system_id);
     }
     if (x->public_id) {
         printf(", public ID '%s'", x->public_id);
     }
+}
+
+static void
+evgenc_entity(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_entity_t *x = &cbparam->entity;
+
+    FIELD_ENUM(x, type, reftype);
+    FIELD_STR_OR_NULL(x, system_id);
+    FIELD_STR_OR_NULL(x, public_id);
 }
 
 static bool
@@ -126,22 +195,22 @@ evequal_entity(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 static void
 evprint_xmldecl(const xml_reader_cbparam_t *cbparam)
 {
-    static const char * const stdalone[] = {
-        [XML_INFO_STANDALONE_NO_VALUE] = "n/a",
-        [XML_INFO_STANDALONE_YES] = "yes",
-        [XML_INFO_STANDALONE_NO] = "no",
-    };
-    static const char * const xmlversion[] = {
-        [XML_INFO_VERSION_NO_VALUE] = "n/a",
-        [XML_INFO_VERSION_1_0] = "1.0",
-        [XML_INFO_VERSION_1_1] = "1.1",
-    };
     const xml_reader_cbparam_xmldecl_t *x = &cbparam->xmldecl;
 
     printf("encoding '%s', standalone '%s', version '%s'",
             x->encoding ? x->encoding : "<unknown>",
-            x->standalone < sizeofarray(stdalone) ? stdalone[x->standalone] : "???",
-            x->version < sizeofarray(xmlversion) ? xmlversion[x->version] : "???");
+            enum2str(x->standalone, &enum_xml_standalone),
+            enum2str(x->version, &enum_xml_version));
+}
+
+static void
+evgenc_xmldecl(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_xmldecl_t *x = &cbparam->xmldecl;
+
+    FIELD_STR_OR_NULL(x, encoding);
+    FIELD_ENUM(x, standalone, xml_standalone);
+    FIELD_ENUM(x, version, xml_version);
 }
 
 static bool
@@ -163,6 +232,14 @@ evprint_entitydef(const xml_reader_cbparam_t *cbparam)
     printf("%s entity", x->parameter ? "parameter" : "general");
 }
 
+static void
+evgenc_entitydef(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_entitydef_t *x = &cbparam->entitydef;
+
+    FIELD_BOOL(x, parameter);
+}
+
 static bool
 evequal_entitydef(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 {
@@ -182,6 +259,14 @@ evprint_append(const xml_reader_cbparam_t *cbparam)
     }
 }
 
+static void
+evgenc_append(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_append_t *x = &cbparam->append;
+
+    FIELD_BOOL(x, ws);
+}
+
 static bool
 evequal_append(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 {
@@ -197,6 +282,14 @@ evprint_stag_end(const xml_reader_cbparam_t *cbparam)
     const xml_reader_cbparam_stag_end_t *x = &cbparam->stag_end;
 
     printf("Used %s production", x->is_empty ? "EmptyElemTag" : "STag");
+}
+
+static void
+evgenc_stag_end(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_stag_end_t *x = &cbparam->stag_end;
+
+    FIELD_BOOL(x, is_empty);
 }
 
 static bool
@@ -216,6 +309,14 @@ evprint_attr(const xml_reader_cbparam_t *cbparam)
     printf("Normalization: %u", x->attrnorm);
 }
 
+static void
+evgenc_attr(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_attr_t *x = &cbparam->attr;
+
+    FIELD_ENUM(x, attrnorm, attrnorm);
+}
+
 static bool
 evequal_attr(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 {
@@ -225,96 +326,45 @@ evequal_attr(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     return x1->attrnorm == x2->attrnorm;
 }
 
+#define evprint___dummy     NULL
+#define evequal___dummy     NULL
+#define evgenc___dummy      NULL
+#define XF1(p,s) p##_##s
+#define XF(p,s) XF1(p,s)
+
+#define X(t) \
+        [XML_READER_CB_##t] = { \
+            .print = XF(evprint, FL(t)), \
+            .equal = XF(evequal, FL(t)), \
+            .gencode = XF(evgenc, FL(t)), \
+        },
+
 static const event_t events[] = {
-    [XML_READER_CB_NONE] = {
-        .desc = "NO EVENT",
-        .print = evprint_none,
-        .equal = evequal_none,
-    },
-    [XML_READER_CB_MESSAGE] = {
-        .desc = "Message",
-        .print = evprint_message,
-        .equal = evequal_message,
-    },
-    [XML_READER_CB_ENTITY_UNKNOWN] = {
-        .desc = "Unknown entity",
-        .print = evprint_entity,
-        .equal = evequal_entity,
-    },
-    [XML_READER_CB_ENTITY_START] = {
-        .desc = "Entity parsing start",
-        .print = evprint_entity,
-        .equal = evequal_entity,
-    },
-    [XML_READER_CB_ENTITY_END] = {
-        .desc = "Entity parsing end",
-        .print = evprint_entity,
-        .equal = evequal_entity,
-    },
-    [XML_READER_CB_PUBID] = {
-        .desc = "Public ID",
-    },
-    [XML_READER_CB_SYSID] = {
-        .desc = "System ID",
-    },
-    [XML_READER_CB_APPEND] = {
-        .desc = "Append text",
-        .print = evprint_append,
-        .equal = evequal_append,
-    },
-    [XML_READER_CB_CDSECT] = {
-        .desc = "CDATA section",
-        .print = evprint_append,
-        .equal = evequal_append,
-    },
-    [XML_READER_CB_XMLDECL] = {
-        .desc = "XML declaration",
-        .print = evprint_xmldecl,
-        .equal = evequal_xmldecl,
-    },
-    [XML_READER_CB_COMMENT] = {
-        .desc = "Comment",
-    },
-    [XML_READER_CB_PI_TARGET] = {
-        .desc = "PI target",
-    },
-    [XML_READER_CB_PI_CONTENT] = {
-        .desc = "PI content",
-    },
-    [XML_READER_CB_DTD_BEGIN] = {
-        .desc = "DTD begin",
-    },
-    [XML_READER_CB_DTD_INTERNAL] = {
-        .desc = "DTD internal subset",
-    },
-    [XML_READER_CB_DTD_END] = {
-        .desc = "DTD end",
-    },
-    [XML_READER_CB_ENTITY_DEF_START] = {
-        .desc = "Start entity definition",
-        .print = evprint_entitydef,
-        .equal = evequal_entitydef,
-    },
-    [XML_READER_CB_ENTITY_DEF_END] = {
-        .desc = "End entity definition",
-    },
-    [XML_READER_CB_STAG] = {
-        .desc = "Start tag",
-    },
-    [XML_READER_CB_STAG_END] = {
-        .desc = "Start tag (complete)",
-        .print = evprint_stag_end,
-        .equal = evequal_stag_end,
-    },
-    [XML_READER_CB_ETAG] = {
-        .desc = "End tag",
-    },
-    [XML_READER_CB_ATTR] = {
-        .desc = "Attribute",
-        .print = evprint_attr,
-        .equal = evequal_attr,
-    },
+    X(NONE)
+    X(MESSAGE)
+    X(ENTITY_UNKNOWN)
+    X(ENTITY_START)
+    X(ENTITY_END)
+    X(PUBID)
+    X(SYSID)
+    X(NDATA)
+    X(APPEND)
+    X(CDSECT)
+    X(XMLDECL)
+    X(COMMENT)
+    X(PI_TARGET)
+    X(PI_CONTENT)
+    X(DTD_BEGIN)
+    X(DTD_INTERNAL)
+    X(DTD_END)
+    X(ENTITY_DEF_START)
+    X(ENTITY_DEF_END)
+    X(STAG)
+    X(STAG_END)
+    X(ETAG)
+    X(ATTR)
 };
+#undef X
 
 /**
     Print an information about XML reader event to stdout.
@@ -325,23 +375,19 @@ static const event_t events[] = {
 void
 xmlreader_event_print(const xml_reader_cbparam_t *cbparam)
 {
-    printf("  [%s:", cbparam->loc.src ? cbparam->loc.src : "<undef>");
-    printf("%u:%u]", cbparam->loc.line, cbparam->loc.pos);
-    if (cbparam->cbtype < sizeofarray(events) && events[cbparam->cbtype].desc) {
-        printf(" %s: ", events[cbparam->cbtype].desc);
-        if (cbparam->token.str) {
-            printf("'%.*s' [%zu] ",
-                    (int)cbparam->token.len, cbparam->token.str,
-                    cbparam->token.len);
-        }
-        if (events[cbparam->cbtype].print) {
-            events[cbparam->cbtype].print(cbparam);
-        }
-        printf("\n");
+    printf("  [%s:%u:%u]", cbparam->loc.src ? cbparam->loc.src : "<undef>",
+            cbparam->loc.line, cbparam->loc.pos);
+    printf(" %s: ", enum2str(cbparam->cbtype, &enum_cbtype));
+    if (cbparam->token.str) {
+        // TBD: mixes UTF-8/local encodings
+        printf("'%.*s' [%zu] ",
+                (int)cbparam->token.len, cbparam->token.str,
+                cbparam->token.len);
     }
-    else {
-        printf(" UNKNOWN EVENT TYPE %u\n", cbparam->cbtype);
+    if (cbparam->cbtype < sizeofarray(events) && events[cbparam->cbtype].print) {
+        events[cbparam->cbtype].print(cbparam);
     }
+    printf("\n");
 }
 
 /**
@@ -367,4 +413,34 @@ xmlreader_event_equal(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t
         return true; // nothing else to compare
     }
     return events[e1->cbtype].equal(e1, e2);
+}
+
+/**
+    Generate code for XML reader test case
+
+    @param cbparam Callback parameter
+    @return Nothing
+*/
+void
+xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam)
+{
+    char *s;
+
+    printf(INDENT "E(%s,\n", enum2id(cbparam->cbtype, &enum_cbtype, "XML_READER_CB_"));
+    s = string_escape(cbparam->loc.src);
+    printf(INDENT INDENT "LOC(\"%s\", %u, %u),\n",
+            s, cbparam->loc.line, cbparam->loc.pos);
+    xfree(s);
+    if (cbparam->token.str) {
+        s = string_escape_utf8(cbparam->token.str, cbparam->token.len);
+        printf(INDENT INDENT "TOK(\"%s\"),\n", s);
+        xfree(s);
+    }
+    else {
+        printf(INDENT INDENT "NOTOK,\n");
+    }
+    if (events[cbparam->cbtype].gencode) {
+        events[cbparam->cbtype].gencode(cbparam);
+    }
+    printf(INDENT "},\n");
 }
