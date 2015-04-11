@@ -3,24 +3,43 @@
 #include <stdio.h>
 
 #include "util/strbuf.h"
+#include "util/opt.h"
 #include "xml/reader.h"
 #include "xmltest/xmlreader-event.h"
 
-// TBD make a command line option
-#define GENCODE 1
+/// Whether C code generation is requested
+static bool gencode;
+
+/// Transport encoding
+static const char *transport_encoding;
+
+/// Input file name
+static const char *inputfile;
+
+static const opt_t options[] = {
+    OPT_USAGE("Display events from reading an XML file."),
+    OPT('c', "code", BOOL, NULL,
+            "Generate C code rather than text description", &gencode),
+    OPT('t', "transport-encoding", STRING, "ENCODING",
+            "Specify encoding reported from transport layer", &transport_encoding),
+    OPT_ARGUMENT(STRING, "XMLFILE",
+            "Input file", &inputfile),
+    OPT_END
+};
 
 static void
 cb(void *arg, xml_reader_cbparam_t *cbparam)
 {
-#ifdef GENCODE
-	xmlreader_event_gencode(cbparam);
-#else
-	xmlreader_event_print(cbparam);
-	if (cbparam->cbtype == XML_READER_CB_MESSAGE
-			&& XMLERR_SEVERITY(cbparam->message.info) == XMLERR_ERROR) {
-        *(int *)arg = 1;
-	}
-#endif
+    if (gencode) {
+        xmlreader_event_gencode(cbparam);
+    }
+    else {
+        xmlreader_event_print(cbparam);
+        if (cbparam->cbtype == XML_READER_CB_MESSAGE
+                && XMLERR_SEVERITY(cbparam->message.info) == XMLERR_ERROR) {
+            *(int *)arg = 1;
+        }
+    }
 }
 
 int
@@ -32,27 +51,24 @@ main(int argc, char *argv[])
     int exitstatus = 0;
 
     /// @todo Allow to specify transport encoding
-    if (argc != 2) {
-	    printf("Usage: %s <XML file>\n", argv[0]);
-	    return 2;
-    }
-    sbuf = strbuf_file_read(argv[1], 4096);
+    opt_parse(options, argv);
+    sbuf = strbuf_file_read(inputfile, 4096);
 
-#ifdef GENCODE
-    printf("(const xml_reader_cbparam_t[]){\n");
-#endif
+    if (gencode) {
+        printf("(const xml_reader_cbparam_t[]){\n");
+    }
 
     xml_reader_opts_default(&opts);
     opts.func = cb;
     opts.arg = &exitstatus;
 
     reader = xml_reader_new(&opts);
-    xml_reader_add_parsed_entity(reader, sbuf, argv[1], NULL);
+    xml_reader_add_parsed_entity(reader, sbuf, inputfile, transport_encoding);
     xml_reader_process(reader);
     xml_reader_delete(reader);
-#ifdef GENCODE
-    printf("    END,\n");
-    printf("},\n");
-#endif
+    if (gencode) {
+        printf("    END,\n");
+        printf("},\n");
+    }
     return exitstatus;
 }

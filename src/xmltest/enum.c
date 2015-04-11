@@ -119,8 +119,8 @@ DECLARE_ENUM(xmlerr_severity);
 
 static const enumval_t enumval_xmlerr_spec[] = {
 	E(XMLERR_SPEC_NONE, "<internal>")
-	E(XMLERR_SPEC_XML, "XML 1.x")
-	E(XMLERR_SPEC_XMLNS, "Namespaces in XML")
+	E(XMLERR_SPEC_XML, "XML")
+	E(XMLERR_SPEC_XMLNS, "XMLNS")
 };
 DECLARE_ENUM(xmlerr_spec);
 

@@ -118,11 +118,19 @@ evprint_message(const xml_reader_cbparam_t *cbparam)
     xmlerr_info_t spec_code = XMLERR_MK(XMLERR__NONE,
             XMLERR_SPEC(x->info), XMLERR_CODE(x->info));
 
-    printf("%s [%s %s:%s]",
-            x->msg ? x->msg : "<no message>",
+    printf("%s ", x->msg ? x->msg : "<no message>");
+    if (x->info == XMLERR_NOTE) {
+        printf("[NOTE]");
+    }
+    else if (x->info == XMLERR_INTERNAL) {
+        printf("[INTERNAL]");
+    }
+    else {
+        printf("[%s %s:%s]",
             enum2str(XMLERR_SEVERITY(x->info), &enum_xmlerr_severity),
             enum2str(XMLERR_SPEC(x->info), &enum_xmlerr_spec),
             enum2str(spec_code, &enum_xmlerr_code));
+    }
 }
 
 static void
