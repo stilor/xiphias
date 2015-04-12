@@ -6,6 +6,7 @@
 */
 #include <stdlib.h>
 #include <string.h>
+#include <sysexits.h>
 
 #include "util/defs.h"
 #include "util/xutil.h"
@@ -13,7 +14,7 @@
 #include "opt.h"
 
 /// State of the option parser
-struct parse_state_s {
+struct opt_parse_state_s {
     char **argv;            ///< Current option pointer
     void *data;             ///< Type-specific data
     const opt_t *opts;      ///< Array of all options
@@ -22,6 +23,7 @@ struct parse_state_s {
     const char *progname;   ///< Program name
     const opt_t *usage;     ///< Option for usage
     const char *msg;        ///< Error message for usage, if any
+    size_t *counters;       ///< How many times this option was seen
 };
 
 /// Check if an option is an argument
@@ -36,7 +38,7 @@ struct parse_state_s {
     @param st Option parsing state
     @return Nothing
 */
-typedef void (*opt_handler_t)(struct parse_state_s *st);
+typedef void (*opt_handler_t)(struct opt_parse_state_s *st);
 
 
 /**
@@ -46,7 +48,7 @@ typedef void (*opt_handler_t)(struct parse_state_s *st);
     @return Nothing
 */
 static void
-handler_usage(struct parse_state_s *st)
+handler_usage(struct opt_parse_state_s *st)
 {
     struct opt_arg_USAGE_s *data = st->data;
     const opt_t *opt;
@@ -62,69 +64,75 @@ handler_usage(struct parse_state_s *st)
     }
 
     if (st->msg) {
-        printf("%s: %s\n", base, st->msg);
+        fprintf(stderr, "%s: %s\n", base, st->msg);
         xfree(st->msg);
         st->msg = NULL;
     }
-    printf("Usage: %s", base);
+    fprintf(stderr, "Usage: %s", base);
     for (opt = st->opts; !is_term(opt); opt++) {
+        fprintf(stderr, " %s", opt->optmin ? "" : "[");
         if (!is_arg(opt)) {
-            printf(" [--%s%s%s]",
+            fprintf(stderr, "--%s%s%s",
                     opt->optlong,
                     opt->optmeta ? " " : "",
                     opt->optmeta ? opt->optmeta : "");
         }
         else {
-            printf(" %s", opt->optmeta);
+            fprintf(stderr, "%s", opt->optmeta);
         }
+        fprintf(stderr, "%s", opt->optmin ? "" : "]");
     }
-    printf("\n");
-    printf("%s\n", data->progdesc);
-    printf("\n");
-    printf("Options:\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "%s\n", data->desc);
+    fprintf(stderr, "\n");
+    fprintf(stderr, "Options:\n");
     for (opt = st->opts; !is_term(opt) && !is_arg(opt); opt++) {
         if (opt->optmeta) {
             if (opt->optshort) {
-                rv = printf("    -%c %s, --%s %s",
+                rv = fprintf(stderr, "    -%c %s, --%s %s",
                         opt->optshort, opt->optmeta,
                         opt->optlong, opt->optmeta);
             }
             else {
-                rv = printf("    --%s %s",
+                rv = fprintf(stderr, "    --%s %s",
                         opt->optlong, opt->optmeta);
             }
         }
         else {
             if (opt->optshort) {
-                rv = printf("    -%c, --%s",
+                rv = fprintf(stderr, "    -%c, --%s",
                         opt->optshort, opt->optlong);
             }
             else {
-                rv = printf("    --%s",
+                rv = fprintf(stderr, "    --%s",
                         opt->optlong);
             }
         }
         if (rv < 30) {
-            printf("%*s%s\n", 30 - rv, "", opt->opthelp);
+            fprintf(stderr, "%*s%s\n", 30 - rv, "", opt->opthelp);
         }
         else {
-            printf("\n%*s%s\n", 30, "", opt->opthelp);
+            fprintf(stderr, "\n%*s%s\n", 30, "", opt->opthelp);
         }
     }
-    printf("\n");
+    fprintf(stderr, "\n");
     if (!is_term(opt)) {
-        printf("Arguments:\n");
+        fprintf(stderr, "Arguments:\n");
         for (/* continue above loop */; !is_term(opt); opt++) {
-            rv = printf("    %s", opt->optmeta);
+            rv = fprintf(stderr, "    %s", opt->optmeta);
             if (rv < 30) {
-                printf("%*s%s\n", 30 - rv, "", opt->opthelp);
+                fprintf(stderr, "%*s%s\n", 30 - rv, "", opt->opthelp);
             }
             else {
-                printf("\n%*s%s\n", 30, "", opt->opthelp);
+                fprintf(stderr, "\n%*s%s\n", 30, "", opt->opthelp);
             }
         }
     }
-    exit(1);
+    if (data->extra_func) {
+        fprintf(stderr, "\n");
+        data->extra_func(data->extra_arg);
+    }
+    exit(EX_USAGE);
 }
 
 /**
@@ -134,7 +142,7 @@ handler_usage(struct parse_state_s *st)
     @return Nothing
 */
 static void
-handler_bool(struct parse_state_s *st)
+handler_bool(struct opt_parse_state_s *st)
 {
     struct opt_arg_BOOL_s *data = st->data;
 
@@ -148,7 +156,7 @@ handler_bool(struct parse_state_s *st)
     @return Nothing
 */
 static void
-handler_string(struct parse_state_s *st)
+handler_string(struct opt_parse_state_s *st)
 {
     struct opt_arg_STRING_s *data = st->data;
 
@@ -171,15 +179,28 @@ static const opt_handler_t handlers[OPT_TYPE_MAX] = {
     @return Nothing
 */
 static void
-handle_option(const opt_t *opt, struct parse_state_s *st)
+handle_option(const opt_t *opt, struct opt_parse_state_s *st)
 {
+    size_t optidx;
+
     OOPS_ASSERT(opt->opttype < sizeofarray(handlers));
+    OOPS_ASSERT(opt >= st->opts && opt < st->opts + st->nopts + st->nargs);
+
+    optidx = opt - st->opts;
+    if (opt->optmax && st->counters[optidx] >= opt->optmax) {
+        opt_usage(st, "At most %zu instances of the %s%s %s are allowed",
+                opt->optmax,
+                is_arg(opt) ? "" : "--",
+                is_arg(opt) ? opt->optmeta : opt->optlong,
+                is_arg(opt) ? "argument" : "option");
+    }
     st->data = opt->optarg;
     handlers[opt->opttype](st);
+    st->counters[optidx]++;
 }
 
 /// Default usage option.
-static const opt_t default_usage = OPT_USAGE("");
+static const opt_t default_usage = { OPT_USAGE("") };
 
 /**
     Find an option by its long name.
@@ -233,7 +254,7 @@ find_short_opt(const opt_t *opts, char ch)
 void
 opt_parse(const opt_t *opts, char *argv[])
 {
-    struct parse_state_s st;
+    struct opt_parse_state_s st;
     const opt_t *opt;
     char *p, *saved_arg;
     char **saved_argv;
@@ -247,6 +268,7 @@ opt_parse(const opt_t *opts, char *argv[])
     st.nopts = 0;
     st.nargs = 0;
     st.usage = &default_usage;
+    st.msg = NULL;
     for (i = 0; !is_term(&opts[i]); i++) {
         if (is_arg(&opts[i])) {
             OOPS_ASSERT(opts[i].optmeta); // Mandatory for arguments
@@ -261,6 +283,8 @@ opt_parse(const opt_t *opts, char *argv[])
             }
         }
     }
+    st.counters = xmalloc(sizeof(size_t) * (st.nargs + st.nopts));
+    memset(st.counters, 0, sizeof(size_t) * (st.nargs + st.nopts));
 
     // Handle options first
     while ((p = *st.argv) != NULL) {
@@ -272,8 +296,7 @@ opt_parse(const opt_t *opts, char *argv[])
                     break; // Arguments follow
                 }
                 else if ((opt = find_long_opt(opts, p + 2)) == NULL) {
-                    st.msg = xasprintf("Unexpected option %s", p);
-                    handle_option(st.usage, &st);
+                    opt_usage(&st, "Unknown option %s", p);
                 }
                 else {
                     st.argv++; // Option arguments, if any, follow
@@ -288,8 +311,7 @@ opt_parse(const opt_t *opts, char *argv[])
                 *st.argv = p + 1;
                 while (st.argv == saved_argv && *(p = *st.argv) != '\0') {
                     if ((opt = find_short_opt(opts, *p)) == NULL) {
-                        st.msg = xasprintf("Unexpected option -%c", *p);
-                        handle_option(st.usage, &st);
+                        opt_usage(&st, "Unknown option -%c", *p);
                     }
                     *st.argv = p + 1; // Consume the character
                     if (!**st.argv) {
@@ -316,11 +338,41 @@ opt_parse(const opt_t *opts, char *argv[])
 
     // Any unconsumed options? Display the usage
     if (*st.argv) {
-        st.msg = xstrdup("Unexpected arguments");
-        handle_option(st.usage, &st);
+        opt_usage(&st, "Unexpected arguments");
     }
     else if (!is_term(opt)) {
-        st.msg = xasprintf("Missing %s argument", opt->optmeta);
-        handle_option(st.usage, &st);
+        opt_usage(&st, "Missing %s argument", opt->optmeta);
     }
+
+    // Check if the required options were seen
+    for (i = 0; !is_term(&opts[i]); i++) {
+        opt = &opts[i];
+        if (st.counters[i] < opt->optmin) {
+            opt_usage(&st, "At least %zu instance(s) of the %s%s %s are required",
+                    opt->optmax,
+                    is_arg(opt) ? "" : "--",
+                    is_arg(opt) ? opt->optmeta : opt->optlong,
+                    is_arg(opt) ? "argument" : "option");
+        }
+    }
+
+    xfree(st.counters);
+}
+
+/**
+    Report usage and exit.
+
+    @param st Option parsing state
+    @param fmt Message format, or NULL if usage is to be displayed without a message
+    @return Does not return
+*/
+void
+opt_usage(struct opt_parse_state_s *st, const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    st->msg = xvasprintf(fmt, ap);
+    va_end(ap);
+    handle_option(st->usage, st);
 }

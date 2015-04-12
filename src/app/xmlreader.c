@@ -17,13 +17,27 @@ static const char *transport_encoding;
 static const char *inputfile;
 
 static const opt_t options[] = {
-    OPT_USAGE("Display events from reading an XML file."),
-    OPT('c', "code", BOOL, NULL,
-            "Generate C code rather than text description", &gencode),
-    OPT('t', "transport-encoding", STRING, "ENCODING",
-            "Specify encoding reported from transport layer", &transport_encoding),
-    OPT_ARGUMENT(STRING, "XMLFILE",
-            "Input file", &inputfile),
+    {
+        OPT_USAGE("Display events from reading an XML file."),
+    },
+    {
+        OPT_KEY('c', "code"),
+        OPT_HELP(NULL, "Generate C code rather than text description"),
+        OPT_CNT_OPTIONAL,
+        OPT_TYPE(BOOL, &gencode),
+    },
+    {
+        OPT_KEY('t', "transport-encoding"),
+        OPT_HELP( "ENCODING", "Specify encoding reported from transport layer"),
+        OPT_CNT_OPTIONAL,
+        OPT_TYPE(STRING, &transport_encoding),
+    },
+    {
+        OPT_ARGUMENT,
+        OPT_HELP("XMLFILE", "Input file"),
+        OPT_CNT_SINGLE,
+        OPT_TYPE(STRING, &inputfile),
+    },
     OPT_END
 };
 
