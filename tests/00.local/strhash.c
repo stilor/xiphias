@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include "util/strhash.h"
+#include "util/opt.h"
 #include "test/testlib.h"
 
 typedef uint32_t obj_t;
@@ -84,8 +85,19 @@ static const testset_t tests[] = {
 
 static const testsuite_t testsuite = TEST_SUITE("Tests for string-keyed hash", tests);
 
+static test_opt_t topt;
+
+static const opt_t options[] = {
+    { OPT_USAGE("Test cases for string hashes.") },
+    { OPT_TEST_LIST(topt) },
+    { OPT_TEST_ARGS(topt) },
+    OPT_END
+};
+
 int
 main(int argc, char *argv[])
 {
-    return test_run_cmdline(&testsuite, argc, argv);
+    test_opt_prepare(&topt, &testsuite);
+    opt_parse(options, argv);
+    return test_opt_run(&topt);
 }

@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include "util/defs.h"
 #include "util/strbuf.h"
+#include "util/opt.h"
 #include "util/unicode.h"
 
 /// Test outcome
@@ -73,9 +74,32 @@ typedef struct testsuite_s {
     .desc = (d), \
 }
 
-int test_run_cmdline(const testsuite_t *suite, unsigned int argc, char *argv[]);
+/// Option to test argument handler callback
+typedef struct test_opt_s {
+    struct test_stats_s *stats;     ///< Internal test suite test
+} test_opt_t;
+
+
+void test_opt_prepare(test_opt_t *tstat, const testsuite_t *suite);
+int test_opt_run(test_opt_t *tstat);
+
+/// Option for handling command line argument
+#define OPT_TEST_ARGS(tstat) \
+    OPT_ARGUMENT, \
+    OPT_HELP("SET_OR_CASE", "Test set or test case specification"), \
+    OPT_CNT_ANY, \
+    OPT_TYPE(FUNC, test_opt__argcb, &tstat)
+
+/// Option for listing tests
+#define OPT_TEST_LIST(tstat) \
+    OPT_KEY('l', "list-tests"), \
+    OPT_HELP(NULL, "List test case number ranges"), \
+    OPT_CNT_OPTIONAL, \
+    OPT_TYPE(FUNC, test_opt__listcb, &tstat)
 
 // Internal interfaces (not to be called directly)
+void test_opt__argcb(struct opt_parse_state_s *, char ***pargv, void *arg);
+void test_opt__listcb(struct opt_parse_state_s *, char ***pargv, void *arg);
 result_t test__exec_simple_testcase(const void *arg);
 
 // Other test framework

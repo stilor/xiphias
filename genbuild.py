@@ -18,6 +18,7 @@ class Output(object):
         self.subdir = cp.get(section, 'subdir')
         self.sources = cp.get(section, 'sources').split()
         self.localdep = cp.get(section, 'localdep').split()
+        self.args = cp.get(section, 'args')
         self.outpath = {}
         self.extraldflags = {}
         self.objs = {}
@@ -82,11 +83,12 @@ all-%(variant)s: %(outpath)s
 check-%(variant)s: check-%(variant)s-%(name)s
 
 check-%(variant)s-%(name)s: %(outpath)s
-\t%(outpath)s
+\t%(outpath)s %(args)s
 '''             % {
                     'variant' : v,
                     'name' : self.name,
                     'outpath' : self.outpath[v],
+                    'args' : self.args,
                     })
 
 if __name__ == '__main__':
@@ -97,7 +99,8 @@ if __name__ == '__main__':
         parser.error('Input file required')
     cp = ConfigParser.ConfigParser({
 	# Optional keys in each output section have default values provided
-        'localdep' : ''
+        'localdep' : '',
+        'args' : '',
         })
     cp.read(args[0])
     for s in cp.sections():

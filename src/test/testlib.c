@@ -15,6 +15,7 @@ typedef struct trec_s {
     STAILQ_ENTRY(trec_s) link;      ///< Linked tail-queue pointer
     size_t si;                      ///< Set index of test
     size_t ci;                      ///< Test case index
+    result_t rv;                    ///< Test result
 } trec_t;
 
 /// Head of the tail queue of test failure records
@@ -25,8 +26,9 @@ typedef struct test_stats_s {
     uint32_t passed;            ///< Tests that passed
     uint32_t failed;            ///< Tests that failed
     uint32_t unresolved;        ///< Tests that did not produce PASS/FAIL
-    trec_list_t list_failed;    ///< List of failed tests
-    trec_list_t list_unresolved;///< List of unresolved tests
+    trec_list_t testcases;      ///< List of tests
+    const testsuite_t *suite;   ///< Test suite
+    bool list_tests;            ///< Do not run, just list tests
 } test_stats_t;
 
 /**
@@ -44,57 +46,50 @@ test__exec_simple_testcase(const void *arg)
 }
 
 /**
-    Print usage.
+    Print list of available test cases.
 
-    @param pgm Program name
     @param suite Test suite
     @return Nothing
 */
 static void
-usage(const char *pgm, const testsuite_t *suite)
+list(const testsuite_t *suite)
 {
     size_t i;
 
-    printf("Usage: %s [SET[.CASE]] ...\n", pgm);
-    printf("%s\n", suite->desc);
-    printf("\n");
-    printf("Valid test set/case numbers:\n");
+    fprintf(stderr, "Valid test set/case numbers:\n");
     for (i = 0; i < suite->nsets; i++) {
-        printf("  Set %4zu", i + 1);
+        fprintf(stderr, "  Set %4zu", i + 1);
         if (suite->sets[i].ncases > 1) {
-            printf(": 1..%zu", suite->sets[i].ncases);
+            fprintf(stderr, ": 1..%zu", suite->sets[i].ncases);
         }
-        printf("\n");
+        fprintf(stderr, "\n");
     }
-    printf("\n");
+    fprintf(stderr, "\n");
 }
 
 /**
     Print command line to re-run failed/unresolved tests. Frees
     the lists of failed test cases.
 
-    @param pgm Program name
-    @param desc Failure type (failed/unresolved)
     @param list List of test records to process.
     @return Nothing
 */
 static void
-print_rerun(const char *pgm, const char *desc, trec_list_t *list)
+print_rerun(trec_list_t *list)
 {
     trec_t *trec;
 
-    printf("To re-run only %s test cases:\n", desc);
-    printf("  %s", pgm);
-    while ((trec = STAILQ_FIRST(list)) != NULL) {
-        STAILQ_REMOVE_HEAD(list, link);
-        printf(" %zu.%zu", trec->si + 1, trec->ci + 1);
-        xfree(trec);
+    printf("Failed test cases:\n");
+    STAILQ_FOREACH(trec, list, link) {
+        if (trec->rv != PASS) {
+            printf(" %zu.%zu", trec->si + 1, trec->ci + 1);
+        }
     }
     printf("\n\n");
 }
 
 /**
-    Record test failure.
+    Add a test case to the run list.
 
     @param list List of test records to process.
     @param si Set index
@@ -102,37 +97,36 @@ print_rerun(const char *pgm, const char *desc, trec_list_t *list)
     @return Nothing
 */
 static void
-rec_fail(trec_list_t *list, size_t si, size_t ci)
+add_testcase(trec_list_t *list, size_t si, size_t ci)
 {
     trec_t *trec;
 
     trec = xmalloc(sizeof(trec_t));
     trec->si = si;
     trec->ci = ci;
+    trec->rv = UNRESOLVED;
     STAILQ_INSERT_TAIL(list, trec, link);
 }
 
 /**
     Run a single test case.
 
-    @param suite Test suite
-    @param si Set index
-    @param ci Test case index in the set
     @param stats Test suite statistics
+    @param trec Test record
     @return Nothing
 */
 static void
-run_case(const testsuite_t *suite, size_t si, size_t ci, test_stats_t *stats)
+run_case(test_stats_t *stats, trec_t *trec)
 {
-    const testset_t *set = &suite->sets[si];
+    const testsuite_t *suite = stats->suite;
+    const testset_t *set = &suite->sets[trec->si - 1];
     const void *case_input;
-    result_t rc;
 
-    case_input = set->cases ? (const uint8_t *)set->cases + set->size * ci : NULL;
-    printf("== RUNNING TESTCASE %zu.%zu\n", si + 1, ci + 1);
-    rc = set->func(case_input);
-    printf("== TESTCASE %zu.%zu: ", si + 1, ci + 1);
-    switch (rc) {
+    case_input = set->cases ? (const uint8_t *)set->cases + set->size * (trec->ci - 1) : NULL;
+    printf("== RUNNING TESTCASE %zu.%zu\n", trec->si, trec->ci);
+    trec->rv = set->func(case_input);
+    printf("== TESTCASE %zu.%zu: ", trec->si, trec->ci);
+    switch (trec->rv) {
     case PASS:
         printf("PASS\n");
         stats->passed++;
@@ -140,37 +134,92 @@ run_case(const testsuite_t *suite, size_t si, size_t ci, test_stats_t *stats)
     case FAIL:
         printf("FAIL\n");
         stats->failed++;
-        rec_fail(&stats->list_failed, si, ci);
         break;
     case UNRESOLVED:
     default:
         printf("UNRESOLVED\n");
         stats->unresolved++;
-        rec_fail(&stats->list_unresolved, si, ci);
         break;
     }
     printf("\n");
 }
 
 /**
-    Run all test cases in a single set.
+    Prepare test state structure.
 
+    @param tstat Test state
     @param suite Test suite
-    @param si Set index
-    @param stats Statistics for the whole suite
     @return Nothing
 */
-static void
-run_set(const testsuite_t *suite, size_t si, test_stats_t *stats)
+void
+test_opt_prepare(test_opt_t *tstat, const testsuite_t *suite)
 {
-    const testset_t *set = &suite->sets[si];
-    size_t i;
+    test_stats_t *st;
 
-    printf("====  RUNNING TEST SET %zu: %s\n", si + 1, set->desc);
-    for (i = 0; i < set->ncases; i++) {
-        run_case(suite, si, i, stats);
+    st = xmalloc(sizeof(test_stats_t));
+    st->passed = st->failed = st->unresolved = 0;
+    STAILQ_INIT(&st->testcases);
+    st->suite = suite;
+    st->list_tests = false;
+    tstat->stats = st;
+}
+
+/**
+    Callback for handling --list-tests option.
+
+    @param ps Parser state (for printing usage, if needed)
+    @param pargv Pointer to argv
+    @param arg Test state
+    @return Nothing
+*/
+void
+test_opt__listcb(struct opt_parse_state_s *ps, char ***pargv, void *arg)
+{
+    test_opt_t *to = arg;
+
+    to->stats->list_tests = true;
+}
+
+/**
+    Callback for handling positional arguments.
+
+    @param ps Parser state (for printing usage, if needed)
+    @param pargv Pointer to argv
+    @param arg Test state
+    @return Nothing
+*/
+void
+test_opt__argcb(struct opt_parse_state_s *ps, char ***pargv, void *arg)
+{
+    test_opt_t *to = arg;
+    test_stats_t *st = to->stats;
+    const testsuite_t *suite = st->suite;
+    const testset_t *set;
+    char **argv = *pargv;
+    char *eptr;
+    size_t si, ci;
+
+    while (*argv) {
+        si = strtoul(*argv, &eptr, 10);
+        if (eptr == *argv || (*eptr && *eptr != '.') || !si || si > suite->nsets) {
+            opt_usage(ps, "Invalid test set/case specification: %s", *argv);
+        }
+        set = &suite->sets[si - 1];
+        if (!*eptr) {
+            for (ci = 1; ci <= set->ncases; ci++) {
+                add_testcase(&st->testcases, si, ci);
+            }
+        }
+        else {
+            ci = strtoul(eptr + 1, &eptr, 10);
+            if (*eptr || !ci || ci > set->ncases) {
+                opt_usage(ps, "Invalid test set/case specification: %s", *argv);
+            }
+            add_testcase(&st->testcases, si, ci);
+        }
+        argv++;
     }
-    printf("==== FINISHED TEST SET %zu: %s\n", si + 1, set->desc);
+    *pargv = argv;
 }
 
 /**
@@ -178,73 +227,57 @@ run_set(const testsuite_t *suite, size_t si, test_stats_t *stats)
     parameters are interpreted as SET[.CASE], and run all or just
     test case CASE in the set SET.
 
-    @param suite Test suite
-    @param argc Number of arguments in argv
-    @param argv Arguments on the command line
+    @param to Test option
     @return Exit status
 */
 int
-test_run_cmdline(const testsuite_t *suite, unsigned int argc, char *argv[])
+test_opt_run(test_opt_t *to)
 {
-    test_stats_t stats;
+    test_stats_t *st = to->stats;
+    const testsuite_t *suite = st->suite;
+    const testset_t *set;
     const char *rundesc = "partial run";
-    size_t i;
+    size_t si, ci;
+    trec_t *trec;
+    int rv = 0;
 
-    printf("====== RUNNING TESTSUITE: %s\n", suite->desc);
-    stats.passed = 0;
-    stats.failed = 0;
-    stats.unresolved = 0;
-    STAILQ_INIT(&stats.list_failed);
-    STAILQ_INIT(&stats.list_unresolved);
-    if (argc <= 1) {
-        // No arguments: run everything
-        for (i = 0; i < suite->nsets; i++) {
-            run_set(suite, i, &stats);
-        }
-        rundesc = "full run";
-    }
-    else if (argc == 2 && !strcmp(argv[1], "-h")) {
-        usage(argv[0], suite);
-        return 1;
+    if (st->list_tests) {
+        list(suite);
     }
     else {
-        // Cherry-picking test sets/cases
-        for (i = 1; i < argc; i++) {
-            char *eptr;
-            size_t si, ci;
-
-            si = strtoul(argv[i], &eptr, 10);
-            if (eptr == argv[i] || (*eptr && *eptr != '.') || !si || si > suite->nsets) {
-                usage(argv[0], suite);
-                return 1;
-            }
-            else if (!*eptr) {
-                run_set(suite, si - 1, &stats);
-            }
-            else {
-                ci = strtoul(eptr + 1, &eptr, 10);
-                if (*eptr || !ci || ci > suite->sets[si - 1].ncases) {
-                    usage(argv[0], suite);
-                    return 1;
+        printf("====== RUNNING TESTSUITE: %s\n", suite->desc);
+        if (STAILQ_EMPTY(&st->testcases)) {
+            rundesc = "full run";
+            for (si = 1; si <= suite->nsets; si++) {
+                set = &suite->sets[si - 1];
+                for (ci = 1; ci <= set->ncases; ci++) {
+                    add_testcase(&st->testcases, si, ci);
                 }
-                run_case(suite, si - 1, ci - 1, &stats);
             }
+        }
+        STAILQ_FOREACH(trec, &st->testcases, link) {
+            run_case(st, trec);
+        }
+        printf("\n");
+        printf("SUMMARY for '%s' (%s):\n", suite->desc, rundesc);
+        printf("  PASSED       : %5u\n", st->passed);
+        printf("  FAILED       : %5u\n", st->failed);
+        printf("  UNRESOLVED   : %5u\n", st->unresolved);
+        printf("====== FINISHED TESTSUITE: %s\n", suite->desc);
+        printf("\n");
+        if (st->failed || st->unresolved) {
+            print_rerun(&st->testcases);
+            rv = 1;
         }
     }
 
-    printf("\n");
-    printf("SUMMARY for '%s' (%s):\n", suite->desc, rundesc);
-    printf("  PASSED       : %5u\n", stats.passed);
-    printf("  FAILED       : %5u\n", stats.failed);
-    printf("  UNRESOLVED   : %5u\n", stats.unresolved);
-    printf("====== FINISHED TESTSUITE: %s\n", suite->desc);
-    printf("\n");
-    if (stats.failed) {
-        print_rerun(argv[0], "failed", &stats.list_failed);
+    // Destroy state object
+    while ((trec = STAILQ_FIRST(&st->testcases)) != NULL) {
+        STAILQ_REMOVE_HEAD(&st->testcases, link);
+        xfree(trec);
     }
-    if (stats.unresolved) {
-        print_rerun(argv[0], "unresolved", &stats.list_unresolved);
-    }
-    return (!stats.failed && !stats.unresolved) ? 0 : 1;
+    xfree(st);
+    to->stats = NULL;
+    return rv;
 }
 

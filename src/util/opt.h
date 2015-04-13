@@ -19,6 +19,7 @@ enum opt_type_e {
     OPT_TYPE_USAGE,             ///< Option to display the usage
     OPT_TYPE_BOOL,              ///< Boolean option
     OPT_TYPE_STRING,            ///< String option
+    OPT_TYPE_FUNC,              ///< Callback function handles
     OPT_TYPE_MAX,               ///< Max number of option types
 };
 
@@ -49,6 +50,15 @@ struct opt_arg_BOOL_s {
 /// Option for string values
 struct opt_arg_STRING_s {
     const char **pstr;          ///< Pointer where string will be saved
+};
+
+/// Callback function
+struct opt_arg_FUNC_s {
+    /// Callback function
+    void (*func)(struct opt_parse_state_s *, char ***pargv, void *arg);
+
+    /// Argument to callback
+    void *arg;
 };
 
 /// Option short/long key

@@ -12,11 +12,8 @@
 #include "xmltest/xmlreader-event.h"
 #include "test/testlib.h"
 
-/**
-    Location of the input files.
-    @todo get from prog's path? On the command line?
-*/
-#define XML_INPUT_DIR "tests/00.local/xmlreader-input"
+/// Location of the input files.
+static const char *xml_input_dir = ".";
 
 /// Describes a single test case for XML reader
 typedef struct testcase_s {
@@ -100,13 +97,13 @@ run_testcase(const void *arg)
     // Brief summary of the test
     printf("%s\n", tc->desc);
     printf("- Defined at %s:%u\n", tc->at_file, tc->at_line);
-    printf("- Input: %s/%s\n", XML_INPUT_DIR, tc->input);
+    printf("- Input: %s/%s\n", xml_input_dir, tc->input);
     printf("- Encoded into '%s', %s Byte-order mark\n",
             tc->encoding ? tc->encoding : "UTF-8",
             tc->use_bom ? "with" : "without");
 
     // Set up input stream chain
-    path = xasprintf("%s/%s", XML_INPUT_DIR, tc->input);
+    path = xasprintf("%s/%s", xml_input_dir, tc->input);
     sbuf = strbuf_file_read(path, 4096);
     sbuf = test_strbuf_subst(sbuf, '\\', 4096);
     if (tc->use_bom) {
@@ -159,6 +156,21 @@ run_testcase(const void *arg)
 
 #include "xmlreader-tests.c"
 
+static test_opt_t topt;
+
+static const opt_t options[] = {
+    { OPT_USAGE("Test cases for encodings.") },
+    {
+        OPT_KEY('d', "dir-input"),
+        OPT_HELP("DIR", "Directory where test XML inputs are located"),
+        OPT_CNT_OPTIONAL,
+        OPT_TYPE(STRING, &xml_input_dir)
+    },
+    { OPT_TEST_LIST(topt) },
+    { OPT_TEST_ARGS(topt) },
+    OPT_END
+};
+
 /**
     Main routine for XML reader test suite.
 
@@ -169,5 +181,7 @@ run_testcase(const void *arg)
 int
 main(int argc, char *argv[])
 {
-    return test_run_cmdline(&testsuite, argc, argv);
+    test_opt_prepare(&topt, &testsuite);
+    opt_parse(options, argv);
+    return test_opt_run(&topt);
 }

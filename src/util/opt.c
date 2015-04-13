@@ -78,7 +78,9 @@ handler_usage(struct opt_parse_state_s *st)
                     opt->optmeta ? opt->optmeta : "");
         }
         else {
-            fprintf(stderr, "%s", opt->optmeta);
+            fprintf(stderr, "%s%s",
+                    opt->optmeta,
+                    opt->optmax > 1 ? "..." : "");
         }
         fprintf(stderr, "%s", opt->optmin ? "" : "]");
     }
@@ -164,11 +166,26 @@ handler_string(struct opt_parse_state_s *st)
     st->argv++;
 }
 
+/**
+    Callback function handling an option.
+
+    @param st Option parsing state
+    @return Nothing
+*/
+static void
+handler_func(struct opt_parse_state_s *st)
+{
+    struct opt_arg_FUNC_s *data = st->data;
+
+    data->func(st, &st->argv, data->arg);
+}
+
 /// Known option types
 static const opt_handler_t handlers[OPT_TYPE_MAX] = {
     [OPT_TYPE_USAGE] = handler_usage,
     [OPT_TYPE_BOOL] = handler_bool,
     [OPT_TYPE_STRING] = handler_string,
+    [OPT_TYPE_FUNC] = handler_func,
 };
 
 /**
@@ -333,15 +350,13 @@ opt_parse(const opt_t *opts, char *argv[])
 
     // Consume any positional arguments
     for (opt = opts + st.nopts; !is_term(opt) && *st.argv; opt++) {
+        // TBD what would be semantics of optmin/optmax? Invoke each option optmin times?
         handle_option(opt, &st);
     }
 
     // Any unconsumed options? Display the usage
     if (*st.argv) {
         opt_usage(&st, "Unexpected arguments");
-    }
-    else if (!is_term(opt)) {
-        opt_usage(&st, "Missing %s argument", opt->optmeta);
     }
 
     // Check if the required options were seen
