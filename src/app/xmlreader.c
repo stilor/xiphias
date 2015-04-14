@@ -13,6 +13,10 @@ static bool gencode;
 /// Transport encoding
 static const char *transport_encoding;
 
+/// Location used for the document entity
+/// @todo Figure out linker flags so that binaries are runnable from any directory
+static const char *location;
+
 /// Input file name
 static const char *inputfile;
 
@@ -31,6 +35,13 @@ static const opt_t options[] = {
         OPT_HELP( "ENCODING", "Specify encoding reported from transport layer"),
         OPT_CNT_OPTIONAL,
         OPT_TYPE(STRING, &transport_encoding),
+    },
+    {
+        // TBD remove
+        OPT_KEY('l', "location"),
+        OPT_HELP( "LOC", "Specify location for the document entity"),
+        OPT_CNT_OPTIONAL,
+        OPT_TYPE(STRING, &location),
     },
     {
         OPT_ARGUMENT,
@@ -77,7 +88,8 @@ main(int argc, char *argv[])
     opts.arg = &exitstatus;
 
     reader = xml_reader_new(&opts);
-    xml_reader_add_parsed_entity(reader, sbuf, inputfile, transport_encoding);
+    xml_reader_add_parsed_entity(reader, sbuf,
+            location ? location : inputfile, transport_encoding);
     xml_reader_process(reader);
     xml_reader_delete(reader);
     if (gencode) {
