@@ -32,6 +32,9 @@
 /// Denote a function taking printf-style argument
 #define __printflike(f,a) __attribute__((__format__(__printf__,f,a)))
 
+/// Warn if the result is not checked
+#define __warn_unused_result __attribute__((__warn_unused_result__))
+
 /// Denote an unreachable point in a program
 #define __unreachable() __builtin_unreachable()
 
