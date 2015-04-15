@@ -450,5 +450,5 @@ xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam)
     if (events[cbparam->cbtype].gencode) {
         events[cbparam->cbtype].gencode(cbparam);
     }
-    printf(INDENT "},\n");
+    printf(INDENT "),\n");
 }
