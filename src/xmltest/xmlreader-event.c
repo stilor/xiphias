@@ -383,7 +383,7 @@ static const event_t events[] = {
 void
 xmlreader_event_print(const xml_reader_cbparam_t *cbparam)
 {
-    printf("  [%s:%u:%u]", cbparam->loc.src ? cbparam->loc.src : "<undef>",
+    printf("[%s:%u:%u]", cbparam->loc.src ? cbparam->loc.src : "<undef>",
             cbparam->loc.line, cbparam->loc.pos);
     printf(" %s: ", enum2str(cbparam->cbtype, &enum_cbtype));
     if (cbparam->token.str) {

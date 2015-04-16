@@ -82,7 +82,7 @@ print_rerun(trec_list_t *list)
     printf("Failed test cases:\n");
     STAILQ_FOREACH(trec, list, link) {
         if (trec->rv != PASS) {
-            printf(" %zu.%zu", trec->si + 1, trec->ci + 1);
+            printf(" %zu.%zu", trec->si, trec->ci);
         }
     }
     printf("\n\n");

@@ -62,7 +62,12 @@ test_cb(void *arg, xml_reader_cbparam_t *cbparam)
         printf("  (received) FAIL: ");
         xmlreader_event_print(cbparam);
         printf("  (expected)     : ");
-        xmlreader_event_print(cbarg->expect);
+        if (cbarg->expect->cbtype != XML_READER_CB_NONE) {
+            xmlreader_event_print(cbarg->expect);
+        }
+        else {
+            printf("NO EVENT\n");
+        }
         cbarg->failed = true;
     }
     if (cbarg->expect->cbtype != XML_READER_CB_NONE) {
