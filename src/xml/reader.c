@@ -59,7 +59,8 @@ enum {
 enum xml_reader_external_context_e {
     CTXT_DOCUMENT_ENTITY,
     CTXT_DTD_EXTERNAL_SUBSET,
-    CTXT_EXTERNAL_PARSED_ENTITY,
+    CTXT_PARSED_PARAMETER_ENTITY,
+    CTXT_PARSED_GENERAL_ENTITY,
 };
 
 /// Information on a pre-defined entity.
@@ -79,6 +80,7 @@ typedef struct xml_reader_entity_s {
     const char *notation;                   ///< Notation name (unparsed entity)
     const char *location;                   ///< How input from this entity will be reported
     bool being_parsed;                      ///< Recursion detection: this entity is being parsed
+    bool parameter;                         ///< Parameter entity
     const ucs4_t *rplc;                     ///< Replacement text
     size_t rplclen;                         ///< Length of the replacement text in bytes
     const ucs4_t *refrplc;                  ///< Reference replacement text
@@ -119,6 +121,18 @@ typedef struct {
     uint32_t ecode;             ///< Error code associated with this type of references
 } xml_reference_info_t;
 
+/// Type-specific operations for external entity
+typedef struct xml_reader_external_ctxt_s {
+    /// Expected XMLDecl/TextDecl declaration
+    const struct xml_reader_xmldecl_declinfo_s *declinfo;
+
+    /// What is allowed in EntityValue
+    const struct xml_reference_ops_s *entity_value_parser;
+
+    xmlerr_info_t errcode;          ///< Error code when breaking the lock
+    const char *production;         ///< Production this must match
+} xml_reader_external_ctxt_t;
+
 /**
     External entity information (including main document entity).
 */
@@ -134,11 +148,7 @@ typedef struct xml_reader_external_s {
     encoding_handle_t *enc;         ///< Encoding used to transcode input
     strbuf_t *buf;                  ///< Raw input buffer (in document's encoding)
 
-    /// Expected XMLDecl/TextDecl declaration
-    const struct xml_reader_xmldecl_declinfo_s *declinfo;
-
-    /// What is allowed in EntityValue
-    const struct xml_reference_ops_s *entity_value_parser;
+    xml_reader_external_ctxt_t ctxt;/// Type-specific settings
 } xml_reader_external_t;
 
 /**
@@ -200,6 +210,7 @@ struct xml_reader_s {
     xml_reader_external_t *current_entity;          ///< Entity being parsed    
 
     uint32_t nestlvl;               ///< Element nesting level
+    uint32_t brokenlocks;           ///< Number of locked inputs forcibly unlocked
 
     utf8_t *tokenbuf;               ///< Token buffer
     utf8_t *tokenbuf_end;           ///< End of the token buffer
@@ -421,101 +432,6 @@ xml_reader_set_encoding(xml_reader_external_t *ex, const char *encname)
 }
 
 /**
-    Check if reached the end of all inputs.
-
-    @param h Reader handle
-    @return True if all input is consumed
-*/
-static bool
-xml_eof(xml_reader_t *h)
-{
-    return SLIST_EMPTY(&h->active_input);
-}
-
-/**
-    Look ahead in the parsed stream without advancing the current read location.
-    Stops on a non-ASCII character; all mark-up (that requires look-ahead) is
-    using ASCII characters.
-
-    @param h Reader handle
-    @param buf Buffer to read into
-    @param bufsz Buffer size
-    @return Number of characters read
-*/
-static size_t
-xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz)
-{
-    xml_reader_input_t *inp;
-    ucs4_t tmp[MAX_LOOKAHEAD_SIZE];
-    ucs4_t *ptr = tmp;
-    size_t i, nread;
-
-    OOPS_ASSERT(bufsz <= MAX_LOOKAHEAD_SIZE);
-
-    if ((inp = SLIST_FIRST(&h->active_input)) == NULL) {
-        return 0;
-    }
-    nread = strbuf_lookahead(inp->buf, ptr, bufsz * sizeof(ucs4_t));
-    OOPS_ASSERT((nread & 3) == 0); // input buf must have an integral number of characters
-    nread /= 4;
-    for (i = 0; i < nread; i++) {
-        if (*ptr >= 0x7F) {
-            break; // Non-ASCII
-        }
-        *buf++ = *ptr++;
-    }
-    return ptr - tmp;
-}
-
-/**
-    Look ahead and parse according to the list of expected tokens.
-
-    Note that content is a recursive production: it may contain element, which in turn
-    may contain content. We are processing this in a flat way (substituting loop for
-    recursion); instead, we just track the nesting level (to keep track if we're at
-    the root level or not). The proper nesting of STag/ETag cannot be checked with
-    this approach; it needs to be verified by a higher level, SAX or DOM. Higher level
-    is also responsible for checking that both STag/ETag belong to the same input by
-    keeping track when entity parsing started and ended.
-
-    @param h Reader handle
-    @param rootctx Root context
-    @return Nothing
-*/
-static prodres_t
-xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
-{
-    /// @todo Have lookahead read into tokenbuf? Do we need to use xml_lookahead() elsewhere?
-    utf8_t labuf[MAX_PATTERN];
-    const xml_reader_context_t *ctx;
-    const xml_reader_pattern_t *pat, *end;
-    size_t len;
-    prodres_t rv;
-
-    rv = PR_OK;
-    while (rv == PR_OK && !xml_eof(h)) {
-        len = xml_lookahead(h, labuf, sizeof(labuf));
-        ctx = h->nestlvl ? rootctx->nonroot : rootctx;
-        rv = PR_NOMATCH;
-        for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS;
-                pat < end && pat->func;
-                pat++) {
-            if (pat->patlen <= len && !memcmp(labuf, pat->pattern, pat->patlen)) {
-                rv = pat->func(h);
-                break;
-            }
-        }
-        if (xml_eof(h)) {
-            break;
-        }
-        if (rv == PR_NOMATCH && ctx->nomatch) {
-            rv = ctx->nomatch(h);
-        }
-    }
-    return xml_eof(h) ? PR_STOP : rv;
-}
-
-/**
     Reallocate token buffer.
 
     @param h Reader handle
@@ -684,6 +600,11 @@ xml_reader_input_unlock(xml_reader_t *h)
 {
     xml_reader_input_t *inp;
 
+    if (h->brokenlocks) {
+        h->brokenlocks--;
+        return true; // Already complained
+    }
+
     /*
         Productions lock/unlock inputs in a stack-like fashion. Normally, we
         should be in the same input when unlocking as we were when locking;
@@ -738,6 +659,138 @@ xml_reader_input_radvance(xml_reader_t *h, size_t sz)
     inp = SLIST_FIRST(&h->active_input);
     OOPS_ASSERT(inp && inp->buf);
     strbuf_radvance(inp->buf, sz);
+}
+
+/**
+    Check if reached the end of all inputs.
+
+    @param h Reader handle
+    @return True if all input is consumed
+*/
+static bool
+xml_eof(xml_reader_t *h)
+{
+    return SLIST_EMPTY(&h->active_input);
+}
+
+/**
+    Look ahead in the parsed stream without advancing the current read location.
+    Stops on a non-ASCII character; all mark-up (that requires look-ahead) is
+    using ASCII characters.
+
+    @param h Reader handle
+    @param buf Buffer to read into
+    @param bufsz Buffer size
+    @return Number of characters read
+*/
+static size_t
+xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz)
+{
+    xml_reader_input_t *inp;
+    ucs4_t tmp[MAX_LOOKAHEAD_SIZE];
+    ucs4_t *ptr = tmp;
+    size_t i, nread;
+    const void *begin, *end;
+
+    OOPS_ASSERT(bufsz <= MAX_LOOKAHEAD_SIZE);
+
+    while (true) {
+        if ((inp = SLIST_FIRST(&h->active_input)) == NULL) {
+            return 0;
+        }
+        nread = strbuf_lookahead(inp->buf, ptr, bufsz * sizeof(ucs4_t));
+        if (nread) {
+            break;
+        }
+        if (inp->locked) {
+            // We wanted more input to end an open production, but there's none.
+            // Break the lock (noting the number of the locks thus broken, to
+            // avoid complaining about them twice), issue an error message and retry.
+
+            /// @todo Consider lock tokens with callback functions with more
+            /// specific error info (i.e., which exact production locked the
+            /// input and most importantly where)
+            if (inp->external) {
+                xml_reader_message_current(h, inp->external->ctxt.errcode,
+                        "Fails to parse: does not match %s production",
+                        inp->external->ctxt.production);
+            }
+            else {
+                // Shouldn't be locking character references...
+                OOPS_ASSERT(inp->entity);
+                if (inp->entity->parameter) {
+                    xml_reader_message_current(h,
+                            XMLERR(ERROR, XML, VC_PROPER_DECL_PE_NESTING),
+                            "Fails to parse: parameter entities not properly nested");
+                }
+                else {
+                    xml_reader_message_current(h,
+                            XMLERR(ERROR, XML, P_content),
+                            "Fails to parse: does not match content production");
+                }
+            }
+            h->brokenlocks += inp->locked;
+            inp->locked = 0;
+        }
+        (void)xml_reader_input_rptr(h, &begin, &end); // Just drop empty inputs
+    }
+    OOPS_ASSERT((nread & 3) == 0); // input buf must have an integral number of characters
+    nread /= 4;
+    for (i = 0; i < nread; i++) {
+        if (*ptr >= 0x7F) {
+            break; // Non-ASCII
+        }
+        *buf++ = *ptr++;
+    }
+    return ptr - tmp;
+}
+
+/**
+    Look ahead and parse according to the list of expected tokens.
+
+    Note that content is a recursive production: it may contain element, which in turn
+    may contain content. We are processing this in a flat way (substituting loop for
+    recursion); instead, we just track the nesting level (to keep track if we're at
+    the root level or not). The proper nesting of STag/ETag cannot be checked with
+    this approach; it needs to be verified by a higher level, SAX or DOM. Higher level
+    is also responsible for checking that both STag/ETag belong to the same input by
+    keeping track when entity parsing started and ended.
+
+    @param h Reader handle
+    @param rootctx Root context
+    @return Nothing
+*/
+static prodres_t
+xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
+{
+    /// @todo Have lookahead read into tokenbuf? Do we need to use xml_lookahead() elsewhere?
+    utf8_t labuf[MAX_PATTERN];
+    const xml_reader_context_t *ctx;
+    const xml_reader_pattern_t *pat, *end;
+    size_t len;
+    prodres_t rv;
+
+    rv = PR_OK;
+    while (rv == PR_OK && !xml_eof(h)) {
+        len = xml_lookahead(h, labuf, sizeof(labuf));
+        ctx = h->nestlvl ? rootctx->nonroot : rootctx;
+        rv = PR_NOMATCH;
+        for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS;
+                pat < end && pat->func;
+                pat++) {
+            if (pat->patlen <= len && !memcmp(labuf, pat->pattern, pat->patlen)) {
+                rv = pat->func(h);
+                break;
+            }
+        }
+        if (xml_eof(h)) {
+            break;
+        }
+        if (rv == PR_NOMATCH && ctx->nomatch) {
+            rv = ctx->nomatch(h);
+        }
+    }
+    return xml_eof(h) ? PR_STOP : rv;
 }
 
 /**
@@ -1263,7 +1316,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 // Only complain once
                 h->flags &= ~READER_ASCII;
                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
-                        "Non-ASCII characters in %s", inp->external->declinfo->name);
+                        "Non-ASCII characters in %s", inp->external->ctxt.declinfo->name);
             }
             else if (!inp->charref && xml_is_restricted(cp0, h->current_entity->version)) {
                 // Ignore if it came from character reference (if it is prohibited,
@@ -2501,7 +2554,7 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
 static prodres_t
 xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
 {
-    const xml_reader_xmldecl_declinfo_t *declinfo = h->current_entity->declinfo;
+    const xml_reader_xmldecl_declinfo_t *declinfo = h->current_entity->ctxt.declinfo;
     const xml_reader_xmldecl_attrdesc_t *attrlist = declinfo->attrlist;
     xml_reader_cbparam_t cbp;
     utf8_t labuf[6]; // ['<?xml' + whitespace] or [?>]
@@ -3170,6 +3223,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     xml_reader_invoke_callback(h, &cbp);
 
     if (e) {
+        e->parameter = parameter;
         e->refrplclen = h->ucs4len * sizeof(ucs4_t);
         rplc = xmalloc(e->refrplclen);
         memcpy(rplc, h->ucs4buf, e->refrplclen);
@@ -3233,7 +3287,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     case PR_NOMATCH:
         // Must have EntityValue then
         h->ucs4len = 0;
-        if (xml_parse_literal(h, h->current_entity->entity_value_parser) != PR_OK) {
+        if (xml_parse_literal(h, h->current_entity->ctxt.entity_value_parser) != PR_OK) {
             goto malformed;
         }
         if (predef) {
@@ -3444,7 +3498,6 @@ xml_parse_doctypedecl(xml_reader_t *h)
     xml_reader_invoke_callback(h, &cbp);
 
     if (xml_parse_whitespace(h) == PR_OK) {
-        // Just notify the app, no callback
         rv = xml_parse_ExternalID(h, false, NULL, NULL, NULL);
         if (rv != PR_OK && rv != PR_NOMATCH) {
             return rv;
@@ -3464,22 +3517,29 @@ xml_parse_doctypedecl(xml_reader_t *h)
         xml_reader_invoke_callback(h, &cbp);
 
         // Parse internal subset. Any external entities therein are
-        // interpreted as external DTD subset.
-        h->ext_ctxt = CTXT_DTD_EXTERNAL_SUBSET;
+        // interpreted as external parameter entities.
+        h->ext_ctxt = CTXT_PARSED_PARAMETER_ENTITY;
         if (xml_parse_by_ctx(h, &parser_internal_subset) != PR_STOP) {
+            h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
             return PR_FAIL;
         }
-        h->ext_ctxt = CTXT_EXTERNAL_PARSED_ENTITY;
     }
 
     // Ignore optional whitespace before closing angle bracket
     (void)xml_parse_whitespace(h);
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
-        // The only case we're attempting recovery in doctypedecl
+        // The only case we're attempting recovery in doctypedecl. Restore
+        // context for future entities.
+        h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
         return xml_read_until_gt(h);
     }
+
+    // This is where the application will queue external subset for parsing
+    // if it wants to read it.
+    h->ext_ctxt = CTXT_DTD_EXTERNAL_SUBSET;
     cbp.cbtype = XML_READER_CB_DTD_END;
     xml_reader_invoke_callback(h, &cbp);
+    h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
     return PR_OK;
 }
 
@@ -3529,6 +3589,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
                 goto malformed;
             }
             is_empty = true;
+            xml_reader_input_unlock_assert(h);
             break;
         }
         else if (ucs4_cheq(h->rejected, '>')) {
@@ -3571,12 +3632,12 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     cbp.loc = h->lastreadloc;
     cbp.stag_end.is_empty = is_empty;
     xml_reader_invoke_callback(h, &cbp);
-    // TBD do not unlock until a matching ETag
-    xml_reader_input_unlock_assert(h);
+    // Do not unlock until a matching ETag
     return PR_OK;
 
 malformed:
-    // Try to recover by reading till end of opening tag
+    // Try to recover by reading till end of opening tag. Do not lock the input
+    // (as we don't know how broken the markup was).
     xml_read_until_gt(h);
     xml_reader_input_unlock_assert(h);
     return PR_OK;
@@ -3600,14 +3661,13 @@ xml_parse_ETag(xml_reader_t *h)
     xml_reader_cbparam_t cbp;
 
     xml_read_string_assert(h, "</");
-    xml_reader_input_lock(h);
+    // Locked by STag
     cbp.cbtype = XML_READER_CB_ETAG;
     cbp.loc = h->lastreadloc;
     if (xml_read_Name(h, 0) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_ETag),
                 "Expected element type");
-        // TBD do not unlock here? Since this does not look like a valid ETag...
         xml_reader_input_unlock_assert(h);
         return xml_read_until_gt(h);
     }
@@ -3619,10 +3679,8 @@ xml_parse_ETag(xml_reader_t *h)
     (void)xml_parse_whitespace(h); // optional whitespace
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag)) != PR_OK) {
         // Not terminated properly  - try to recover by skipping until closing bracket
-        xml_read_until_gt(h);
-        // TBD do not unlock here? Since this does not look like a valid ETag...
         xml_reader_input_unlock_assert(h);
-        return PR_OK;
+        return xml_read_until_gt(h);
     }
 
     // Do not decrement nest level if already at the root level. This document
@@ -3630,8 +3688,11 @@ xml_parse_ETag(xml_reader_t *h)
     if (h->nestlvl) {
         h->nestlvl--;
     }
-    // TBD check the return value and - if false, entity does not match 'content' production
-    xml_reader_input_unlock_assert(h);
+    if (!xml_reader_input_unlock(h)) {
+        // Error, no recovery needed
+        xml_reader_message(h, &cbp.loc, XMLERR(ERROR, XML, P_content),
+                "Replacement text for entity must match content production");
+    }
     return PR_OK;
 }
 
@@ -3726,6 +3787,34 @@ external_entity_end(xml_reader_t *h, void *arg)
     }
 }
 
+/// External entity contexts
+static const xml_reader_external_ctxt_t external_context[] = {
+    [CTXT_DOCUMENT_ENTITY] = {
+        .declinfo = &declinfo_xmldecl,
+        .entity_value_parser = &reference_ops_EntityValue_internal,
+        .errcode = XMLERR(ERROR, XML, P_document),
+        .production = "document",
+    },
+    [CTXT_DTD_EXTERNAL_SUBSET] = {
+        .declinfo = NULL,
+        .entity_value_parser = &reference_ops_EntityValue_external,
+        .errcode = XMLERR(ERROR, XML, P_extSubset),
+        .production = "extSubset",
+    },
+    [CTXT_PARSED_PARAMETER_ENTITY] = {
+        .declinfo = &declinfo_textdecl,
+        .entity_value_parser = &reference_ops_EntityValue_external,
+        .errcode = XMLERR(ERROR, XML, P_extSubset),
+        .production = "extSubset",
+    },
+    [CTXT_PARSED_GENERAL_ENTITY] = {
+        .declinfo = &declinfo_textdecl,
+        .entity_value_parser = NULL, // DTD not recognized
+        .errcode = XMLERR(ERROR, XML, P_content),
+        .production = "content",
+    },
+};
+
 /**
     Add an entity with the specified context.
 
@@ -3763,23 +3852,7 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
     inp->complete = external_entity_end;
     inp->complete_arg = ex;
 
-    switch (context) {
-    case CTXT_DOCUMENT_ENTITY:
-        ex->declinfo = &declinfo_xmldecl;
-        ex->entity_value_parser = &reference_ops_EntityValue_internal;
-        break;
-    case CTXT_DTD_EXTERNAL_SUBSET:
-        ex->declinfo = &declinfo_textdecl;
-        ex->entity_value_parser = &reference_ops_EntityValue_external;
-        break;
-    case CTXT_EXTERNAL_PARSED_ENTITY:
-        ex->declinfo = &declinfo_textdecl;
-        // ex->entity_value_parser has no meaning here (DTD is not recognized)
-        break;
-    default:
-        OOPS_UNREACHABLE;
-        break;
-    }
+    ex->ctxt = external_context[context];
 
     if (transport_encoding) {
         if (!xml_reader_set_encoding(ex, transport_encoding)) {
@@ -3812,37 +3885,48 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
         OOPS_ASSERT(rv);
     }
 
-    // Temporary reader state
-    xc.ex = ex;
-    xc.la_start = xc.initial;
-    xc.la_size = sizeof(xc.initial);
-    xc.la_avail = 0;
-    xc.la_offs = 0;
+    // External subset has no declaration
+    if (ex->ctxt.declinfo) {
+        // Temporary reader state
+        xc.ex = ex;
+        xc.la_start = xc.initial;
+        xc.la_size = sizeof(xc.initial);
+        xc.la_avail = 0;
+        xc.la_offs = 0;
 
-    strbuf_realloc(inp->buf, INITIAL_TOKENBUF_SIZE * sizeof(ucs4_t));
-    strbuf_setops(inp->buf, &xml_reader_initial_ops, &xc);
+        strbuf_realloc(inp->buf, INITIAL_TOKENBUF_SIZE * sizeof(ucs4_t));
+        strbuf_setops(inp->buf, &xml_reader_initial_ops, &xc);
 
-    // Parse the declaration; expect only ASCII
-    h->flags |= READER_ASCII;
-    switch (xml_parse_XMLDecl_TextDecl(h)) {
-    case PR_OK:
-        // Consumed declaration from the raw buffer; advance before setting
-        // permanent transcoding operations
-        strbuf_radvance(buf, xc.la_offs);
-        break;
-    case PR_NOMATCH:
-        // Nothing to do - just a document without declaration
-        break;
-    case PR_FAIL:
-        // Entity failed to parse in the declaration. Parsing the declaration
-        // shouldn't have created any new inputs or loaded new external entities.
-        // Keep the entity on the list of inputs which have been parsed.
-        goto failed;
-    default:
-        OOPS_UNREACHABLE;
-        break;
+        // Parse the declaration; expect only ASCII
+        /// @todo Declaration seems to be forbidden in external subset; do not even try for that
+        /// context
+        h->flags |= READER_ASCII;
+        switch (xml_parse_XMLDecl_TextDecl(h)) {
+        case PR_OK:
+            // Consumed declaration from the raw buffer; advance before setting
+            // permanent transcoding operations
+            strbuf_radvance(buf, xc.la_offs);
+            break;
+        case PR_NOMATCH:
+            // Nothing to do - just a document without declaration
+            break;
+        case PR_FAIL:
+            // Entity failed to parse in the declaration. Parsing the declaration
+            // shouldn't have created any new inputs or loaded new external entities.
+            // Keep the entity on the list of inputs which have been parsed.
+            goto failed;
+        default:
+            OOPS_UNREACHABLE;
+            break;
+        }
+        h->flags &= ~READER_ASCII;
+
+        // Done with the temporary buffer: free the memory buffer if it was reallocated
+        if (xc.la_start != xc.initial) {
+            xfree(xc.la_start);
+        }
+        strbuf_clear(inp->buf);
     }
-    h->flags &= ~READER_ASCII;
 
     // If there was no XML declaration, assume 1.0 (where XMLDecl is optional)
     /// @todo For external parsed entities, need to inherit version from including document
@@ -3854,11 +3938,6 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
     if (h->normalization == XML_READER_NORM_DEFAULT && context == CTXT_DOCUMENT_ENTITY) {
         h->normalization = (ex->version == XML_INFO_VERSION_1_0) ?
                 XML_READER_NORM_OFF : XML_READER_NORM_ON;
-    }
-
-    // Done with the temporary buffer: free the memory buffer if it was reallocated
-    if (xc.la_start != xc.initial) {
-        xfree(xc.la_start);
     }
 
     if (ex->enc_declared) {
@@ -3874,7 +3953,6 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
     // proceed with further decoding if READER_FATAL is reported). Clear any cached
     // content as new transcoding ops will re-parse the input at the offset right past
     // the XML declaration
-    strbuf_clear(inp->buf);
     strbuf_setops(inp->buf, &xml_reader_transcode_ops, ex);
 
     // Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
@@ -3909,7 +3987,7 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
         // Non-fatal: recover by using whatever encoding we detected
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "No external encoding information, no encoding in %s, content in %s encoding",
-                ex->declinfo->name, encoding_name(ex->enc));
+                ex->ctxt.declinfo->name, encoding_name(ex->enc));
     }
 
     return true;
@@ -3979,7 +4057,7 @@ void
 xml_reader_process(xml_reader_t *h)
 {
     // Any entities within are external parsed entities by default
-    h->ext_ctxt = CTXT_EXTERNAL_PARSED_ENTITY;
+    h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
 
     /// @todo Have 2nd argument saved in external info? Or have a separate func for pre-reading
     /// a standalone DTD?

@@ -1,0 +1,4 @@
+<!DOCTYPE foo [
+<!ENTITY x "<bar>baz</bar></foo>">
+]>
+<foo>Text &x;
