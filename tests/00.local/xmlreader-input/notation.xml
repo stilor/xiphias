@@ -1,0 +1,14 @@
+<!DOCTYPE zzz [
+<!NOTATION notated-pi1 SYSTEM "pi1.exe">
+<!NOTATION notated-pi2 PUBLIC "-//Owner//Public PI 2//EN" "pi2.exe">
+<!NOTATION notated-pi3 PUBLIC "-//Owner//Public PI 3//EN">
+<!NOTATION uent PUBLIC "-//Owner//Unparsed entity handler//EN" "uent.exe">
+<!ENTITY unparsed1 SYSTEM "uent1.pdf" NDATA uent>
+<!ENTITY unparsed2 PUBLIC "-//Owner/UENT//EN" "uent2.pdf" NDATA uent>
+]>
+<z>
+  <?notated-pi1?>
+  <?notated-pi2?>
+  <?notated-pi3?>
+  <?non-notated-pi?>
+</z>

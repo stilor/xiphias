@@ -61,7 +61,7 @@ enum xml_reader_cbtype_e {
     /// Comment (token: content; no extra data)
     XML_READER_CB_COMMENT,
 
-    /// PI target (token: target; no extra data)
+    /// PI target (token: target; extra data in .ndata)
     XML_READER_CB_PI_TARGET,
 
     /// PI content (token: content; no extra data)
@@ -81,6 +81,12 @@ enum xml_reader_cbtype_e {
 
     /// Definition of an entity finished (no token; no extra data)
     XML_READER_CB_ENTITY_DEF_END,
+
+    /// Definition of a notation started (token: entity name; no extra data)
+    XML_READER_CB_NOTATION_DEF_START,
+
+    /// Definition of a notation finished (no token; no extra data)
+    XML_READER_CB_NOTATION_DEF_END,
 
     /// Start of element (token: element type; no extra data)
     XML_READER_CB_STAG,
@@ -141,6 +147,12 @@ typedef struct {
     enum xml_info_standalone_e standalone;   ///< Is the document is declared standalone
 } xml_reader_cbparam_xmldecl_t;
 
+/// Parameter for PI target
+typedef struct {
+    const char *system_id;              ///< System ID for notation, if any
+    const char *public_id;              ///< Public ID for notation, if any
+} xml_reader_cbparam_ndata_t;
+
 /// Parameter for entity definition start
 typedef struct {
     bool parameter;                          ///< True if this is a parameter entity
@@ -173,6 +185,7 @@ typedef struct {
         xml_reader_cbparam_entity_t entity;       ///< Reference to an entity
         xml_reader_cbparam_append_t append;       ///< Text appended to a node
         xml_reader_cbparam_xmldecl_t xmldecl;     ///< XML or text declaration
+        xml_reader_cbparam_ndata_t ndata;         ///< XML or text declaration
         xml_reader_cbparam_entitydef_t entitydef; ///< XML or text declaration
         xml_reader_cbparam_stag_end_t stag_end;   ///< Start of element (STag) complete
         xml_reader_cbparam_attr_t attr;           ///< Attribute name
@@ -197,10 +210,13 @@ typedef void (*xml_reader_cb_t)(void *arg, xml_reader_cbparam_t *cbparam);
 typedef struct {
     /// Unicode normalization behavior
     enum xml_reader_normalization_e normalization;
-    bool loctrack;                   ///< Whether location tracking is enabled
-    size_t tabsize;                  ///< Tabulation size for location tracking
-    xml_reader_cb_t func;            ///< Callback function
-    void *arg;                       ///< Argument to callback function
+    bool loctrack;                      ///< Whether location tracking is enabled
+    size_t tabsize;                     ///< Tabulation size for location tracking
+    xml_reader_cb_t func;               ///< Callback function
+    void *arg;                          ///< Argument to callback function
+    size_t entity_hash_order;           ///< Log2(number of hash buckets for entities)
+    size_t notation_hash_order;         ///< Log2(number of hash buckets for notations)
+    size_t initial_tokenbuf;            ///< Initial size of the token buffer
 } xml_reader_options_t;
 
 void xml_reader_opts_default(xml_reader_options_t *opts);

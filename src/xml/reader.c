@@ -17,25 +17,10 @@
 #include "xml/reader.h"
 
 /**
-    Initial size of the read buffer (the buffer is to accommodate the longest
-    contiguous token). Each time this space is insufficient, it will be doubled.
-*/
-#define INITIAL_TOKENBUF_SIZE       1024
-
-/**
-    Size of storage for all element names, in hierarchical order as we descend into the
-    document. Each time it is insufficient, it is doubled.
-*/
-#define INITIAL_NAMESTACK_SIZE      1024
-
-/**
     Initial lookahead buffer size for parsing XML declaration. Each time it is
     insufficient, it is doubled.
 */
 #define INITIAL_DECL_LOOKAHEAD_SIZE 64
-
-/// Order (log2) of the hashes for entities
-#define ENTITY_HASH_ORDER           5
 
 /// Maximum number of characters to look ahead
 #define MAX_LOOKAHEAD_SIZE          16
@@ -54,6 +39,17 @@ enum {
     RECOGNIZE_PEREF = 0x0002,       ///< Reading next token will expand PEReference production
     SAVE_UCS4       = 0x0010,       ///< Also save UCS-4 codepoints
 };
+
+/// Notation information
+/// @todo Export this structure in reader.h? Unlike entities, notations are part of the infoset.
+/// Or store a pointer from a callback and pass back that pointer whenever that notation is used?
+/// (similar to what I planned for nested stack of elements)
+typedef struct xml_reader_notation_s {
+    const utf8_t *name;                     ///< Notation name
+    size_t namelen;                         ///< Notation name length in bytes
+    const char *system_id;                  ///< System ID of the notation
+    const char *public_id;                  ///< Public ID of the notation
+} xml_reader_notation_t;
 
 /// Context for adding new external entity to the document
 enum xml_reader_external_context_e {
@@ -77,8 +73,8 @@ typedef struct xml_reader_entity_s {
     enum xml_reader_reference_e type;       ///< Entity type
     const char *system_id;                  ///< System ID of the entity (NULL for internal)
     const char *public_id;                  ///< Public ID of the entity
-    const char *notation;                   ///< Notation name (unparsed entity)
     const char *location;                   ///< How input from this entity will be reported
+    xml_reader_notation_t *notation;        ///< Associated notation
     bool being_parsed;                      ///< Recursion detection: this entity is being parsed
     bool parameter;                         ///< Parameter entity
     const ucs4_t *rplc;                     ///< Replacement text
@@ -222,6 +218,7 @@ struct xml_reader_s {
 
     strhash_t *entities_param;      ///< Parameter entities
     strhash_t *entities_gen;        ///< General entities
+    strhash_t *notations;           ///< Notations
 
     SLIST_HEAD(,xml_reader_input_s) active_input;   ///< Currently active inputs
     SLIST_HEAD(,xml_reader_input_s) free_input;     ///< Free list of input structures
@@ -794,6 +791,42 @@ xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
 }
 
 /**
+    Allocate a new notation.
+
+    @param hash Hash with notations
+    @param name Notation name
+    @param namelen Notation name length
+    @return Newly allocated initialized notation
+*/
+static xml_reader_notation_t *
+xml_notation_new(strhash_t *ehash, const utf8_t *name, size_t namelen)
+{
+    xml_reader_notation_t *n;
+
+    n = xmalloc(sizeof(xml_reader_notation_t));
+    memset(n, 0, sizeof(xml_reader_notation_t));
+    n->name = strhash_setn(ehash, name, namelen, n);
+    n->namelen = namelen;
+    return n;
+}
+
+/**
+    Free an entity information structure.
+
+    @param arg Pointer to entity information structure
+    @return Nothing
+*/
+static void
+xml_notation_destroy(void *arg)
+{
+    xml_reader_notation_t *n = arg;
+
+    xfree(n->public_id);
+    xfree(n->system_id);
+    xfree(n);
+}
+
+/**
     Allocate a new entity.
 
     @param ehash Entity hash
@@ -828,7 +861,6 @@ xml_entity_destroy(void *arg)
 {
     xml_reader_entity_t *e = arg;
 
-    xfree(e->notation);
     xfree(e->public_id);
     xfree(e->system_id);
     xfree(e->refrplc);
@@ -948,6 +980,9 @@ static const xml_reader_options_t opts_default = {
     .tabsize = 8,
     .func = dummy_callback,
     .arg = NULL,
+    .entity_hash_order = 6,
+    .notation_hash_order = 4,
+    .initial_tokenbuf = 1024,
 };
 
 /**
@@ -989,16 +1024,18 @@ xml_reader_new(const xml_reader_options_t *opts)
     h->standalone = XML_INFO_STANDALONE_NO_VALUE;
     h->normalization = opts->normalization;
 
-    h->tokenbuf = xmalloc(INITIAL_TOKENBUF_SIZE);
-    h->tokenbuf_end = h->tokenbuf + INITIAL_TOKENBUF_SIZE;
+    h->tokenbuf = xmalloc(opts->initial_tokenbuf);
+    h->tokenbuf_end = h->tokenbuf + opts->initial_tokenbuf;
     h->tokenlen = 0;
 
     SLIST_INIT(&h->active_input);
     SLIST_INIT(&h->free_input);
     SLIST_INIT(&h->external);
 
-    h->entities_param = strhash_create(ENTITY_HASH_ORDER, xml_entity_destroy);
-    h->entities_gen = strhash_create(ENTITY_HASH_ORDER, xml_entity_destroy);
+    h->entities_param = strhash_create(opts->entity_hash_order, xml_entity_destroy);
+    h->entities_gen = strhash_create(opts->entity_hash_order, xml_entity_destroy);
+    h->notations = strhash_create(opts->notation_hash_order, xml_notation_destroy);
+
     xml_entity_populate(h->entities_gen);
 
     return h;
@@ -1030,6 +1067,7 @@ xml_reader_delete(xml_reader_t *h)
 
     strhash_destroy(h->entities_param);
     strhash_destroy(h->entities_gen);
+    strhash_destroy(h->notations);
 
     xfree(h->tokenbuf);
     xfree(h->ucs4buf);
@@ -1898,9 +1936,6 @@ entity_input_end(xml_reader_t *h, void *arg)
     xml_reader_entity_t *e = inp->entity;
     xml_reader_cbparam_t cbp;
 
-    /// @todo It would probably be useful to pass the entity name again to the callback;
-    /// for that, strhash_set/setn need to return a pointer to permanent key string, which
-    /// needs to be stored back into xml_reader_entity_t.
     cbp.cbtype = XML_READER_CB_ENTITY_END;
     cbp.token.str = e->name;
     cbp.token.len = e->namelen;
@@ -1910,8 +1945,6 @@ entity_input_end(xml_reader_t *h, void *arg)
     cbp.entity.public_id = e->public_id;
     cbp.entity.baton = inp->baton;
 
-    /// @todo Ideally, this initialization should look something like:
-    /// @code XML_INVOKE_CALLBACK(ENTITY_END, h->curloc, NOTOKEN, .type = e->type, ...) @endcode
     xml_reader_invoke_callback(h, &cbp);
 
     inp->entity->being_parsed = false;
@@ -2844,6 +2877,7 @@ static prodres_t
 xml_parse_PI(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
+    xml_reader_notation_t *n;
 
     xml_read_string_assert(h, "<?");
     xml_reader_input_lock(h);
@@ -2858,8 +2892,13 @@ xml_parse_PI(xml_reader_t *h)
     }
     /// @todo Check for XML-reserved names ([Xx][Mm][Ll]*)
 
+    // "The XML Notation mechanism may be used for formal declaration of PI targets"
+    // If it was, report notation's system and public IDs.
     cbp.token.str = h->tokenbuf;
     cbp.token.len = h->tokenlen;
+    n = strhash_getn(h->notations, h->tokenbuf, h->tokenlen);
+    cbp.ndata.public_id = n ? n->public_id : NULL;
+    cbp.ndata.system_id = n ? n->system_id : NULL;
     xml_reader_invoke_callback(h, &cbp);
 
     // Content, if any, must be separated by a whitespace
@@ -3057,11 +3096,12 @@ static prodres_t
 xml_parse_elementdecl(xml_reader_t *h)
 {
     /// @todo Implement
-    return PR_FAIL;
+    xml_read_until(h, xml_cb_gt, NULL, 0);
+    return PR_OK;
 }
 
 /**
-    Parse attribute list declaration (elementdecl).
+    Parse attribute list declaration (AttlistDecl).
 
     @verbatim
     AttlistDecl    ::= '<!ATTLIST' S Name AttDef* S? '>'
@@ -3083,7 +3123,8 @@ static prodres_t
 xml_parse_AttlistDecl(xml_reader_t *h)
 {
     /// @todo Implement
-    return PR_FAIL;
+    xml_read_until(h, xml_cb_gt, NULL, 0);
+    return PR_OK;
 }
 
 /**
@@ -3145,6 +3186,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
     xml_reader_entity_t *e = NULL;
+    xml_reader_notation_t *n;
     xml_reader_entity_t *eold;
     const xml_predefined_entity_t *predef;
     strhash_t *ehash = h->entities_gen;
@@ -3223,6 +3265,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     xml_reader_invoke_callback(h, &cbp);
 
     if (e) {
+        // TBD ucs4buf only saved for general entities - does this copy a stale replacement?
         e->parameter = parameter;
         e->refrplclen = h->ucs4len * sizeof(ucs4_t);
         rplc = xmalloc(e->refrplclen);
@@ -3256,19 +3299,32 @@ xml_parse_EntityDecl(xml_reader_t *h)
                 if (xml_read_string(h, "NDATA", XMLERR(ERROR, XML, P_EntityDecl)) != PR_OK) {
                     goto malformed;
                 }
+                if (xml_parse_whitespace(h) != PR_OK) {
+                    xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
+                            "Expect whitespace here");
+                    goto malformed;
+                }
                 if (xml_read_Name(h, 0) != PR_OK) {
                     xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                             "Expect notation name here");
                     goto malformed;
                 }
+                if ((n = strhash_getn(h->notations, h->tokenbuf,  h->tokenlen)) == NULL) {
+                    xml_reader_message_lastread(h, XMLERR(ERROR, XML, VC_NOTATION_DECLARED),
+                            "Notation must be declared");
+                    goto malformed;
+                }
+                if (e) {
+                    e->notation = n;
+                    e->type = XML_READER_REF_UNPARSED;
+                }
                 cbp.cbtype = XML_READER_CB_NDATA;
                 cbp.loc = h->lastreadloc;
                 cbp.token.str = h->tokenbuf;
                 cbp.token.len = h->tokenlen;
-                if (e) {
-                    e->notation = utf8_ndup(h->tokenbuf, h->tokenlen);
-                    e->type = XML_READER_REF_UNPARSED;
-                }
+                cbp.ndata.system_id = n->system_id;
+                cbp.ndata.public_id = n->public_id;
+                xml_reader_invoke_callback(h, &cbp);
             }
             else {
                 if (e) {
@@ -3347,9 +3403,41 @@ compatible:
 malformed:
     if (e) {
         // Remove the entity from the hash
-        strhash_set(ehash, e->name, NULL);
+        strhash_setn(ehash, e->name, e->namelen, NULL);
     }
     return xml_read_until_gt(h);
+}
+
+/**
+    Helper function: record public ID for a notation.
+
+    @param arg Notation pointer (cast to void)
+    @param s String with public ID
+    @param len Length of the public ID string
+    @return Nothing
+*/
+static void
+notation_set_pubid(void *arg, const utf8_t *s, size_t len)
+{
+    xml_reader_notation_t *n = arg;
+
+    n->public_id = utf8_ndup(s, len);
+}
+
+/**
+    Helper function: record system ID for a notation.
+
+    @param arg Notation pointer (cast to void)
+    @param s String with system ID
+    @param len Length of the system ID string
+    @return Nothing
+*/
+static void
+notation_set_sysid(void *arg, const utf8_t *s, size_t len)
+{
+    xml_reader_notation_t *n = arg;
+
+    n->system_id = utf8_ndup(s, len);
 }
 
 /**
@@ -3367,9 +3455,76 @@ malformed:
 static prodres_t
 xml_parse_NotationDecl(xml_reader_t *h)
 {
-    /// @todo Implement
+    xml_reader_cbparam_t cbp;
+    xml_reader_notation_t *n = NULL;
+
     // TBD use lock/unlock and check unlock's retval for proper nesting
-    return PR_FAIL;
+    xml_read_string_assert(h, "<!NOTATION");
+    cbp.cbtype = XML_READER_CB_NOTATION_DEF_START;
+    cbp.loc = h->lastreadloc;
+
+    if (xml_parse_whitespace(h) != PR_OK) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_NotationDecl),
+                "Expect whitespace here");
+        goto malformed;
+    }
+    if (xml_read_Name(h, 0) != PR_OK) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
+                "Expect notation name here");
+        goto malformed;
+    }
+    if (strhash_getn(h->notations, h->tokenbuf, h->tokenlen) != NULL) {
+        xml_reader_message_lastread(h, XMLERR(ERROR, XML, VC_UNIQUE_NOTATION_NAME),
+                "Given Name must not be declared in more than one notation declaration");
+        goto malformed;
+    }
+    n = xml_notation_new(h->notations, h->tokenbuf, h->tokenlen);
+    cbp.token.str = h->tokenbuf;
+    cbp.token.len = h->tokenlen;
+    xml_reader_invoke_callback(h, &cbp);
+
+    if (xml_parse_whitespace(h) != PR_OK) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
+                "Expect whitespace here");
+        goto malformed;
+    }
+
+    switch (xml_parse_ExternalID(h, true, notation_set_pubid, notation_set_sysid, n)) {
+    case PR_FAIL:
+        // Error already provided
+        goto malformed;
+
+    case PR_NOMATCH:
+        // For notations, system and/or public IDs are mandatory
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_NotationDecl),
+                "Expect ExternalID or PublicID here");
+        goto malformed;
+
+    case PR_OK:
+        break;
+
+    default:
+        OOPS_UNREACHABLE;
+    }
+
+    // Optional whitespace and closing angle bracket
+    (void)xml_parse_whitespace(h);
+    if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_NotationDecl)) != PR_OK) {
+        goto malformed;
+    }
+    cbp.cbtype = XML_READER_CB_NOTATION_DEF_END;
+    cbp.loc = h->lastreadloc;
+    cbp.token.str = NULL;
+    cbp.token.len = 0;
+    xml_reader_invoke_callback(h, &cbp);
+    return PR_OK;
+
+malformed:
+    if (n) {
+        // Remove the notation from the hash
+        strhash_setn(h->notations, n->name, n->namelen, NULL);
+    }
+    return xml_read_until_gt(h);
 }
 
 /**
@@ -3894,7 +4049,7 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
         xc.la_avail = 0;
         xc.la_offs = 0;
 
-        strbuf_realloc(inp->buf, INITIAL_TOKENBUF_SIZE * sizeof(ucs4_t));
+        strbuf_realloc(inp->buf, INITIAL_DECL_LOOKAHEAD_SIZE * sizeof(ucs4_t));
         strbuf_setops(inp->buf, &xml_reader_initial_ops, &xc);
 
         // Parse the declaration; expect only ASCII

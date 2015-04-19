@@ -59,6 +59,7 @@ enum xmlerr_spec_e {
           XMLERR_DEF(XML, P_ExternalID) \
           XMLERR_DEF(XML, P_EntityDecl) \
           XMLERR_DEF(XML, P_EntityValue) \
+          XMLERR_DEF(XML, P_NotationDecl) \
           XMLERR_DEF(XML, P_extSubset) \
           /* Other errors and recommendations (spelled in text of the spec) */ \
           XMLERR_DEF(XML, ENCODING_ERROR) \
@@ -79,7 +80,9 @@ enum xmlerr_spec_e {
           XMLERR_DEF(XML, WFC_NO_RECURSION) \
           XMLERR_DEF(XML, WFC_IN_DTD) \
           /* Validity constraints */ \
-          XMLERR_DEF(XML, VC_PROPER_DECL_PE_NESTING)
+          XMLERR_DEF(XML, VC_PROPER_DECL_PE_NESTING) \
+          XMLERR_DEF(XML, VC_NOTATION_DECLARED) \
+          XMLERR_DEF(XML, VC_UNIQUE_NOTATION_NAME)
           
 
 /**

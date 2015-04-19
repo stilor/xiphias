@@ -85,6 +85,8 @@ static const enumval_t enumval_cbtype[] = {
     E(XML_READER_CB_DTD_END, "DTD end")
     E(XML_READER_CB_ENTITY_DEF_START, "Start entity definition")
     E(XML_READER_CB_ENTITY_DEF_END, "End entity definition")
+    E(XML_READER_CB_NOTATION_DEF_START, "Start notation definition")
+    E(XML_READER_CB_NOTATION_DEF_END, "End notation definition")
     E(XML_READER_CB_STAG, "Start tag")
     E(XML_READER_CB_STAG_END, "Start tag complete")
     E(XML_READER_CB_ETAG, "End tag")

@@ -62,7 +62,7 @@ string_escape_utf8(const utf8_t *s, size_t len)
         if (*sx >= 0x7F) {
             nlen += 4; // \xHH
         }
-        else if (*sx == '"' || *sx == '\\') {
+        else if (*sx == '"' || *sx == '\\' || *sx == '\n' || *sx == '\t') {
             nlen += 2;
         }
         else {
@@ -75,6 +75,16 @@ string_escape_utf8(const utf8_t *s, size_t len)
         if (*sx >= 0x7F) {
             sprintf(px, "\\x%02X", *sx);
             px += 4;
+            continue;
+        }
+        if (*sx == '\n') {
+            *px++ = '\\';
+            *px++ = 'n';
+            continue;
+        }
+        if (*sx == '\t') {
+            *px++ = '\\';
+            *px++ = 't';
             continue;
         }
         if (*sx == '"' || *sx == '\\') {
@@ -111,6 +121,9 @@ string_escape_utf8(const utf8_t *s, size_t len)
 } while (0)
 
 // Supporting functions: print event data
+
+// MESSAGE
+
 static void
 evprint_message(const xml_reader_cbparam_t *cbparam)
 {
@@ -165,6 +178,8 @@ evequal_message(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
             && x1->info == x2->info;
 }
 
+// ENTITY_{UNKNOWN,START,END}
+
 static void
 evprint_entity(const xml_reader_cbparam_t *cbparam)
 {
@@ -200,6 +215,8 @@ evequal_entity(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
             && str_null_or_equal(x1->public_id, x2->public_id);
 }
 
+// XMLDECL
+
 static void
 evprint_xmldecl(const xml_reader_cbparam_t *cbparam)
 {
@@ -232,6 +249,8 @@ evequal_xmldecl(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
             && x1->version == x2->version;
 }
 
+// ENTITY_DEF_START
+
 static void
 evprint_entitydef(const xml_reader_cbparam_t *cbparam)
 {
@@ -256,6 +275,44 @@ evequal_entitydef(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2
 
     return x1->parameter == x2->parameter;
 }
+
+// NDATA, PI_TARGET
+
+static void
+evprint_ndata(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_ndata_t *x = &cbparam->ndata;
+    bool comma = false;
+
+    if (x->system_id) {
+        printf("system ID '%s'", x->system_id);
+        comma = true;
+    }
+    if (x->public_id) {
+        printf("%spublic ID '%s'", comma ? ", " : "", x->public_id);
+    }
+}
+
+static void
+evgenc_ndata(const xml_reader_cbparam_t *cbparam)
+{
+    const xml_reader_cbparam_ndata_t *x = &cbparam->ndata;
+
+    FIELD_STR_OR_NULL(x, system_id);
+    FIELD_STR_OR_NULL(x, public_id);
+}
+
+static bool
+evequal_ndata(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    const xml_reader_cbparam_ndata_t *x1 = &e1->ndata;
+    const xml_reader_cbparam_ndata_t *x2 = &e2->ndata;
+
+    return str_null_or_equal(x1->system_id, x2->system_id)
+            && str_null_or_equal(x1->public_id, x2->public_id);
+}
+
+// APPEND, CDSECT
 
 static void
 evprint_append(const xml_reader_cbparam_t *cbparam)
@@ -284,6 +341,8 @@ evequal_append(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
     return x1->ws == x2->ws;
 }
 
+// STAG_END
+
 static void
 evprint_stag_end(const xml_reader_cbparam_t *cbparam)
 {
@@ -308,6 +367,8 @@ evequal_stag_end(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
 
     return x1->is_empty == x2->is_empty;
 }
+
+// ATTR
 
 static void
 evprint_attr(const xml_reader_cbparam_t *cbparam)
@@ -367,6 +428,8 @@ static const event_t events[] = {
     X(DTD_END)
     X(ENTITY_DEF_START)
     X(ENTITY_DEF_END)
+    X(NOTATION_DEF_START)
+    X(NOTATION_DEF_END)
     X(STAG)
     X(STAG_END)
     X(ETAG)
