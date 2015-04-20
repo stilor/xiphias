@@ -9,8 +9,8 @@
 #define __util_strhash_h_
 
 #include <stddef.h>
-#include "unicode.h"
-#include "defs.h"
+
+#include "util/defs.h"
 
 /// Opaque hash for string storage
 typedef struct strhash_s strhash_t;
@@ -20,19 +20,7 @@ typedef void (*strhash_payload_destroy_cb_t)(void *);
 
 strhash_t *strhash_create(unsigned int order, strhash_payload_destroy_cb_t payload_destroy);
 void strhash_destroy(strhash_t *hash);
-const utf8_t *strhash_setn(strhash_t *hash, const utf8_t *s, size_t len, void *payload);
-void *strhash_getn(strhash_t *hash, const utf8_t *s, size_t len);
-
-static inline const utf8_t *
-strhash_set(strhash_t *hash, const utf8_t *s, void *payload)
-{
-    return strhash_setn(hash, s, utf8_len(s), payload);
-}
-
-static inline void *
-strhash_get(strhash_t *hash, const utf8_t *s)
-{
-    return strhash_getn(hash, s, utf8_len(s));
-}
+const void *strhash_set(strhash_t *hash, const void *s, size_t len, void *payload);
+void *strhash_get(strhash_t *hash, const void *s, size_t len);
 
 #endif

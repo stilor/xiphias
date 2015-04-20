@@ -12,7 +12,7 @@
 #include <stdint.h>
 
 #include "util/strbuf.h"
-#include "util/unicode.h"
+#include "unicode/unicode.h"
 
 #include "infoset.h"
 #include "xmlerr.h"

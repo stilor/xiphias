@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include "util/strhash.h"
 #include "util/opt.h"
+#include "unicode/unicode.h"
 #include "test/testlib.h"
 
 typedef uint32_t obj_t;
@@ -29,7 +30,7 @@ check_expected(strhash_t *hash, const char *msg)
 
     for (i = 0; i < sizeofarray(objects); i++) {
         snprintf((char *)buf, sizeof(buf), "obj%zu", i);
-        o = strhash_get(hash, buf);
+        o = strhash_get(hash, buf, utf8_len(buf));
         if (o != expected_ptr[i]) {
             printf("[%s] Expect handle %p for '%s', got %p\n", msg, expected_ptr[i], buf, o);
             return false;
@@ -53,7 +54,7 @@ test_hash(void)
     hash = strhash_create(3, test_cb);
     for (i = 0; i < sizeofarray(objects); i++) {
         snprintf((char *)buf, sizeof(buf), "obj%zu", i);
-        strhash_set(hash, buf, &objects[i]);
+        strhash_set(hash, buf, utf8_len(buf), &objects[i]);
         expected_ptr[i] = &objects[i];
     }
     if (!check_expected(hash, "init")) {
@@ -61,14 +62,14 @@ test_hash(void)
     }
 
     memset(objects, 0, sizeof(objects));
-    strhash_set(hash, U"obj4", &objects[7]);
+    strhash_set(hash, U"obj4", 4, &objects[7]);
     expected_ptr[4] = &objects[7];
     expected_val[4] = 1;
     if (!check_expected(hash, "4 <- 7")) {
         return FAIL;
     }
 
-    strhash_set(hash, U"obj9", NULL);
+    strhash_set(hash, U"obj9", 4, NULL);
     expected_ptr[9] = NULL;
     expected_val[9] = 1;
     if (!check_expected(hash, "9 <- NULL")) {

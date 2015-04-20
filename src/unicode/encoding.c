@@ -10,8 +10,8 @@
 #include "util/xutil.h"
 #include "util/strbuf.h"
 
-#include "util/encoding.h"
-#include "util/unicode.h"
+#include "unicode/unicode.h"
+#include "unicode/encoding.h"
 
 /// Head of encoding list
 typedef STAILQ_HEAD(encoding_list_s, encoding_link_s) encoding_list_t;

@@ -5,11 +5,11 @@
     USC-4 character database definitions. Should not be included directly,
     only via <unicode.h>.
 */
-#ifndef __util_ucs4data_h_
-#define __util_ucs4data_h_
+#ifndef __unicode_ucs4data_h_
+#define __unicode_ucs4data_h_
 
-#ifndef __util_unicode_h_
-#error "This file must be included via <unicode.h>"
+#ifndef __unicode_unicode_h_
+#error "This file must be included via <unicode/unicode.h>"
 #endif
 
 #include <stdint.h>

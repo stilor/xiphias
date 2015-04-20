@@ -63,18 +63,18 @@ docs: Doxyfile.tmpl
 	sed 's,@GENERATED@,$(GENERATED),g' $< > build/Doxyfile
 	doxygen build/Doxyfile
 
-build/outputs.mk: outputs.conf genbuild.py
+build/outputs.mk: outputs.conf scripts/gen_outputs.py
 	mkdir -p build
-	python genbuild.py -o $@ $<
+	python scripts/gen_outputs.py -o $@ $<
 
 # Generated files.
 # TBD: generate in build/?
 # TBD: dependency on the input, and generate one file per codepage? Then how to get this list into output.conf?
-src/util/encoding-codepages.c: src/util/unicode/gen_codepage.py
-	python $< $@
+src/unicode/encoding-codepages.c: scripts/gen_codepage.py
+	python $< src/unicode/data $@
 
-src/util/ucs4data.c: src/util/unicode/gen_unicode_data.py
-	python $< src/util/unicode/UCD $@
+src/unicode/ucs4data.c: scripts/gen_unicode_data.py
+	python $< src/unicode/data $@
 
 __makefiles	:= Makefile build/outputs.mk
 -include build/outputs.mk

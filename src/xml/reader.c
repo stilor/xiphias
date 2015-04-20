@@ -11,8 +11,9 @@
 #include "util/xutil.h"
 #include "util/strbuf.h"
 #include "util/strhash.h"
-#include "util/encoding.h"
-#include "util/unicode.h"
+
+#include "unicode/encoding.h"
+#include "unicode/unicode.h"
 
 #include "xml/reader.h"
 
@@ -805,7 +806,7 @@ xml_notation_new(strhash_t *ehash, const utf8_t *name, size_t namelen)
 
     n = xmalloc(sizeof(xml_reader_notation_t));
     memset(n, 0, sizeof(xml_reader_notation_t));
-    n->name = strhash_setn(ehash, name, namelen, n);
+    n->name = strhash_set(ehash, name, namelen, n);
     n->namelen = namelen;
     return n;
 }
@@ -842,7 +843,7 @@ xml_entity_new(strhash_t *ehash, const utf8_t *name, size_t namelen)
 
     e = xmalloc(sizeof(xml_reader_entity_t));
     memset(e, 0, sizeof(xml_reader_entity_t));
-    e->name = strhash_setn(ehash, name, namelen, e);
+    e->name = strhash_set(ehash, name, namelen, e);
     e->namelen = namelen;
     s = utf8_strtolocal(e->name);
     e->location = xasprintf("entity(%s)", s);
@@ -2172,11 +2173,11 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
 
         case XML_READER_REF_GENERAL:
             // Clarify the type
-            e = strhash_getn(h->entities_gen, h->tokenbuf, h->tokenlen);
+            e = strhash_get(h->entities_gen, h->tokenbuf, h->tokenlen);
             break;
 
         case XML_READER_REF_PARAMETER:
-            e = strhash_getn(h->entities_param, h->tokenbuf, h->tokenlen);
+            e = strhash_get(h->entities_param, h->tokenbuf, h->tokenlen);
             break;
 
         default:
@@ -2896,7 +2897,7 @@ xml_parse_PI(xml_reader_t *h)
     // If it was, report notation's system and public IDs.
     cbp.token.str = h->tokenbuf;
     cbp.token.len = h->tokenlen;
-    n = strhash_getn(h->notations, h->tokenbuf, h->tokenlen);
+    n = strhash_get(h->notations, h->tokenbuf, h->tokenlen);
     cbp.ndata.public_id = n ? n->public_id : NULL;
     cbp.ndata.system_id = n ? n->system_id : NULL;
     xml_reader_invoke_callback(h, &cbp);
@@ -3243,7 +3244,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     // ...
     //  For interoperability, valid XML documents SHOULD declare these [predefined]
     // entities, like any others, before using them.
-    if ((eold = strhash_getn(ehash, h->tokenbuf, h->tokenlen)) != NULL) {
+    if ((eold = strhash_get(ehash, h->tokenbuf, h->tokenlen)) != NULL) {
         // We have a previous definition. If it is predefined, we'll verify validity
         // of the replacement text later; predefined entities may be re-declared once
         // by the document without warning. 
@@ -3309,7 +3310,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
                             "Expect notation name here");
                     goto malformed;
                 }
-                if ((n = strhash_getn(h->notations, h->tokenbuf,  h->tokenlen)) == NULL) {
+                if ((n = strhash_get(h->notations, h->tokenbuf,  h->tokenlen)) == NULL) {
                     xml_reader_message_lastread(h, XMLERR(ERROR, XML, VC_NOTATION_DECLARED),
                             "Notation must be declared");
                     goto malformed;
@@ -3403,7 +3404,7 @@ compatible:
 malformed:
     if (e) {
         // Remove the entity from the hash
-        strhash_setn(ehash, e->name, e->namelen, NULL);
+        strhash_set(ehash, e->name, e->namelen, NULL);
     }
     return xml_read_until_gt(h);
 }
@@ -3473,7 +3474,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
                 "Expect notation name here");
         goto malformed;
     }
-    if (strhash_getn(h->notations, h->tokenbuf, h->tokenlen) != NULL) {
+    if (strhash_get(h->notations, h->tokenbuf, h->tokenlen) != NULL) {
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, VC_UNIQUE_NOTATION_NAME),
                 "Given Name must not be declared in more than one notation declaration");
         goto malformed;
@@ -3522,7 +3523,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
 malformed:
     if (n) {
         // Remove the notation from the hash
-        strhash_setn(h->notations, n->name, n->namelen, NULL);
+        strhash_set(h->notations, n->name, n->namelen, NULL);
     }
     return xml_read_until_gt(h);
 }

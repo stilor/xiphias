@@ -13,12 +13,14 @@
         hexadecimal digits).
 */
 #include <string.h>
+
 #include "util/defs.h"
 #include "util/xutil.h"
-#include "util/unicode.h"
 #include "util/strbuf.h"
 
-#include "testlib.h"
+#include "unicode/unicode.h"
+
+#include "test/testlib.h"
 
 /// State of the substitution
 enum subst_mode_e {

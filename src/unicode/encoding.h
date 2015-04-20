@@ -5,13 +5,13 @@
     Encoding implementation interface and registry.
 */
 
-#ifndef __util_encoding_h_
-#define __util_encoding_h_
+#ifndef __unicode_encoding_h_
+#define __unicode_encoding_h_
 
-#include "defs.h"
-#include "queue.h"
-#include "strbuf.h"
-#include "unicode.h"
+#include "util/defs.h"
+#include "util/queue.h"
+#include "util/strbuf.h"
+#include "unicode/unicode.h"
 
 /// Types of encoding compatibility
 enum encoding_compat_e {

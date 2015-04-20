@@ -5,10 +5,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "util/strbuf.h"
-#include "util/encoding.h"
-#include "util/unicode.h"
 #include "util/xutil.h"
+#include "util/strbuf.h"
+#include "unicode/encoding.h"
+#include "unicode/unicode.h"
 #include "test/testlib.h"
 
 static const encoding_t enc_fake_UTF8 = {

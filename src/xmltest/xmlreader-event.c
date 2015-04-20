@@ -6,11 +6,13 @@
 #include <string.h>
 
 #include "util/strbuf.h"
-#include "util/encoding.h"
 #include "util/xutil.h"
-#include "xml/reader.h"
-#include "xmltest/enum.h"
 
+#include "unicode/encoding.h"
+
+#include "xml/reader.h"
+
+#include "xmltest/enum.h"
 #include "xmltest/xmlreader-event.h"
 
 /// Per-event methods

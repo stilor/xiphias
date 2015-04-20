@@ -20,7 +20,7 @@ typedef struct item_s {
     size_t len;                 ///< Length of the string
     uint32_t hval;              ///< Hash value of the string
     void *payload;              ///< Actual structure stored
-    utf8_t key[];               ///< String used as a key
+    uint8_t key[];              ///< String used as a key
 } item_t;
 
 /// Bucket in a storage
@@ -92,14 +92,15 @@ strhash_destroy(strhash_t *hash)
 
     @param hash String-keyed hash
     @param key Key to the hash. It must not contain NUL characters
-        inside the string, but may not be NUL-terminated.
+        inside the string, but may not be NUL-terminated. It is tailored for NUL-terminated
+        strings (char, utf8_t) but can use any binary blobs as a key.
     @param len Length of the key string
     @param payload Value to store in the hash
     @return Pointer to the "permanent" key string (that is stored in hash as long as the
         item itself), NUL-terminated.
 */
-const utf8_t *
-strhash_setn(strhash_t *hash, const utf8_t *key, size_t len, void *payload)
+const void *
+strhash_set(strhash_t *hash, const void *key, size_t len, void *payload)
 {
     uint32_t hval = murmurhash32(key, len);
     bucket_t *bucket = &hash->buckets[hval & hash->bucket_mask];
@@ -152,7 +153,7 @@ strhash_setn(strhash_t *hash, const utf8_t *key, size_t len, void *payload)
     @return Nothing.
 */
 void *
-strhash_getn(strhash_t *hash, const utf8_t *key, size_t len)
+strhash_get(strhash_t *hash, const void *key, size_t len)
 {
     uint32_t hval = murmurhash32(key, len);
     bucket_t *bucket = &hash->buckets[hval & hash->bucket_mask];

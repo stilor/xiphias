@@ -13,7 +13,7 @@
 #include "util/defs.h"
 #include "util/strbuf.h"
 #include "util/opt.h"
-#include "util/unicode.h"
+#include "unicode/unicode.h"
 
 /// Test outcome
 typedef enum result_e {

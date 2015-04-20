@@ -68,7 +68,7 @@ class CodeRange(object):
         self.last = last
 
 def read_data(fname):
-    f = open(os.path.join(ucd_db_path, "%s.txt" % fname))
+    f = open(os.path.join(ucd_db_path, "UCD/%s.txt" % fname))
     for l in f:
         idx = l.find("#")
         if idx != -1:

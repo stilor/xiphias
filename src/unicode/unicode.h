@@ -4,13 +4,13 @@
 /** @file
     Unicode functions
 */
-#ifndef __util_unicode_h_
-#define __util_unicode_h_
+#ifndef __unicode_unicode_h_
+#define __unicode_unicode_h_
 
 #include <stdint.h>
 #include <string.h>
 
-#include "xutil.h"
+#include "util/xutil.h"
 
 /// Character indicating an error or unrecognized byte in the stream
 #define UCS4_REPLACEMENT_CHARACTER   0xFFFD
