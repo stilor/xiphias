@@ -65,15 +65,47 @@ enum {
 /// Values for NFC_QC ("Quick Check for Normalization Form C") property
 enum {
     UCS4_NFC_QC_Y,  ///< Character allowed in NFC
-    UCS4_NFC_QC_N,  ///< Characyer not allowed in NFC
-    UCS4_NFC_QC_M,  ///< Characyer may be allowed in NFC (needs full check)
+    UCS4_NFC_QC_N,  ///< Character not allowed in NFC
+    UCS4_NFC_QC_M,  ///< Character may be allowed in NFC (needs full check)
 };
 
+
+/**
+    Canonical decompositions for all characters. Indexed by .decomp_idx
+    field, length of the decomposition is in .decomp_cnt.
+*/
 extern const ucs4_t ucs4_full_decomp[];
+
+/**
+    List of characters that can compose if a given character C follows them.
+    The .comp_idx gives the index of the pair of characters (A,B) that
+    (A,C) is canonically equivalent to (B). .comp_cnt is number of such pairs.
+    Note that since it is structured in pairs, [.comp_idx * 2] is the first
+    character and [.comp_idx * 2 + 1] is the result of the composition.
+*/
 extern const ucs4_t ucs4_composes_with[];
+
+/**
+    Per-character properties list.
+*/
 extern const ucs4data_t ucs4_characters[];
 
 /// Get canonical combining class for a character
 #define ucs4_get_ccc(cp) (ucs4_characters[cp].ccc)
+
+/// Get NFC quick check property for a character
+#define ucs4_get_nfc_qc(cp) (ucs4_characters[cp].nfc_qc)
+
+/// Get full canonical decomposition length for a character
+#define ucs4_get_fcd_len(cp) (ucs4_characters[cp].decomp_cnt)
+
+/// Get full canonical decomposition for a character
+#define ucs4_get_fcd(cp) (&ucs4_full_decomp[ucs4_characters[cp].decomp_idx])
+
+/// Get full canonical decomposition length for a character
+#define ucs4_get_cw_len(cp) (ucs4_characters[cp].comp_cnt)
+
+/// Get full canonical decomposition for a character
+#define ucs4_get_cw(cp) (&ucs4_composes_with[2 * ucs4_characters[cp].comp_idx])
 
 #endif
