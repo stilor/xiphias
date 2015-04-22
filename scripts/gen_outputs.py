@@ -83,7 +83,7 @@ all-%(variant)s: %(outpath)s
 check-%(variant)s: check-%(variant)s-%(name)s
 
 check-%(variant)s-%(name)s: %(outpath)s
-\t%(outpath)s %(args)s
+\t$(call runtest,%(outpath)s,%(args)s)
 '''             % {
                     'variant' : v,
                     'name' : self.name,

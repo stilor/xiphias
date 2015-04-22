@@ -20,7 +20,7 @@
 
 #include "unicode/unicode.h"
 
-#include "test/testlib.h"
+#include "test/common/testlib.h"
 
 /// State of the substitution
 enum subst_mode_e {

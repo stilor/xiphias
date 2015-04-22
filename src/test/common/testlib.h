@@ -5,8 +5,8 @@
     Testing framework declarations.
 */
 
-#ifndef __test_testlib_h_
-#define __test_testlib_h_
+#ifndef __test_common_testlib_h_
+#define __test_common_testlib_h_
 
 #include <stddef.h>
 #include <stdbool.h>

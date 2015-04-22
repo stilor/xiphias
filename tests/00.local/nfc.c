@@ -7,7 +7,7 @@
 #include "util/xutil.h"
 #include "unicode/unicode.h"
 #include "unicode/nfc.h"
-#include "test/testlib.h"
+#include "test/common/testlib.h"
 
 typedef struct testcase_nfc_s {
     const char *desc;

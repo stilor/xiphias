@@ -12,8 +12,8 @@
 
 #include "xml/reader.h"
 
-#include "xmltest/enum.h"
-#include "xmltest/xmlreader-event.h"
+#include "test/xml/enum.h"
+#include "test/xml/reader-event.h"
 
 /// Per-event methods
 typedef struct event_s {

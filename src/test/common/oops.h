@@ -7,26 +7,8 @@
     is excluded from coverage testing.
 */
 
-#ifndef __test_oops_h_
-#define __test_oops_h_
-
-#if !defined(OOPS_COVERAGE)
-
-#define EXPECT_OOPS_BEGIN() \
-        do { \
-            if (0) { \
-
-#define EXPECT_OOPS_END(oopsdidnothappen) \
-            } \
-            /* assume it did happen - OOPS not overridden unless testing coverage */ \
-        } while (0)
-
-#else
-
-// Local, overriding versions below
-#undef OOPS
-#undef OOPS_ASSERT
-#undef OOPS_UNREACHABLE
+#ifndef __test_common_oops_h_
+#define __test_common_oops_h_
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,13 +18,13 @@
 
 extern jmp_buf *oops_buf;
 
-#define EXPECT_OOPS_BEGIN() \
+#define OOPS_EXPECT_BEGIN() \
         do { \
             jmp_buf expect_oops_buf; \
             if (!setjmp(expect_oops_buf)) { \
                 oops_buf = &expect_oops_buf;
 
-#define EXPECT_OOPS_END(oopsdidnothappen) \
+#define OOPS_EXPECT_END(oopsdidnothappen) \
                 printf("Expected OOPS, but did not happen\n"); \
                 oopsdidnothappen; \
             } \
@@ -74,7 +56,5 @@ __oops_assert(unsigned long c)
 #define OOPS_ASSERT(c)      __oops_assert((unsigned long)(c))
 #define OOPS                __oops()
 #define OOPS_UNREACHABLE    __unreachable()
-
-#endif
 
 #endif

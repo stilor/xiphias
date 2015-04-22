@@ -52,6 +52,10 @@
             (__a > __b) ? __a : __b; \
         })
 
-#include "oops.h"
+#if !defined(OOPS_COVERAGE)
+#include "util/oops.h"
+#else
+#include "test/common/oops.h"
+#endif
 
 #endif

@@ -5,7 +5,7 @@
 #include "util/strhash.h"
 #include "util/opt.h"
 #include "unicode/unicode.h"
-#include "test/testlib.h"
+#include "test/common/testlib.h"
 
 typedef uint32_t obj_t;
 

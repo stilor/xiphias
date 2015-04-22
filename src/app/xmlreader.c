@@ -5,7 +5,7 @@
 #include "util/strbuf.h"
 #include "util/opt.h"
 #include "xml/reader.h"
-#include "xmltest/xmlreader-event.h"
+#include "test/xml/reader-event.h"
 
 /// Whether C code generation is requested
 static bool gencode;

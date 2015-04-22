@@ -41,6 +41,12 @@ LDFLAGS_test			:= $(LDFLAGS_common) -Wl,-rpath=build/lib
 EXT_normal				:=
 EXT_coverage			:= .cov
 
+ifeq ($(VALGRIND),yes)
+runtest					= valgrind --leak-check=full $1 $2 2> $1.valgrind-log
+else
+runtest					= $1 $2
+endif
+
 all: all-normal
 
 coverage: check-coverage
@@ -48,8 +54,8 @@ coverage: check-coverage
 	$(COVERAGE_CMD-$(COVERAGE_TOOL))
 	find build -name "*.gcda" | xargs rm -f
 
-GENERATED				:= src/util/encoding-codepages.c \
-						   src/util/ucs4data.c
+GENERATED				:= src/unicode/encoding-codepages.c \
+						   src/unicode/ucs4data.c
 
 clean:
 	rm -rf build

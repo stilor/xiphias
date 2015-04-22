@@ -9,8 +9,8 @@
 #include "util/xutil.h"
 #include "unicode/encoding.h"
 #include "xml/reader.h"
-#include "xmltest/xmlreader-event.h"
-#include "test/testlib.h"
+#include "test/common/testlib.h"
+#include "test/xml/reader-event.h"
 
 /// Location of the input files.
 static const char *xml_input_dir = ".";

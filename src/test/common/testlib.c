@@ -8,7 +8,7 @@
 #include <string.h>
 #include "util/queue.h"
 #include "util/xutil.h"
-#include "test/testlib.h"
+#include "test/common/testlib.h"
 
 /// Test failure record
 typedef struct trec_s {

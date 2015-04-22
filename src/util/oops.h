@@ -25,6 +25,13 @@
 
 #define OOPS_UNREACHABLE OOPS
 
-#include "test/oops.h"
+#define OOPS_EXPECT_BEGIN() \
+        do { \
+            if (0) { \
+
+#define OOPS_EXPECT_END(oopsdidnothappen) \
+            } \
+            /* assume it did happen - OOPS not overridden unless testing coverage */ \
+        } while (0)
 
 #endif

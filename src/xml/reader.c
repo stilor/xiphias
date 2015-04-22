@@ -800,13 +800,13 @@ xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
     @return Newly allocated initialized notation
 */
 static xml_reader_notation_t *
-xml_notation_new(strhash_t *ehash, const utf8_t *name, size_t namelen)
+xml_notation_new(strhash_t *hash, const utf8_t *name, size_t namelen)
 {
     xml_reader_notation_t *n;
 
     n = xmalloc(sizeof(xml_reader_notation_t));
     memset(n, 0, sizeof(xml_reader_notation_t));
-    n->name = strhash_set(ehash, name, namelen, n);
+    n->name = strhash_set(hash, name, namelen, n);
     n->namelen = namelen;
     return n;
 }

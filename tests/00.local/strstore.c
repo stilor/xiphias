@@ -2,7 +2,7 @@
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
 #include "util/strstore.h"
-#include "test/testlib.h"
+#include "test/common/testlib.h"
 
 static result_t
 create_destroy(void)

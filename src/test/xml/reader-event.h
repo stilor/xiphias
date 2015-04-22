@@ -5,8 +5,8 @@
     Supporting routines for testing XML reader.
 */
 
-#ifndef __xmltest_xmlreader_event_h_
-#define __xmltest_xmlreader_event_h_
+#ifndef __test_xml_reader_event_h_
+#define __test_xml_reader_event_h_
 
 #include <stdbool.h>
 #include "xml/reader.h"

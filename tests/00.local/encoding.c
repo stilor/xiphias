@@ -7,7 +7,7 @@
 #include "util/strbuf.h"
 #include "unicode/encoding.h"
 #include "unicode/unicode.h"
-#include "test/testlib.h"
+#include "test/common/testlib.h"
 
 static const encoding_t enc_fake_UTF8 = {
     .name = "UTF-8",
@@ -66,40 +66,40 @@ run_tc_api(void)
     result_t rc = PASS;
 
     printf("Registering another UTF-8 encoding\n");
-    EXPECT_OOPS_BEGIN();
+    OOPS_EXPECT_BEGIN();
     {
         static encoding_link_t lnk;
         lnk.enc = &enc_fake_UTF8;
         encoding__register(&lnk);
     }
-    EXPECT_OOPS_END(rc = FAIL);
+    OOPS_EXPECT_END(rc = FAIL);
 
     printf("Registering another encoding with UTF-8 signature\n");
-    EXPECT_OOPS_BEGIN();
+    OOPS_EXPECT_BEGIN();
     {
         static encoding_link_t lnk;
         lnk.enc = &enc_UTF8_by_other_name;
         encoding__register(&lnk);
     }
-    EXPECT_OOPS_END(rc = FAIL);
+    OOPS_EXPECT_END(rc = FAIL);
 
     printf("Registering meta encoding with signature\n");
-    EXPECT_OOPS_BEGIN();
+    OOPS_EXPECT_BEGIN();
     {
         static encoding_link_t lnk;
         lnk.enc = &enc_META;
         encoding__register(&lnk);
     }
-    EXPECT_OOPS_END(rc = FAIL);
+    OOPS_EXPECT_END(rc = FAIL);
 
     printf("Registering encoding with NULL sigs but non-zero count\n");
-    EXPECT_OOPS_BEGIN();
+    OOPS_EXPECT_BEGIN();
     {
         static encoding_link_t lnk;
         lnk.enc = &enc_BADSIGS;
         encoding__register(&lnk);
     }
-    EXPECT_OOPS_END(rc = FAIL);
+    OOPS_EXPECT_END(rc = FAIL);
 
     printf("Opening non-existent encoding\n");
     {
@@ -174,11 +174,11 @@ run_tc_api(void)
             rc = FAIL;
         }
         else {
-            EXPECT_OOPS_BEGIN();
+            OOPS_EXPECT_BEGIN();
             ptr = obuf;
             (void)encoding_in(eh, ibuf, ibuf + sizeofarray(ibuf),
                     &ptr, obuf + sizeofarray(obuf));
-            EXPECT_OOPS_END(rc = FAIL);
+            OOPS_EXPECT_END(rc = FAIL);
             encoding_close(eh);
         }
     }
@@ -374,12 +374,12 @@ run_tc_utf8store(const void *arg)
 
     if (tc->oops) {
         printf("Codepoint U+%04X: expect OOPS on len/store\n", tc->codepoint);
-        EXPECT_OOPS_BEGIN();
+        OOPS_EXPECT_BEGIN();
         (void)utf8_clen(tc->codepoint);
-        EXPECT_OOPS_END(rc = FAIL);
-        EXPECT_OOPS_BEGIN();
+        OOPS_EXPECT_END(rc = FAIL);
+        OOPS_EXPECT_BEGIN();
         utf8_store(&ptr, tc->codepoint);
-        EXPECT_OOPS_END(rc = FAIL);
+        OOPS_EXPECT_END(rc = FAIL);
     }
     else {
         printf("Codepoint U+%04X: expect %zu byte sequence\n",
