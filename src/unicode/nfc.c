@@ -129,10 +129,7 @@ nfc_check_nextchar(nfc_t *nfc, ucs4_t cp)
     ucs4_t new_cp;
     bool rv = true;
 
-    if ((ccc = ucs4_get_ccc(cp)) != 0 && ccc < nfc->last_ccc) {
-        // Violates combining class constraint
-        goto denorm;
-    }
+    ccc = ucs4_get_ccc(cp);
     fcd_len = ucs4_get_fcd_len(cp);
     if (!fcd_len) {
         // This character does not have a canonical decomposition, use its CCC
@@ -152,6 +149,10 @@ nfc_check_nextchar(nfc_t *nfc, ucs4_t cp)
         /// @todo Record .last_ccc in UCS4 DB to avoid extra lookup here?
         fcd = ucs4_get_fcd(cp);
         new_last_ccc = ucs4_get_ccc(fcd[fcd_len - 1]);
+    }
+    if (ccc && ccc < nfc->last_ccc) {
+        // Violates combining class constraint
+        goto denorm;
     }
 
     switch (ucs4_get_nfc_qc(cp)) {
