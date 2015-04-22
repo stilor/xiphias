@@ -30,7 +30,7 @@ run_tc_nfc(const void *arg)
     printf("%s\n", tc->desc);
     printf("- Input:");
     for (i = 0; i < tc->inputsz; i++) {
-        printf(" U+%04x", tc->input[i]);
+        printf(" U+%04X", tc->input[i]);
     }
     printf("\n");
 
@@ -98,6 +98,116 @@ static const testcase_nfc_t testcase_nfc[] = {
         TC_INPUT(0x0104, 0x0327, 0x1DCE, 0x031B, 0x302A, 0x0325, 0x0326, 0x031F,
                 0x059A, 0x05AD, 0x302E, 0x302F, 0x1D16D, 0x302B, 0x18A9, 0x0300,
                 0x0301, 0x030A, 0x031A, 0x0358, 0x035C, 0x035D, 0x0360, 0x0345),
+        TC_DENORM(),
+    },
+    {
+        .desc = "Non-canonical order of marks with composed character #1",
+        TC_INPUT(0x00C0, 0x0328),
+        TC_DENORM(1),
+    },
+    {
+        .desc = "Non-canonical order of marks with composed character #2",
+        TC_INPUT(0x01ED, 0x031B),
+        TC_DENORM(1),
+    },
+    {
+        .desc = "Canonical order of marks with composed character #1",
+        TC_INPUT(0x00CB, 0x0313),
+        TC_DENORM(),
+    },
+    {
+        .desc = "Canonical order of marks with composed character #2",
+        TC_INPUT(0x00CB, 0x031A),
+        TC_DENORM(),
+    },
+    {
+        .desc = "Canonical order of marks with composed character #3",
+        TC_INPUT(0x01ED, 0x0315),
+        TC_DENORM(),
+    },
+    {
+        .desc = "Composed character (3 'base' characters)",
+        TC_INPUT(0x01D8, 0x0044),
+        TC_DENORM(),
+    },
+    {
+        .desc = "Partially decomposed character",
+        TC_INPUT(0x00FC, 0x0301, 0x0044),
+        TC_DENORM(1),
+    },
+    {
+        .desc = "Fully decomposed character",
+        TC_INPUT(0x0066, 0x0075, 0x0308, 0x0301, 0x0044),
+        TC_DENORM(2),
+    },
+    {
+        .desc = "Combining marks that do not compose with starter",
+        TC_INPUT(0x007A, 0x0335, 0x0327, 0x0324),
+        TC_DENORM(),
+    },
+    {
+        .desc = "Combining marks, last one composes with starter",
+        TC_INPUT(0x007A, 0x0335, 0x0327, 0x0324, 0x0301),
+        TC_DENORM(4),
+    },
+    {
+        .desc = "Non-starter decomposition",
+        TC_INPUT(0x0F64, 0x0F71, 0x0F72),
+        TC_DENORM(),
+    },
+    {
+        .desc = "Non-starter decomposition (composed)",
+        TC_INPUT(0x0F64, 0x0F73),
+        TC_DENORM(1),
+    },
+    {
+        .desc = "Non-starter decomposition (disjoint)",
+        TC_INPUT(0x0F64, 0x0F71, 0x0F7A, 0x0F72),
+        TC_DENORM(),
+    },
+    {
+        .desc = "Two starters composing, checks resume at the next starter after",
+        TC_INPUT(0x1B3A, 0x1B35, 0x0045, 0x0301),
+        TC_DENORM(1, 3),
+    },
+    {
+        .desc = "Two starters composing (composed)",
+        TC_INPUT(0x1B3B),
+        TC_DENORM(),
+    },
+    {
+        .desc = "Two starters composing (disjoint)",
+        TC_INPUT(0x1B3A, 0x1B44, 0x1B35),
+        TC_DENORM(),
+    },
+    {
+        .desc = "Defective sequence #1",
+        TC_INPUT(0x0303, 0x01DB),
+        TC_DENORM(),
+    },
+    {
+        .desc = "Defective sequence #2",
+        TC_INPUT(0x0303, 0x09BE),
+        TC_DENORM(),
+    },
+    {
+        .desc = "Defective sequence #3",
+        TC_INPUT(0x0303, 0x0311, 0x0072),
+        TC_DENORM(),
+    },
+    {
+        .desc = "Sequence starting with NFC_QC=M character",
+        TC_INPUT(0x09BE, 0x9AF, 0x09C7, 0x09BE),
+        TC_DENORM(3),
+    },
+    {
+        .desc = "Sequence begins with NFC_QC=N starter",
+        TC_INPUT(0x2FA0D, 0x11B3),
+        TC_DENORM(0),
+    },
+    {
+        .desc = "Starter followed by non-combining NFC_QC=M starter",
+        TC_INPUT(0x00C4, 0x11B0),
         TC_DENORM(),
     },
 };
