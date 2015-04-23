@@ -196,6 +196,11 @@ static const testcase_nfc_t testcase_nfc[] = {
         TC_DENORM(),
     },
     {
+        .desc = "Defective sequence #4 (starting with disallowed combining mark)",
+        TC_INPUT(0x0344, 0x00C4),
+        TC_DENORM(0),
+    },
+    {
         .desc = "Sequence starting with NFC_QC=M character",
         TC_INPUT(0x09BE, 0x9AF, 0x09C7, 0x09BE),
         TC_DENORM(3),

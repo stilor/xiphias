@@ -9,48 +9,13 @@
 #include "unicode/unicode.h"
 #include "unicode/nfc.h"
 
-/**
-    Unicode allows arbitrarily long sequences of combining characters.
-    Typical strings are just a few characters, though. Thus, start small
-    and reallocate the buffer as needed.
-*/
-#define INITIAL_BUFFER_SIZE     16
-
 /// Opaque handle for normalization check
 struct nfc_s {
-    ucs4_t *buf;            ///< Buffer
-    size_t idx;             ///< Current index
-    size_t sz;              ///< Size of buffer (UCS-4 characters)
-
+    ucs4_t starter;         ///< First character in a combining sequence
+    size_t seqlen;          ///< Current index in a sequence
     uint8_t last_ccc;       ///< Last character's canonical combining class
     bool suppress;          ///< Suppress denormalization errors until next starter
-    bool defective;         ///< Defective combining sequence at the start
-
-    // TBD is it sufficient to just store the starter for the sequence and the
-    // last_ccc? 
-    /// Initial buffer
-    ucs4_t ibuf[INITIAL_BUFFER_SIZE];
 };
-
-/**
-    Reallocate the buffer doubling its size.
-
-    @param nfc Handle
-    @return Nothing
-*/
-static inline void
-nfc_realloc(nfc_t *nfc)
-{
-    nfc->sz *= 2;
-    if (nfc->buf == nfc->ibuf) {
-        // Switch from static buffer
-        nfc->buf = xmalloc(nfc->sz * sizeof(ucs4_t));
-        memcpy(nfc->buf, nfc->ibuf, sizeof(nfc->ibuf));
-    }
-    else {
-        nfc->buf = xrealloc(nfc->buf, nfc->sz * sizeof(ucs4_t));
-    }
-}
 
 /**
     Check if two characters can form a primary composite.
@@ -66,9 +31,11 @@ nfc_combines(ucs4_t cp1, ucs4_t cp2)
     size_t i, comp_cnt;
     const ucs4_t *cw;
 
-    if ((comp_cnt = ucs4_get_cw_len(cp2)) == 0) {
-        return UCS4_NOCHAR; // does not combine with anything
-    }
+    // This function is only used for 'quick check -- maybe' characters (in cp2)
+    // and as of Unicode 7.0, there are no such characters that do not compose
+    // with anything. Thus, no real benefit in checking comp_cnt != 0 before
+    // retrieving the pointer to 'composes with' list.
+    comp_cnt = ucs4_get_cw_len(cp2);
     cw = ucs4_get_cw(cp2); // UCS4 pairs
     for (i = 0; i < comp_cnt; i++, cw += 2) {
         if (cw[0] == cp1) {
@@ -89,12 +56,10 @@ nfc_create(void)
     nfc_t *nfc;
 
     nfc = xmalloc(sizeof(nfc_t));
-    nfc->buf = nfc->ibuf;
-    nfc->idx = 0;
-    nfc->sz = INITIAL_BUFFER_SIZE;
+    nfc->starter = UCS4_NOCHAR;
+    nfc->seqlen = 0;
     nfc->last_ccc = 0;
     nfc->suppress = false;
-    nfc->defective = 0;
     return nfc;
 }
 
@@ -107,9 +72,6 @@ nfc_create(void)
 void
 nfc_destroy(nfc_t *nfc)
 {
-    if (nfc->buf != nfc->ibuf) {
-        xfree(nfc->buf);
-    }
     xfree(nfc);
 }
 
@@ -127,7 +89,6 @@ nfc_check_nextchar(nfc_t *nfc, ucs4_t cp)
     size_t fcd_len;
     const ucs4_t *fcd;
     ucs4_t new_cp;
-    bool rv = true;
 
     ccc = ucs4_get_ccc(cp);
     fcd_len = ucs4_get_fcd_len(cp);
@@ -151,7 +112,7 @@ nfc_check_nextchar(nfc_t *nfc, ucs4_t cp)
         new_last_ccc = ucs4_get_ccc(fcd[fcd_len - 1]);
     }
     if (ccc && ccc < nfc->last_ccc) {
-        // Violates combining class constraint
+        // Violates combining class constraint. This is a non-starter character.
         goto denorm;
     }
 
@@ -162,7 +123,7 @@ nfc_check_nextchar(nfc_t *nfc, ucs4_t cp)
         // For non-starters, continue accumulating the input (we may see violations
         // of combining class ordering. 
         if (ccc) {
-            goto store;
+            goto more;
         }
         // Starter character with 'quick check -- yes'  means we've reached a point
         // where the previous characters are confirmed to be normalized; reset
@@ -170,26 +131,14 @@ nfc_check_nextchar(nfc_t *nfc, ucs4_t cp)
         goto reset;
 
     case UCS4_NFC_QC_N:
-        // Not allowed by decomposition rules
+        // Not allowed by decomposition rules. Store the character if it was a starter
+        // (as it may influence which following starter characters reset the handle)
+        if (!ccc) {
+            nfc->starter = cp;
+        }
         goto denorm;
 
     case UCS4_NFC_QC_M:
-        // This character may alter the previous character(s). However, if this is
-        // the very first character, it cannot change anything - just store it and,
-        // if it is a non-starter, mark as defective combining sequence. Being
-        // defective does not cause it to be considered denormalized - just makes
-        // it easier to check the assumption that character #0 is a starter. Note
-        // that characters with non-starter decomposition are considered 'full
-        // composition exclusions' and are thus/ assigned a 'quick check -- no'
-        // property; they are not handled in this case.
-        if (!nfc->idx) {
-            if (ccc) {
-                // Non-starter at the beginning
-                nfc->defective = true;
-            }
-            goto store;
-        }
-
         // Current Unicode version (7.0) does not have any 'quick check -- maybe' characters
         // that decompose into multiple codepoints, thus the assertion. It may change in
         // the future - the handling of such characters would have to be rethought
@@ -215,10 +164,10 @@ nfc_check_nextchar(nfc_t *nfc, ucs4_t cp)
             // to see if this character combines with it (there are primary composites
             // of two starters). If we're already saw a denormalization, consider this
             // character a base for the new character.
-            if (nfc->idx != 1
-                    || nfc->defective
+            if (nfc->starter == UCS4_NOCHAR
+                    || nfc->seqlen > 1
                     || nfc->suppress
-                    || (new_cp = nfc_combines(nfc->buf[0], cp)) == UCS4_NOCHAR) {
+                    || (new_cp = nfc_combines(nfc->starter, cp)) == UCS4_NOCHAR) {
                 // Starter and it didn't combine with previous character. Becomes new base
                 // for the sequence.
                 goto reset;
@@ -227,28 +176,28 @@ nfc_check_nextchar(nfc_t *nfc, ucs4_t cp)
             // composing with the product of this two) following this would-be primary composite;
             // disregard until we get a proper starter. Replace the character with the composite
             // as further starters may compose further with it.
-            nfc->buf[0] = new_cp;
+            nfc->starter = new_cp;
             goto denorm;
         }
 
         if (nfc->suppress) {
             // Still part of the previous denormalized sequence. Signaled error already;
-            // no need to raise it again. Not storing the character, not updating CCC.
-            return true;
+            // no need to raise it again.
+            goto more;
         }
 
         // See if the new character is non-blocked from the starter
-        if ((ccc > nfc->last_ccc || nfc->idx == 1)
-                && !nfc->defective
-                && nfc_combines(nfc->buf[0], cp) != UCS4_NOCHAR) {
-            // Non-blocked and forms a primary composite. Don't need to store the characters
+        if ((ccc > nfc->last_ccc || nfc->seqlen == 1)
+                && nfc->starter != UCS4_NOCHAR
+                && nfc_combines(nfc->starter, cp) != UCS4_NOCHAR) {
+            // Non-blocked and forms a primary composite. Don't need to remember the characters
             // until we recover: any starter will cause a reset (since it is blocked from the
             // current starter by this character with non-zero CCC).
             goto denorm;
         }
 
-        // Good for now. Store for further analysis.
-        goto store;
+        // Good for now
+        goto more;
 
     default:
         break;
@@ -256,21 +205,18 @@ nfc_check_nextchar(nfc_t *nfc, ucs4_t cp)
 
     OOPS_UNREACHABLE;
 
-store:
-    if (nfc->idx == nfc->sz) {
-        nfc_realloc(nfc);
-    }
-    nfc->buf[nfc->idx++] = cp;
+more:
+    // This character is accepted (or part of a previously reported sequence)
     nfc->last_ccc = new_last_ccc;
-    return rv;
+    nfc->seqlen++;
+    return true;
 
 reset:
     // Previous characters are normalized and current character is a new starter.
     OOPS_ASSERT(ccc == 0);
     nfc->suppress = false;
-    nfc->defective = false;
-    nfc->buf[0] = cp; // Always enough for 1 character
-    nfc->idx = 1;
+    nfc->starter = cp;
+    nfc->seqlen = 1;
     nfc->last_ccc = new_last_ccc;
     return true;
 
@@ -278,6 +224,7 @@ denorm:
     // Suppress further warnings on combining marks until the next starter. Note
     // that non-combining normalization failures (e.g. singletons) are still reported.
     nfc->suppress = true;
-    rv = false;
-    goto store;
+    nfc->last_ccc = new_last_ccc;
+    nfc->seqlen++;
+    return false;
 }
