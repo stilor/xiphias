@@ -37,8 +37,6 @@ typedef struct opt_s {
 
 /// Option for usage
 struct opt_arg_USAGE_s {
-    void (*extra_func)(void *); ///< Extra help
-    void *extra_arg;            ///< Argument to extra help function
     const char *desc;           ///< Text description
 };
 
@@ -62,7 +60,7 @@ struct opt_arg_FUNC_s {
 };
 
 /// Option short/long key
-#define OPT_KEY(s,l,...) \
+#define OPT_KEY(s,l) \
     .optshort = s, \
     .optlong = l
 

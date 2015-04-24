@@ -16,12 +16,12 @@
 /// State of the option parser
 struct opt_parse_state_s {
     char **argv;            ///< Current option pointer
-    void *data;             ///< Type-specific data
     const opt_t *opts;      ///< Array of all options
     size_t nopts;           ///< Number of options
     size_t nargs;           ///< Number of arguments
     const char *progname;   ///< Program name
     const opt_t *usage;     ///< Option for usage
+    const opt_t *current;   ///< Currently handled option
     const char *msg;        ///< Error message for usage, if any
     size_t *counters;       ///< How many times this option was seen
 };
@@ -50,7 +50,7 @@ typedef void (*opt_handler_t)(struct opt_parse_state_s *st);
 static void
 handler_usage(struct opt_parse_state_s *st)
 {
-    struct opt_arg_USAGE_s *data = st->data;
+    struct opt_arg_USAGE_s *data = st->current->optarg;
     const opt_t *opt;
     const char *p, *base;
     int rv;
@@ -130,10 +130,6 @@ handler_usage(struct opt_parse_state_s *st)
             }
         }
     }
-    if (data->extra_func) {
-        fprintf(stderr, "\n");
-        data->extra_func(data->extra_arg);
-    }
     exit(EX_USAGE);
 }
 
@@ -146,7 +142,7 @@ handler_usage(struct opt_parse_state_s *st)
 static void
 handler_bool(struct opt_parse_state_s *st)
 {
-    struct opt_arg_BOOL_s *data = st->data;
+    struct opt_arg_BOOL_s *data = st->current->optarg;
 
     *data->pvar = true;
 }
@@ -160,8 +156,14 @@ handler_bool(struct opt_parse_state_s *st)
 static void
 handler_string(struct opt_parse_state_s *st)
 {
-    struct opt_arg_STRING_s *data = st->data;
+    struct opt_arg_STRING_s *data = st->current->optarg;
 
+    if (*st->argv == NULL) {
+        // This should never happen for arguments - this function wouldn't be
+        // called if we ran out of arguments.
+        OOPS_ASSERT(!is_arg(st->current));
+        opt_usage(st, "Option --%s requires an argument", st->current->optlong);
+    }
     *data->pstr = *st->argv;
     st->argv++;
 }
@@ -175,7 +177,7 @@ handler_string(struct opt_parse_state_s *st)
 static void
 handler_func(struct opt_parse_state_s *st)
 {
-    struct opt_arg_FUNC_s *data = st->data;
+    struct opt_arg_FUNC_s *data = st->current->optarg;
 
     data->func(st, &st->argv, data->arg);
 }
@@ -211,7 +213,7 @@ handle_option(const opt_t *opt, struct opt_parse_state_s *st)
                 is_arg(opt) ? opt->optmeta : opt->optlong,
                 is_arg(opt) ? "argument" : "option");
     }
-    st->data = opt->optarg;
+    st->current = opt;
     handlers[opt->opttype](st);
     st->counters[optidx]++;
 }
@@ -280,11 +282,11 @@ opt_parse(const opt_t *opts, char *argv[])
     // Argument #0 is program name
     st.progname = argv[0];
     st.argv = argv + 1;
-    st.data = NULL;
     st.opts = opts;
     st.nopts = 0;
     st.nargs = 0;
     st.usage = &default_usage;
+    st.current = NULL;
     st.msg = NULL;
     for (i = 0; !is_term(&opts[i]); i++) {
         if (is_arg(&opts[i])) {
@@ -323,6 +325,7 @@ opt_parse(const opt_t *opts, char *argv[])
             else {
                 // Short option. Several of them can be combined into
                 // a single argument, and argument to an option may be in
+                // that very same argument
                 saved_argv = st.argv;
                 saved_arg = p;
                 *st.argv = p + 1;

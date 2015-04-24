@@ -12,6 +12,7 @@
 
 #include "xml/reader.h"
 
+#include "test/common/testlib.h"
 #include "test/xml/enum.h"
 #include "test/xml/reader-event.h"
 
@@ -22,12 +23,6 @@ typedef struct event_s {
     bool (*equal)(const xml_reader_cbparam_t *e1,
             const xml_reader_cbparam_t *e2);        ///< Check events for equality
 } event_t;
-
-static bool
-str_null_or_equal(const char *s1, const char *s2)
-{
-    return (!s1 && !s2) || (s1 && s2 && !strcmp(s1, s2));
-}
 
 static char *
 string_escape(const char *s)

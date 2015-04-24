@@ -102,6 +102,19 @@ void test_opt__argcb(struct opt_parse_state_s *, char ***pargv, void *arg);
 void test_opt__listcb(struct opt_parse_state_s *, char ***pargv, void *arg);
 result_t test__exec_simple_testcase(const void *arg);
 
+/**
+    Test helper function: test if two strings are either both NULL, or equal.
+
+    @param s1 First string
+    @param s2 Seconds string
+    @return true if equal or both NULLs, false otherwise
+*/
+static inline bool
+str_null_or_equal(const char *s1, const char *s2)
+{
+    return (!s1 && !s2) || (s1 && s2 && !strcmp(s1, s2));
+}
+
 // Other test framework
 strbuf_t *test_strbuf_subst(strbuf_t *input, utf8_t esc, size_t sz);
 

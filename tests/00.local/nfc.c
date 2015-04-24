@@ -233,7 +233,7 @@ static const opt_t options[] = {
 };
 
 /**
-    Main routine for XML reader test suite.
+    Main routine for normalization checker test.
 
     @param argc Number of arguments
     @param argv Arguments
