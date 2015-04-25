@@ -18,6 +18,7 @@ struct opt_parse_state_s;
 enum opt_type_e {
     OPT_TYPE_USAGE,             ///< Option to display the usage
     OPT_TYPE_BOOL,              ///< Boolean option
+    OPT_TYPE_COUNTER,           ///< Counter
     OPT_TYPE_STRING,            ///< String option
     OPT_TYPE_FUNC,              ///< Callback function handles
     OPT_TYPE_MAX,               ///< Max number of option types
@@ -43,6 +44,11 @@ struct opt_arg_USAGE_s {
 /// Option for boolean options
 struct opt_arg_BOOL_s {
     bool *pvar;                 ///< Pointer to a variable being set
+};
+
+/// Option for counter options
+struct opt_arg_COUNTER_s {
+    unsigned int *pvar;         ///< Pointer to a variable being set
 };
 
 /// Option for string values

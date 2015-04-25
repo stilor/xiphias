@@ -16,8 +16,10 @@
 
 typedef struct test_var_s {
     bool v_bool;
+    unsigned int v_cnt;
     const char *v_string;
     const char *v_func[2];
+    const char *v_arg;
 } test_var_t;
 
 static test_var_t test_vars = {
@@ -65,17 +67,20 @@ run_tc_opt(const void *arg)
     else {
         // Child
         st = EX_PASS;
+        freopen("/dev/null", "w", stderr);
         for (len = 0; tc->args[len]; len++) {
             // Calculate length
         }
         args = xmalloc((len + 2) * sizeof(char *));
-        args[0] = (char[]){"sample-progname"};
+        args[0] = (char[]){"/usr/bin/sample-progname"};
         memcpy(&args[1], tc->args, (len + 1) * sizeof(char *));
         opt_parse(tc->opts, args);
         if (tc->expected_vars.v_bool != test_vars.v_bool
+                || tc->expected_vars.v_cnt != test_vars.v_cnt
                 || !str_null_or_equal(tc->expected_vars.v_string, test_vars.v_string)
                 || !str_null_or_equal(tc->expected_vars.v_func[0], test_vars.v_func[0])
-                || !str_null_or_equal(tc->expected_vars.v_func[1], test_vars.v_func[1])) {
+                || !str_null_or_equal(tc->expected_vars.v_func[1], test_vars.v_func[1])
+                || !str_null_or_equal(tc->expected_vars.v_arg, test_vars.v_arg)) {
             st = EX_FAIL;
         }
         xfree(args);
@@ -126,6 +131,12 @@ static const opt_t test_option_types[] = {
         OPT_TYPE(BOOL, &test_vars.v_bool),
     },
     {
+        OPT_KEY('c', "counter"),
+        OPT_HELP(NULL, "Increment counter option"),
+        OPT_CNT_ANY,
+        OPT_TYPE(COUNTER, &test_vars.v_cnt),
+    },
+    {
         OPT_KEY('s', "string"),
         OPT_HELP("STRING", "Set string option"),
         OPT_CNT_OPTIONAL,
@@ -149,6 +160,12 @@ static const opt_t test_option_types[] = {
         OPT_CNT_OPTIONAL,
         OPT_TYPE(FUNC, func_usage, NULL),
     },
+    {
+        OPT_KEY('\0', "very-long-option-which-is-never-going-to-be-called"),
+        OPT_HELP(NULL, "Unused option"),
+        OPT_CNT_OPTIONAL,
+        OPT_TYPE(FUNC, func_usage, NULL),
+    },
     OPT_END
 };
 
@@ -159,41 +176,50 @@ static const testcase_opt_t testcase_opt_types[] = {
         .opts = test_option_types,
         .expected_vars = {
             .v_bool = false,
+            .v_cnt = 0,
             .v_string = NULL,
             .v_func = { NULL, NULL },
+            .v_arg = NULL,
         },
         .expect_usage = false,
     },
     {
         .desc = "Set all options, short names",
-        .args = (const char *[]){ "-b", "-s", "SAMPLE", "-f", "FUNC", NULL },
+        .args = (const char *[]){ "-b", "-s", "SAMPLE", "-f", "FUNC", "-c", NULL },
         .opts = test_option_types,
         .expected_vars = {
             .v_bool = true,
+            .v_cnt = 1,
             .v_string = "SAMPLE",
             .v_func = { "FUNC", NULL },
+            .v_arg = NULL,
         },
         .expect_usage = false,
     },
     {
         .desc = "Set all options, short names, contracted",
-        .args = (const char *[]){ "-fFUNC", "-bsSAMPLE", NULL },
+        .args = (const char *[]){ "-fFUNC", "-cccc", "-bsSAMPLE", NULL },
         .opts = test_option_types,
         .expected_vars = {
             .v_bool = true,
+            .v_cnt = 4,
             .v_string = "SAMPLE",
             .v_func = { "FUNC", NULL },
+            .v_arg = NULL,
         },
         .expect_usage = false,
     },
     {
         .desc = "Set all options, long names",
-        .args = (const char *[]){ "--string", "SAMPLE", "--boolean", "--function", "FUNC", NULL },
+        .args = (const char *[]){ "--counter", "--counter", "--string", "SAMPLE",
+            "--boolean", "--function", "FUNC", NULL },
         .opts = test_option_types,
         .expected_vars = {
             .v_bool = true,
+            .v_cnt = 2,
             .v_string = "SAMPLE",
             .v_func = { "FUNC", NULL },
+            .v_arg = NULL,
         },
         .expect_usage = false,
     },
@@ -204,66 +230,156 @@ static const testcase_opt_t testcase_opt_usage[] = {
         .desc = "Usage by request (short option)",
         .args = (const char *[]){ "-?", NULL },
         .opts = test_option_types,
-        .expected_vars = {
-            .v_bool = false,
-            .v_string = NULL,
-            .v_func = { NULL, NULL },
-        },
         .expect_usage = true,
     },
     {
         .desc = "Usage by request (long option)",
         .args = (const char *[]){ "--help", NULL },
         .opts = test_option_types,
-        .expected_vars = {
-            .v_bool = false,
-            .v_string = NULL,
-            .v_func = { NULL, NULL },
-        },
         .expect_usage = true,
     },
     {
         .desc = "Unknown short option",
         .args = (const char *[]){ "-@", NULL },
         .opts = test_option_types,
-        .expected_vars = {
-            .v_bool = false,
-            .v_string = NULL,
-            .v_func = { NULL, NULL },
-        },
         .expect_usage = true,
     },
     {
         .desc = "Unknown long option",
         .args = (const char *[]){ "--@@@@", NULL },
         .opts = test_option_types,
-        .expected_vars = {
-            .v_bool = false,
-            .v_string = NULL,
-            .v_func = { NULL, NULL },
-        },
         .expect_usage = true,
     },
     {
         .desc = "Missing string option argument",
         .args = (const char *[]){ "--string", NULL },
         .opts = test_option_types,
-        .expected_vars = {
-            .v_bool = false,
-            .v_string = NULL,
-            .v_func = { NULL, NULL },
-        },
         .expect_usage = true,
     },
     {
         .desc = "Call from function option",
         .args = (const char *[]){ "--function-usage", NULL },
         .opts = test_option_types,
+        .expect_usage = true,
+    },
+    {
+        .desc = "Extra arguments",
+        .args = (const char *[]){ "extra", "arguments", NULL },
+        .opts = test_option_types,
+        .expect_usage = true,
+    },
+};
+
+static const opt_t test_option_minmax[] = {
+    {
+        OPT_KEY('\0', "cnt"),
+        OPT_HELP(NULL, "Counter"),
+        OPT_CNT(2, 4),
+        OPT_TYPE(COUNTER, &test_vars.v_cnt),
+    },
+    OPT_END
+};
+
+static const testcase_opt_t testcase_opt_minmax[] = {
+    {
+        .desc = "Not enough options",
+        .args = (const char *[]){ "--cnt", NULL },
+        .opts = test_option_minmax,
+        .expect_usage = true,
+    },
+    {
+        .desc = "Minimum # of options",
+        .args = (const char *[]){ "--cnt", "--cnt", NULL },
+        .opts = test_option_minmax,
         .expected_vars = {
             .v_bool = false,
+            .v_cnt = 2,
             .v_string = NULL,
             .v_func = { NULL, NULL },
+            .v_arg = NULL,
         },
+        .expect_usage = false,
+    },
+    {
+        .desc = "Maximum # of options",
+        .args = (const char *[]){ "--cnt", "--cnt", "--cnt", "--cnt", NULL },
+        .opts = test_option_minmax,
+        .expected_vars = {
+            .v_bool = false,
+            .v_cnt = 4,
+            .v_string = NULL,
+            .v_func = { NULL, NULL },
+            .v_arg = NULL,
+        },
+        .expect_usage = false,
+    },
+    {
+        .desc = "Too many options",
+        .args = (const char *[]){ "--cnt", "--cnt", "--cnt", "--cnt", "--cnt", NULL },
+        .opts = test_option_minmax,
+        .expect_usage = true,
+    },
+};
+
+static const opt_t test_option_args[] = {
+    {
+        OPT_KEY('s', "string"),
+        OPT_HELP("STR", "String"),
+        OPT_CNT_OPTIONAL,
+        OPT_TYPE(STRING, &test_vars.v_string),
+    },
+    {
+        OPT_ARGUMENT,
+        OPT_HELP("ARG", "Argument"),
+        OPT_CNT_SINGLE,
+        OPT_TYPE(STRING, &test_vars.v_arg),
+    },
+    {
+        OPT_ARGUMENT,
+        OPT_HELP("VERY-LONG-ARGUMENT-NAME-WONT-FIT-ON-A-LINE", "Unused option"),
+        OPT_CNT_OPTIONAL,
+        OPT_TYPE(FUNC, func_usage, NULL),
+    },
+    OPT_END
+};
+
+static const testcase_opt_t testcase_opt_args[] = {
+    {
+        .desc = "Arguments without delimiter",
+        .args = (const char *[]){ "-sSTRING", "ARG", NULL },
+        .opts = test_option_args,
+        .expected_vars = {
+            .v_bool = false,
+            .v_cnt = 0,
+            .v_string = "STRING",
+            .v_func = { NULL, NULL },
+            .v_arg = "ARG",
+        },
+        .expect_usage = false,
+    },
+    {
+        .desc = "Arguments with delimiter",
+        .args = (const char *[]){ "--", "-sSTRING", NULL },
+        .opts = test_option_args,
+        .expected_vars = {
+            .v_bool = false,
+            .v_cnt = 0,
+            .v_string = NULL,
+            .v_func = { NULL, NULL },
+            .v_arg = "-sSTRING",
+        },
+        .expect_usage = false,
+    },
+    {
+        .desc = "Usage (unknown short option) with arguments",
+        .args = (const char *[]){ "-x", "--", "-sSTRING", NULL },
+        .opts = test_option_args,
+        .expect_usage = true,
+    },
+    {
+        .desc = "Usage (unknown long option) with arguments",
+        .args = (const char *[]){ "--xxx", "--", "-sSTRING", NULL },
+        .opts = test_option_args,
         .expect_usage = true,
     },
 };
@@ -271,6 +387,8 @@ static const testcase_opt_t testcase_opt_usage[] = {
 static const testset_t testsets[] = {
     TEST_SET(run_tc_opt, "Option types", testcase_opt_types),
     TEST_SET(run_tc_opt, "Usage", testcase_opt_usage),
+    TEST_SET(run_tc_opt, "Option min/max", testcase_opt_minmax),
+    TEST_SET(run_tc_opt, "Arguments", testcase_opt_args),
 };
 
 static const testsuite_t testsuite = TEST_SUITE("Tests for option parser", testsets);

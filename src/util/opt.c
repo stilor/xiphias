@@ -148,6 +148,20 @@ handler_bool(struct opt_parse_state_s *st)
 }
 
 /**
+    Increment the value of a counter option.
+
+    @param st Option parsing state
+    @return Nothing
+*/
+static void
+handler_counter(struct opt_parse_state_s *st)
+{
+    struct opt_arg_COUNTER_s *data = st->current->optarg;
+
+    *data->pvar += 1;
+}
+
+/**
     Set a string option.
 
     @param st Option parsing state
@@ -186,9 +200,13 @@ handler_func(struct opt_parse_state_s *st)
 static const opt_handler_t handlers[OPT_TYPE_MAX] = {
     [OPT_TYPE_USAGE] = handler_usage,
     [OPT_TYPE_BOOL] = handler_bool,
+    [OPT_TYPE_COUNTER] = handler_counter,
     [OPT_TYPE_STRING] = handler_string,
     [OPT_TYPE_FUNC] = handler_func,
 };
+
+/// Default usage option.
+static const opt_t default_usage = { OPT_USAGE("") };
 
 /**
     Invoke option type-specific handler.
@@ -203,7 +221,8 @@ handle_option(const opt_t *opt, struct opt_parse_state_s *st)
     size_t optidx;
 
     OOPS_ASSERT(opt->opttype < sizeofarray(handlers));
-    OOPS_ASSERT(opt >= st->opts && opt < st->opts + st->nopts + st->nargs);
+    OOPS_ASSERT(opt == &default_usage ||
+            (opt >= st->opts && opt < st->opts + st->nopts + st->nargs));
 
     optidx = opt - st->opts;
     if (opt->optmax && st->counters[optidx] >= opt->optmax) {
@@ -217,9 +236,6 @@ handle_option(const opt_t *opt, struct opt_parse_state_s *st)
     handlers[opt->opttype](st);
     st->counters[optidx]++;
 }
-
-/// Default usage option.
-static const opt_t default_usage = { OPT_USAGE("") };
 
 /**
     Find an option by its long name.
@@ -329,7 +345,8 @@ opt_parse(const opt_t *opts, char *argv[])
                 saved_argv = st.argv;
                 saved_arg = p;
                 *st.argv = p + 1;
-                while (st.argv == saved_argv && *(p = *st.argv) != '\0') {
+                while (st.argv == saved_argv) {
+                    p = *st.argv;
                     if ((opt = find_short_opt(opts, *p)) == NULL) {
                         opt_usage(&st, "Unknown option -%c", *p);
                     }
@@ -338,10 +355,6 @@ opt_parse(const opt_t *opts, char *argv[])
                         st.argv++; // This consumed the rest of this argument
                     }
                     handle_option(opt, &st);
-                }
-                if (st.argv == saved_argv) {
-                    // Exited the loop above by consuming all characters in this arg
-                    st.argv++;
                 }
                 *saved_argv = saved_arg; // Restore original value
             }
