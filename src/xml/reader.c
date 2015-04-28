@@ -12,8 +12,9 @@
 #include "util/strbuf.h"
 #include "util/strhash.h"
 
-#include "unicode/encoding.h"
 #include "unicode/unicode.h"
+#include "unicode/encoding.h"
+#include "unicode/nfc.h"
 
 #include "xml/reader.h"
 
@@ -28,17 +29,12 @@
 
 /// Reader flags
 enum {
-    /// @todo Change to RECOGNIZE_ASCII, pass from XMLDecl parser?
-    READER_ASCII    = 0x0004,       ///< Only ASCII characters allowed while reading declaration
-    READER_LOCTRACK = 0x0008,       ///< Track the current position for error reporting
-};
-
-/// Reference recognition
-/// @todo rename to read flags
-enum {
-    RECOGNIZE_REF   = 0x0001,       ///< Reading next token will expand Reference production
-    RECOGNIZE_PEREF = 0x0002,       ///< Reading next token will expand PEReference production
-    SAVE_UCS4       = 0x0010,       ///< Also save UCS-4 codepoints
+    R_RECOGNIZE_REF   = 0x0001,         ///< Reading next token will expand Reference production
+    R_RECOGNIZE_PEREF = 0x0002,         ///< Reading next token will expand PEReference production
+    R_ASCII_ONLY      = 0x0004,         ///< Only ASCII characters allowed while reading declaration
+    R_LOCTRACK        = 0x0008,         ///< Track the current position for error reporting
+    R_SAVE_UCS4       = 0x0010,         ///< Also save UCS-4 codepoints
+    R_NO_INC_NORM     = 0x0020,         ///< No checking of include normalization
 };
 
 /// Notation information
@@ -1018,7 +1014,7 @@ xml_reader_new(const xml_reader_options_t *opts)
     h->arg = opts->arg;
     h->tabsize = opts->tabsize;
     if (opts->loctrack) {
-        h->flags |= READER_LOCTRACK;
+        h->flags |= R_LOCTRACK;
     }
 
     h->ext_ctxt = CTXT_DOCUMENT_ENTITY;
@@ -1261,12 +1257,12 @@ static const strbuf_ops_t xml_reader_transcode_ops = {
     @param h Reader handle
     @param func Function to call to check for the condition
     @param arg Argument to @a func
-    @param recognize Bitmask of reference types recognized while parsing
+    @param flags Reader flags (temporarily or'ed into reader flags just for this call)
     @return Reason why the token parser returned
 */
 static inline xru_t
 xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
-        uint32_t recognize)
+        uint32_t flags)
 {
     xml_reader_input_t *inp;
     const void *begin, *end;
@@ -1281,6 +1277,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
     bufptr = h->tokenbuf;
     h->rejected = UCS4_NOCHAR;
     h->tokenlen = 0;
+    flags |= h->flags;
 
     // TBD change to do {} while (rv == XRU_CONTINUE)
     while (rv == XRU_CONTINUE) { // First check the status from inner for-loop...
@@ -1328,8 +1325,8 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
             }
 
             // Check if entity expansion is needed
-            if (((ucs4_cheq(cp0, '&') && (recognize & RECOGNIZE_REF) != 0)
-                        || (ucs4_cheq(cp0, '%') && (recognize & RECOGNIZE_PEREF) != 0))
+            if (((ucs4_cheq(cp0, '&') && (flags & R_RECOGNIZE_REF) != 0)
+                        || (ucs4_cheq(cp0, '%') && (flags & R_RECOGNIZE_PEREF) != 0))
                     && !inp->charref) {
                 rv = XRU_REFERENCE;
                 h->rejected = cp0;
@@ -1351,9 +1348,10 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                         "NUL character encountered");
                 continue;
             }
-            else if (cp0 >= 0x7F && (h->flags & READER_ASCII) != 0) {
-                // Only complain once
-                h->flags &= ~READER_ASCII;
+            else if (cp0 >= 0x7F && (flags & R_ASCII_ONLY) != 0) {
+                // Only complain once. Clean in the handle as well.
+                flags &= ~R_ASCII_ONLY;
+                h->flags &= ~R_ASCII_ONLY;
                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
                         "Non-ASCII characters in %s", inp->external->ctxt.declinfo->name);
             }
@@ -1380,7 +1378,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 }
                 utf8_store(&bufptr, cp);
                 h->tokenlen += clen;
-                if (recognize & SAVE_UCS4) {
+                if (flags & R_SAVE_UCS4) {
                     xml_ucs4_store(h, cp);
                 }
             }
@@ -1388,7 +1386,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
             // Character not rejected, update position. Note that we're checking
             // the original character - cp0 - not processed, so that we update position
             // based on actual input.
-            if (h->flags & READER_LOCTRACK) {
+            if (flags & R_LOCTRACK) {
                 xml_reader_update_position(inp, cp0, h->tabsize);
             }
         }
@@ -2297,7 +2295,7 @@ static const xml_reference_ops_t reference_ops_pseudo = {
 static const xml_reference_ops_t reference_ops_AttValue = {
     .errinfo = XMLERR(ERROR, XML, P_AttValue),
     .condread = xml_cb_literal,
-    .flags = RECOGNIZE_REF,
+    .flags = R_RECOGNIZE_REF,
     .textblock = textblock_append_literal,
     .hnd = {
         /* Default: 'Not recognized' */
@@ -2331,7 +2329,7 @@ static const xml_reference_ops_t reference_ops_PubidLiteral = {
 static const xml_reference_ops_t reference_ops_EntityValue_internal = {
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
     .condread = xml_cb_literal,
-    .flags = RECOGNIZE_REF | RECOGNIZE_PEREF | SAVE_UCS4,
+    .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
     .textblock = textblock_append_literal,
     .hnd = {
         [XML_READER_REF_PARAMETER] = reference_forbidden,
@@ -2346,7 +2344,7 @@ static const xml_reference_ops_t reference_ops_EntityValue_internal = {
 static const xml_reference_ops_t reference_ops_EntityValue_external = {
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
     .condread = xml_cb_literal,
-    .flags = RECOGNIZE_REF | RECOGNIZE_PEREF | SAVE_UCS4,
+    .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
     .textblock = textblock_append_literal,
     .hnd = {
         [XML_READER_REF_PARAMETER] = reference_included_in_literal,
@@ -2745,7 +2743,7 @@ textblock_append_CharData(void *arg)
 static const xml_reference_ops_t reference_ops_CharData = {
     .errinfo = XMLERR(ERROR, XML, P_CharData),
     .condread = xml_cb_CharData,
-    .flags = RECOGNIZE_REF,
+    .flags = R_RECOGNIZE_REF,
     .textblock = textblock_append_CharData,
     .hnd = {
         /* Default: 'Not recognized' */
@@ -3228,7 +3226,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     }
 
     // General or parameter, it is followed by [Name S]
-    if (xml_read_Name(h, parameter ? 0 : SAVE_UCS4) != PR_OK) {
+    if (xml_read_Name(h, parameter ? 0 : R_SAVE_UCS4) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                 "Expect entity name here");
         goto malformed;
@@ -3547,7 +3545,7 @@ xml_parse_DeclSep(xml_reader_t *h)
     /// @todo This is not sufficient: it will exit at the beginning of an entity reference
     /// but will not expand that reference. Need to call xml_read_until_parseref(), with
     /// proper reference operations.
-    (void)xml_parse_whitespace_internal(h, RECOGNIZE_PEREF);
+    (void)xml_parse_whitespace_internal(h, R_RECOGNIZE_PEREF);
     return PR_OK;
 }
 
@@ -3872,7 +3870,7 @@ static const xml_reader_context_t parser_content = {
         LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
         LOOKAHEAD("", xml_parse_CharData), // catch-all
     },
-    .flags = RECOGNIZE_REF,
+    .flags = R_RECOGNIZE_REF,
     .nonroot = &parser_content,
 };
 
@@ -4056,7 +4054,7 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
         // Parse the declaration; expect only ASCII
         /// @todo Declaration seems to be forbidden in external subset; do not even try for that
         /// context
-        h->flags |= READER_ASCII;
+        h->flags |= R_ASCII_ONLY;
         switch (xml_parse_XMLDecl_TextDecl(h)) {
         case PR_OK:
             // Consumed declaration from the raw buffer; advance before setting
@@ -4075,7 +4073,7 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
             OOPS_UNREACHABLE;
             break;
         }
-        h->flags &= ~READER_ASCII;
+        h->flags &= ~R_ASCII_ONLY;
 
         // Done with the temporary buffer: free the memory buffer if it was reallocated
         if (xc.la_start != xc.initial) {

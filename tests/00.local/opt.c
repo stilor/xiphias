@@ -67,7 +67,10 @@ run_tc_opt(const void *arg)
     else {
         // Child
         st = EX_PASS;
-        freopen("/dev/null", "w", stderr);
+        if (!freopen("/dev/null", "w", stderr)) {
+            fprintf(stderr, "Cannot redirect standard error\n");
+            exit(EX_FAIL);
+        }
         for (len = 0; tc->args[len]; len++) {
             // Calculate length
         }
