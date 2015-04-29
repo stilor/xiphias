@@ -8,8 +8,8 @@
     when creating the string buffer):
     - ** - Substitute with the escape character itself
     - *\<newline> - Remove the newline (consumes either CRLF or just LF)
-    - *UHHHH/ - Substitute with Unicode character U+HHHH (may have up to 6 digits)
-    - *BHH/ - Substitute a single byte
+    - *UHHHH* - Substitute with Unicode character U+HHHH (may have up to 6 digits)
+    - *BHH* - Substitute a single byte
         hexadecimal digits).
 */
 #include <string.h>
@@ -123,7 +123,7 @@ subst_more(void *arg, void *begin, size_t sz)
                 }
                 break;
             case SUBST_CODEPOINT:
-                if (*in_ptr == '/') {
+                if (*in_ptr == ss->esc) {
                     // End of a code point. Store from the end of the out
                     // buffer
                     ss->utf8_sz = utf8_clen(ss->val);
@@ -139,7 +139,7 @@ subst_more(void *arg, void *begin, size_t sz)
                 }
                 break;
             case SUBST_BYTE:
-                if (*in_ptr == '/') {
+                if (*in_ptr == ss->esc) {
                     *ptr++ = ss->val;
                     ss->mode = SUBST_NONE;
                 }
