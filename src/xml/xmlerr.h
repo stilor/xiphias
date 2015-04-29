@@ -66,6 +66,7 @@ enum xmlerr_spec_e {
           XMLERR_DEF(XML, PREDEFINED_ENTITY) \
           XMLERR_DEF(XML, ENTITY_REDECLARED) \
           XMLERR_DEF(XML, FUTURE_VERSION) \
+          XMLERR_DEF(XML, NORMALIZATION) \
           /* Well-formedness constraints (spelled in production comments) */ \
           XMLERR_DEF(XML, WFC_PES_IN_INTERNAL_SUBSET) \
           XMLERR_DEF(XML, WFC_EXTERNAL_SUBSET) \

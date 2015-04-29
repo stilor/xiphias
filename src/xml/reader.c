@@ -29,12 +29,13 @@
 
 /// Reader flags
 enum {
-    R_RECOGNIZE_REF   = 0x0001,         ///< Reading next token will expand Reference production
-    R_RECOGNIZE_PEREF = 0x0002,         ///< Reading next token will expand PEReference production
-    R_ASCII_ONLY      = 0x0004,         ///< Only ASCII characters allowed while reading declaration
-    R_LOCTRACK        = 0x0008,         ///< Track the current position for error reporting
-    R_SAVE_UCS4       = 0x0010,         ///< Also save UCS-4 codepoints
-    R_NO_INC_NORM     = 0x0020,         ///< No checking of include normalization
+    R_RECOGNIZE_REF     = 0x0001,       ///< Reading next token will expand Reference production
+    R_RECOGNIZE_PEREF   = 0x0002,       ///< Reading next token will expand PEReference production
+    R_ASCII_ONLY        = 0x0004,       ///< Only ASCII characters allowed while reading declaration
+    R_LOCTRACK          = 0x0008,       ///< Track the current position for error reporting
+    R_SAVE_UCS4         = 0x0010,       ///< Also save UCS-4 codepoints
+    R_NO_INC_NORM       = 0x0020,       ///< No checking of include normalization
+    R_RELEVANT          = 0x0040,       ///< Begin reading a relevant contstruct
 };
 
 /// Notation information
@@ -140,6 +141,7 @@ typedef struct xml_reader_external_s {
     xml_reader_t *h;                ///< Reader handle (for error reporting)
     encoding_handle_t *enc;         ///< Encoding used to transcode input
     strbuf_t *buf;                  ///< Raw input buffer (in document's encoding)
+    nfc_t *norm_unicode;            ///< Normalization check handle for Unicode normalization
 
     xml_reader_external_ctxt_t ctxt;/// Type-specific settings
 } xml_reader_external_t;
@@ -200,7 +202,9 @@ struct xml_reader_s {
     enum xml_info_standalone_e standalone;          ///< Document's standalone status
     enum xml_reader_normalization_e normalization;  ///< Desired normalization behavior
     enum xml_reader_external_context_e ext_ctxt;    ///< Context for external entities
-    xml_reader_external_t *current_entity;          ///< Entity being parsed    
+    xml_reader_external_t *current_entity;          ///< Entity being parsed
+
+    nfc_t *norm_include;            ///< Normalization check handle for include normalization
 
     uint32_t nestlvl;               ///< Element nesting level
     uint32_t brokenlocks;           ///< Number of locked inputs forcibly unlocked
@@ -947,6 +951,9 @@ xml_entity_populate(strhash_t *ehash)
 static void
 xml_reader_external_destroy(xml_reader_external_t *ex)
 {
+    if (ex->norm_unicode) {
+        nfc_destroy(ex->norm_unicode);
+    }
     (void)xml_reader_set_encoding(ex, NULL);
     strbuf_delete(ex->buf);
     xfree(ex->location);
@@ -1020,6 +1027,7 @@ xml_reader_new(const xml_reader_options_t *opts)
     h->ext_ctxt = CTXT_DOCUMENT_ENTITY;
     h->standalone = XML_INFO_STANDALONE_NO_VALUE;
     h->normalization = opts->normalization;
+    h->norm_include = NULL;
 
     h->tokenbuf = xmalloc(opts->initial_tokenbuf);
     h->tokenbuf_end = h->tokenbuf + opts->initial_tokenbuf;
@@ -1060,6 +1068,10 @@ xml_reader_delete(xml_reader_t *h)
     while ((ex = SLIST_FIRST(&h->external)) != NULL) {
         SLIST_REMOVE_HEAD(&h->external, link);
         xml_reader_external_destroy(ex);
+    }
+
+    if (h->norm_include) {
+        nfc_destroy(h->norm_include);
     }
 
     strhash_destroy(h->entities_param);
@@ -1273,6 +1285,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
     xru_t rv = XRU_CONTINUE;
     bool saw_cr = false;
     bool saved_loc = false;
+    bool norm_warned;
 
     bufptr = h->tokenbuf;
     h->rejected = UCS4_NOCHAR;
@@ -1361,6 +1374,56 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 // Non-fatal: just let the app figure what to do with it
                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_Char),
                         "Restricted character U+%04X", cp0);
+            }
+
+            // If normalization checking is enabled, verify the text is fully normalized:
+            // - check for Unicode normalization
+            // - unless parsing the reference (which will be replaced by other text),
+            //   check include normalization
+            // - if parsing a relevant construct, as indicated by the caller, ensure
+            // Only warn once for any given location (even if different kinds of denormalization
+            // occur there) - if the caller cares, it's going to take action on the first callback.
+            // But, need to feed the character to both normalization checkers to maintain context.
+            if (h->normalization == XML_READER_NORM_ON) {
+                norm_warned = false;
+                if (!nfc_check_nextchar(h->current_entity->norm_unicode, cp0)) {
+                    xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
+                            "Input is not Unicode-normalized");
+                    norm_warned = true;
+                }
+                if ((flags & R_NO_INC_NORM) == 0
+                        && !nfc_check_nextchar(h->norm_include, cp0)
+                        && !norm_warned) {
+                    xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
+                            "Input is not include-normalized");
+                    norm_warned = true;
+                }
+                // Checking handle's flags, not cached value: the func callback
+                // may set this flag while parsing the same production (e.g.,
+                // when parsing NmTokens, this flag will be set at the beginning
+                // of each token).
+                if (h->flags & R_RELEVANT) {
+                    if (!norm_warned && (ucs4_get_ccc(cp0) || ucs4_get_cw_len(cp0))) {
+                        // XML 1.1 spec:
+                        // A composing character is a character that is one or both of
+                        // the following:
+                        // 1. the second character in the canonical decomposition mapping
+                        // of some primary composite (as defined in D3 of UAX #15 [Unicode]),
+                        // or
+                        // 2. of non-zero canonical combining class (as defined in Unicode
+                        // [Unicode]).
+                        xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
+                                "Relevant construct begins with a composing character");
+                        // TBD test both with direct character insertion and character references
+                        // TBD set R_RELEVANT where applicable: NmToken, CharData, CData,
+                        // content [needed? content may either start with CharData or markup,
+                        // all of which starts with < or & - either of them is ok for
+                        // "first character is not composing" rule], and replacement text
+                        // of parsed entities [check at definition - as the rule apparently
+                        // applies even if entity is not used anywhere].
+                    }
+                    h->flags &= ~R_RELEVANT;
+                }
             }
 
             // Store the character returned by func and see if func requested a stop
@@ -1546,13 +1609,18 @@ xml_read_Name(xml_reader_t *h, uint32_t flags)
 {
     bool startchar = true;
 
-    // May stop at either non-Name character, or input boundary
+    // May stop at either non-Name character, or input boundary. The first character
+    // is also subject to composing character check if normalization check is active.
+    h->flags |= R_RELEVANT;
     (void)xml_read_until(h, xml_cb_not_name, &startchar, flags);
     if (!h->tokenlen) {
         // No error: this is an auxillary function often used to differentiate between
         // Name or some alternative (e.g. entity vs char references)
+        h->flags &= ~R_RELEVANT;
         return PR_NOMATCH;
     }
+    // At least 1 character was accepted, and R_RELEVANT is cleared on the first accepted
+    // character.
     return PR_OK;
 }
 
@@ -1823,7 +1891,9 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     xru_t rv;
     ucs4_t startchar = h->rejected;
 
-    // We know startchar is there, it has been rejected by previous call
+    // We know startchar is there, it has been rejected by previous call. Whatever
+    // we read is not going to be a part of include-normalization check.
+    h->flags |= R_NO_INC_NORM;
     if (ucs4_cheq(startchar, '&')) {
         // This may be either entity or character reference
         xml_read_string_assert(h, "&");
@@ -1883,11 +1953,13 @@ read_content:
     if (xml_read_string(h, ";", XMLERR_NOERROR) != PR_OK) {
         goto malformed;
     }
+    h->flags &= ~R_NO_INC_NORM;
     h->lastreadloc = saveloc;
     xml_reader_input_unlock_assert(h);
     return PR_OK;
 
 malformed:
+    h->flags &= ~R_NO_INC_NORM;
     ri = xml_entity_type_info(*reftype);
     h->lastreadloc = saveloc;
     xml_reader_message_lastread(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
@@ -2125,9 +2197,16 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
     enum xml_reader_reference_e reftype;
     xml_reader_entity_t *e;
     xml_reader_entity_t fakechar;
+    uint32_t relevant;
 
+    // R_RELEVANT is special: it is allowed to be set in callback and is thus checked
+    // from handle, not from the 'one-time-flags' (4th argument). It is also set for
+    // each text block found.
+    /// @todo drop 4th arg and set all flags in h->flags?
+    relevant = refops->flags & R_RELEVANT;
     while (true) {
         do {
+            h->flags |= relevant;
             stopstatus = xml_read_until(h, refops->condread, arg, refops->flags);
             if (refops->textblock) {
                 refops->textblock(arg);
@@ -2135,6 +2214,7 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         } while (stopstatus == XRU_INPUT_BOUNDARY);
 
         if (stopstatus != XRU_REFERENCE) {
+            h->flags &= ~relevant;
             return stopstatus; // Saw the terminating condition or EOF
         }
 
@@ -2685,7 +2765,8 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     cbp.xmldecl.version = h->current_entity->version;
     cbp.xmldecl.standalone = h->standalone; // TBD do away with XML declaration reporting? doesn't seem
                                             // to have any value for consumer, and standalone status
-                                            // does not make sense except in doc entity
+                                            // does not make sense except in doc entity. Instead,
+                                            // provide interfaces to query it via API
     xml_reader_invoke_callback(h, &cbp);
     xml_reader_input_unlock_assert(h);
 
@@ -2743,7 +2824,7 @@ textblock_append_CharData(void *arg)
 static const xml_reference_ops_t reference_ops_CharData = {
     .errinfo = XMLERR(ERROR, XML, P_CharData),
     .condread = xml_cb_CharData,
-    .flags = R_RECOGNIZE_REF,
+    .flags = R_RECOGNIZE_REF | R_RELEVANT,
     .textblock = textblock_append_CharData,
     .hnd = {
         /* Default: 'Not recognized' */
@@ -3997,6 +4078,7 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
     ex->h = h;
     ex->buf = buf;
     ex->location = xstrdup(location);
+    ex->norm_unicode = NULL;
 
     SLIST_INSERT_HEAD(&h->external, ex, link);
     h->current_entity = ex;
@@ -4088,10 +4170,25 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
         ex->version = XML_INFO_VERSION_1_0;
     }
 
-    // Default normalization behavior depends on version: off in 1.0, on in 1.1
+    // Default normalization behavior depends on version: off in 1.0, on in 1.1. Note that
+    // we've read the XML declaration already in the latter case - but, since only ASCII
+    // is permitted in the declaration, it cannot be denormalized. Note that the document
+    // entity's declaration affects all the entities subsequently loaded: per XML 1.1
+    // specification, "However, in such a case [...loading 1.0 entities from 1.1 document...]
+    // the rules of XML 1.1 are applied to the entire document."
     if (h->normalization == XML_READER_NORM_DEFAULT && context == CTXT_DOCUMENT_ENTITY) {
         h->normalization = (ex->version == XML_INFO_VERSION_1_0) ?
                 XML_READER_NORM_OFF : XML_READER_NORM_ON;
+    }
+
+    if (h->normalization == XML_READER_NORM_ON) {
+        // Normalization requested. Allocate this external entity's handle (for Unicode
+        // normalization check) and, for document entity, global handle (for include
+        // normalization check.
+        ex->norm_unicode = nfc_create();
+        if (context == CTXT_DOCUMENT_ENTITY) {
+            h->norm_include = nfc_create();
+        }
     }
 
     if (ex->enc_declared) {

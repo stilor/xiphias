@@ -115,7 +115,7 @@ subst_more(void *arg, void *begin, size_t sz)
                     ss->mode = SUBST_CODEPOINT;
                 }
                 else if (*in_ptr == 'B') {
-                    ss->val = 0; // Start of a codepoint substitution
+                    ss->val = 0; // Start of a byte substitution
                     ss->mode = SUBST_BYTE;
                 }
                 else {

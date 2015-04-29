@@ -102,10 +102,10 @@ extern const ucs4data_t ucs4_characters[];
 /// Get full canonical decomposition for a character
 #define ucs4_get_fcd(cp) (&ucs4_full_decomp[ucs4_characters[cp].decomp_idx])
 
-/// Get full canonical decomposition length for a character
+/// Get length of the list of characters this one composes with
 #define ucs4_get_cw_len(cp) (ucs4_characters[cp].comp_cnt)
 
-/// Get full canonical decomposition for a character
+/// Get the list of characters this one composes with
 #define ucs4_get_cw(cp) (&ucs4_composes_with[2 * ucs4_characters[cp].comp_idx])
 
 #endif
