@@ -45,10 +45,12 @@
 
     @section OPENISSUES Open issues
     @subsection OPENISSUES-XML XML 1.0/1.1
-    - XML 1.1 normalization - scope of applicability (seems inconsistent as 'relevant 
-      constructs' would apply to non-root element's attribute values, but not to root's
-      attribute values, or to comments/PIs inside the root element, but not at the top
-      level)
+    - In Character Model for WWW 1.0: Normalization, the following example is listed as
+      not include normalized: "suc<![CDATA[¸on]]>". This implies that CDATA sections
+      are considered "includes" for the purposes of normalization checking. However,
+      this contradicts the XML 1.1 specification, where normative appendix B links the
+      "includes" term to section 4.4.2, which deals only with the inclusion of the
+      entities.
     - Reserved xml namespaces - latest errata in 1.0 changed the reservation from
       [Xx][Mm][Ll] to xml- in PIs and xml: in element and attribute names. There is
       no similar errata in XML 1.1 spec.

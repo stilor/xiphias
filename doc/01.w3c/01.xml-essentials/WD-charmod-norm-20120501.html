@@ -1,82 +1,41 @@
 <!DOCTYPE html
   PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><title>Character Model for the World Wide Web 1.0: Normalization</title><style type="text/css">
-code           { font-family: monospace; }
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en"><head>
+<meta http-equiv="content-type" content="text/html;charset=UTF-8" />
+<title>Character Model for the World Wide Web 1.0: Normalization</title>
+<link rel="stylesheet" type="text/css" href="localstyle.css" />
+<link rel="stylesheet" type="text/css" href="http://www.w3.org/StyleSheets/TR/W3C-WD" />
+</head>
 
-div.constraint,
-div.issue,
-div.note,
-div.example,
-div.notice     { margin-left: 2em; }
 
-.example-head, .note-head { font-weight: bold }
-
-li p           { margin-top: 0.3em;
-                 margin-bottom: 0.3em; }
-
-.rfc2119, .uname { text-transform: lowercase; font-variant: small-caps; }
-
-.new-term { font-weight: bold }
-.quote { font-style: italic }
-
-.figure { margin-bottom: 2em; }
-
-.caption {
-  text-align: center;
-  margin: 0.5em 2em;
-  font-style: italic;
-  }
-
-.editor-note { font-style: italic; color: red; }
-
-.req { background: #ffffcc; }
-.reqId, .reqId a {
-    color: #005A9C;
-    background: white;
-    font-weight: bold;
-    font-style: italic;
-    text-decoration: none;
-    }
-img { border: 0; }
-
-@media print {
- .req { background: #ffcc99 }
-}
-      
-div.exampleInner pre { margin-left: 1em;
-                       margin-top: 0em; margin-bottom: 0em}
-div.exampleOuter {border: 4px double gray;
-                  margin: 0em; padding: 0em}
-div.exampleInner { background-color: #d5dee3;
-                   border-top-width: 4px;
-                   border-top-style: double;
-                   border-top-color: #d3d3d3;
-                   border-bottom-width: 4px;
-                   border-bottom-style: double;
-                   border-bottom-color: #d3d3d3;
-                   padding: 4px; margin: 0em }
-div.exampleWrapper { margin: 4px }
-div.exampleHeader { font-weight: bold;
-                    margin: 4px}
-</style><link rel="stylesheet" type="text/css" href="http://www.w3.org/StyleSheets/TR/W3C-WD" /></head><body><div class="head"><p><a href="http://www.w3.org/"><img src="http://www.w3.org/Icons/w3c_home" alt="W3C" height="48" width="72" /></a></p>
+<body><div class="head"><p><a href="http://www.w3.org/"><img src="http://www.w3.org/Icons/w3c_home" alt="W3C" height="48" width="72" /></a></p>
 <h1><a name="title" id="title" />Character Model for the World Wide Web 1.0: Normalization</h1>
-<h2><a name="w3c-doctype" id="w3c-doctype" />W3C Working Draft 27 October 2005</h2><dl><dt>This version:</dt><dd>
-			<a href="http://www.w3.org/TR/2005/WD-charmod-norm-20051027/">http://www.w3.org/TR/2005/WD-charmod-norm-20051027/</a>
+<h2><a name="w3c-doctype" id="w3c-doctype" />W3C Working Draft 1 May 2012</h2><dl><dt>This version:</dt>
+<dd>
+			<a href="http://www.w3.org/TR/2012/WD-charmod-norm-20120501/">http://www.w3.org/TR/2012/WD-charmod-norm-20120501/</a>
 		</dd><dt>Latest version:</dt><dd>
 			<a href="http://www.w3.org/TR/charmod-norm/">http://www.w3.org/TR/charmod-norm/</a>
-		</dd><dt>Previous version:</dt><dd><a href="http://www.w3.org/TR/2004/WD-charmod-norm-20040225/">http://www.w3.org/TR/2004/WD-charmod-norm-20040225/</a></dd><dt>Editors:</dt><dd>François Yergeau, Invited Expert (and before at Alis Technologies)</dd><dd>Martin J. Dürst, (until Dec 2004 while at W3C)</dd><dd>  Richard Ishida, W3C (and before at Xerox)</dd><dd>Addison Phillips, Invited Expert (and before at WebMethods)</dd><dd>Misha Wolf, (until Dec 2002 while at Reuters Ltd.)</dd><dd>Tex Texin, (until Dec 2004 while an Invited Expert, and before at Progress Software)</dd></dl><p class="copyright"><a href="http://www.w3.org/Consortium/Legal/ipr-notice#Copyright">Copyright</a> © 2005 <a href="http://www.w3.org/"><acronym title="World Wide Web Consortium">W3C</acronym></a><sup>®</sup> (<a href="http://www.csail.mit.edu/"><acronym title="Massachusetts Institute of Technology">MIT</acronym></a>, <a href="http://www.ercim.org/"><acronym title="European Research Consortium for Informatics and Mathematics">ERCIM</acronym></a>, <a href="http://www.keio.ac.jp/">Keio</a>), All Rights Reserved. W3C <a href="http://www.w3.org/Consortium/Legal/ipr-notice#Legal_Disclaimer">liability</a>, <a href="http://www.w3.org/Consortium/Legal/ipr-notice#W3C_Trademarks">trademark</a> and <a href="http://www.w3.org/Consortium/Legal/copyright-documents">document use</a> rules apply.</p></div><hr /><div>
+		</dd><dt>Previous versions:</dt>
+        <dd><a href="http://www.w3.org/TR/2005/WD-charmod-norm-20051027/">http://www.w3.org/TR/2005/WD-charmod-norm-20051027/</a></dd>
+        <dd><a href="http://www.w3.org/TR/2004/WD-charmod-norm-20040225/">http://www.w3.org/TR/2004/WD-charmod-norm-20040225/</a></dd><dt>Editors:</dt><dd>François Yergeau, Invited Expert (and before at Alis Technologies)</dd><dd>Martin J. Dürst, (until Dec 2004 while at W3C)</dd><dd>  Richard Ishida, W3C (and before at Xerox)</dd><dd>Addison Phillips, Invited Expert (and before at WebMethods)</dd><dd>Misha Wolf, (until Dec 2002 while at Reuters Ltd.)</dd><dd>Tex Texin, (until Dec 2004 while an Invited Expert, and before at Progress Software)</dd></dl><p class="copyright"><a href="http://www.w3.org/Consortium/Legal/ipr-notice#Copyright">Copyright</a> © 2012 <a href="http://www.w3.org/"><acronym title="World Wide Web Consortium">W3C</acronym></a><sup>®</sup> (<a href="http://www.csail.mit.edu/"><acronym title="Massachusetts Institute of Technology">MIT</acronym></a>, <a href="http://www.ercim.eu/"><acronym title="European Research Consortium for Informatics and Mathematics">ERCIM</acronym></a>, <a href="http://www.keio.ac.jp/">Keio</a>), All Rights Reserved. W3C <a href="http://www.w3.org/Consortium/Legal/ipr-notice#Legal_Disclaimer">liability</a>, <a href="http://www.w3.org/Consortium/Legal/ipr-notice#W3C_Trademarks">trademark</a> and <a href="http://www.w3.org/Consortium/Legal/copyright-documents">document use</a> rules apply.</p></div><hr /><div>
 <h2><a name="abstract" id="abstract" />Abstract</h2><p>Based on <cite>Character Model for the World Wide Web 1.0: Fundamentals</cite>
 				<a href="#charmod1">[CharMod]</a>, this Architectural Specification provides authors of specifications, software developers, and content developers with a common reference on the use of normalization of text and string identity  
 matching on the Web. The goal of this specification is to improve interoperable text manipulation on the World Wide Web.</p></div><div>
 <h2><a name="status" id="status" />Status of this Document</h2><p>
-				<em>This section describes the status of this document at the time of its publication. Other documents may supersede this document. A list of current W3C publications and the latest revision of this technical report can be found in the <a href="http://www.w3.org/TR/">W3C technical reports index</a> at http://www.w3.org/TR/.</em>
-			</p><p>This is an updated W3C Working Draft of this document. The main difference from previous versions of this document is that it no longer proposes to rely exclusively on Early Uniform Normalization. Work to address the comments received during the second Last Call relevant to this document is still ongoing. We ask reviewers with outstanding comments to wait for us to finalise the disposition of their comments. A list of last call comments with their status can be found in the disposition of comments (<a href="http://www.w3.org/2002/06/charmod-lastcall2/">public version</a>, <a href="http://www.w3.org/International/Group/2002/charmod-lc/">Members only version</a>). Comments may
+				<em>This section describes the status of this document at the time of its publication. Other documents may supersede this document. A list of current W3C publications and the latest revision of this technical report can be found in the <a href="http://www.w3.org/TR/">W3C technical reports index</a> at http://www.w3.org/TR/.</em></p>
+                <p class="backlight">
+This version of this document was published to indicate the Internationalization Core Working Group's intention to substantially alter or replace the recommendations found here with very different recommendations in the near future. Other than this note, this Working Draft is identical to the draft of 2005-10-27.</p>
+			<p>This is an updated W3C Working Draft of this document. The main difference from previous versions of this document is that it no longer proposes to rely exclusively on Early Uniform Normalization. Comments may
 		  be submitted by email to 
-		  <a href="mailto:www-i18n-comments@w3.org">www-i18n-comments@w3.org</a> (<a href="http://lists.w3.org/Archives/Public/www-i18n-comments/">public
-			 archive</a>).</p><p>This document is published as part of the 
+		      <a href="mailto:www-international@w3.org">www-international@w3.org</a> (<a href="http://lists.w3.org/Archives/Public/www-international/">public
+		    archive</a>). A list of comments from an earlier last call  with their status can be found in the disposition of comments (<a href="http://www.w3.org/2002/06/charmod-lastcall2/">public version</a>, <a href="http://www.w3.org/International/Group/2002/charmod-lc/">Members only version</a>).</p><p>This document is published as part of the 
 		  <a href="http://www.w3.org/International/Activity">W3C
-			 Internationalization Activity</a> by the <a href="http://www.w3.org/International/core/">Internationalization Core Working Group</a>. The Working Group expects to advance this Working Draft to Recommendation Status (see <a href="http://www.w3.org/2004/02/Process-20040205/tr.html#maturity-levels">W3C document maturity levels</a>).</p><p>Publication as a Working Draft does not imply endorsement by the W3C Membership. This is a draft document and may be updated, replaced or obsoleted by other documents at any time. It is inappropriate to cite this document as other than work in progress.</p><p>This document was produced under the <a href="http://www.w3.org/Consortium/Patent-Policy-20040205/">5 February 2004 W3C Patent Policy</a>. The Working Group maintains a <a href="http://www.w3.org/2004/01/pp-impl/32113/status">public list of patent disclosures</a> relevant to this document; that page also includes instructions for disclosing a patent. An individual who has actual knowledge of a patent which the individual believes contains Essential Claim(s) with respect to this specification should disclose the information in accordance with <a href="http://www.w3.org/Consortium/Patent-Policy-20040205/#sec-Disclosure">section 6 of the W3C Patent Policy</a>
-			</p></div><div class="toc">
+			 Internationalization Activity</a> by the <a href="http://www.w3.org/International/core/">Internationalization Core Working Group</a>. The Working Group expects to advance this Working Draft to Recommendation Status (see <a href="http://www.w3.org/2004/02/Process-20040205/tr.html#maturity-levels">W3C document maturity levels</a>).</p><p>Publication as a Working Draft does not imply endorsement by the W3C Membership. This is a draft document and may be updated, replaced or obsoleted by other documents at any time. It is inappropriate to cite this document as other than work in progress.</p>
+             
+             <p> This document was produced by a group operating under the <a href="http://www.w3.org/Consortium/Patent-Policy-20040205/">5 February 2004 W3C Patent Policy</a>. W3C maintains a <a rel="disclosure" href="http://www.w3.org/2004/01/pp-impl/32113/status">public list of any patent disclosures</a> made in connection with the deliverables of the group; that page also includes instructions for disclosing a patent. An individual who has actual knowledge of a patent which the individual believes contains <a href="http://www.w3.org/Consortium/Patent-Policy-20040205/#def-essential">Essential Claim(s)</a> must disclose the information in accordance with <a href="http://www.w3.org/Consortium/Patent-Policy-20040205/#sec-Disclosure">section 6 of the W3C Patent Policy</a>. </p>
+             
+             
+             </div><div class="toc">
 <h2><a name="contents" id="contents" />Table of Contents</h2><p class="toc">1 <a href="#sec-Intro">Introduction</a><br />
     1.1 <a href="#sec-GoalsScope">Goals and Scope</a><br />
     1.2 <a href="#sec-Background">Background</a><br />
@@ -830,7 +789,7 @@ specify that this output be in normalized form.</p></div><div class="note"><p><s
 				<a href="http://www.iso.ch/iso/en/CatalogueDetailPage.CatalogueDetail?CSNUMBER=33208"><cite>Information
 				technology -- Universal Multiple-Octet Coded Character Set (UCS) -- Part 2:
 				Supplementary Planes</cite></a>, as, from time to time, amended, replaced by a
-				new edition or expanded by the addition of new parts. The latest version of <a href="http://www.iso.ch">UCS Part 1 and Part 2</a> is available at http://www.iso.ch .</dd><dt class="label"><a name="iso646" id="iso646" />ISO/IEC 646</dt><dd>ISO/IEC 646:1991, <a href="http://www.ecma-international.org/publications/standards/Ecma-006.htm"><cite>Information technology -- ISO 7-bit coded character set for information interchange</cite></a>.  This standard defines an International Reference Version (IRV) which corresponds exactly to what is widely known as ASCII or US-ASCII.  ISO/IEC 646 was based on the earlier standard ECMA-6. ECMA has maintained its standard up to date with respect to ISO/IEC 646. An electronic copy of <a href="http://www.ecma-international.org/publications/standards/Ecma-006.htm">ECMA</a> is available at http://www.ecma-international.org/publications/standards/Ecma-006.htm
+				new edition or expanded by the addition of new parts. The latest version of <a href="http://www.iso.org/iso/home.html">UCS Part 1 and Part 2</a> is available at http://www.iso.ch .</dd><dt class="label"><a name="iso646" id="iso646" />ISO/IEC 646</dt><dd>ISO/IEC 646:1991, <a href="http://www.ecma-international.org/publications/standards/Ecma-006.htm"><cite>Information technology -- ISO 7-bit coded character set for information interchange</cite></a>.  This standard defines an International Reference Version (IRV) which corresponds exactly to what is widely known as ASCII or US-ASCII.  ISO/IEC 646 was based on the earlier standard ECMA-6. ECMA has maintained its standard up to date with respect to ISO/IEC 646. An electronic copy of <a href="http://www.ecma-international.org/publications/standards/Ecma-006.htm">ECMA</a> is available at http://www.ecma-international.org/publications/standards/Ecma-006.htm
 					.</dd><dt class="label"><a name="rfc2119" id="rfc2119" />RFC 2119</dt><dd>S. Bradner.
 				<a href="http://www.ietf.org/rfc/rfc2119.txt"><cite>Key words for use in RFCs
 				to Indicate Requirement Levels</cite></a>. IETF RFC 2119 March 1997. Available at  
@@ -838,10 +797,10 @@ specify that this output be in normalized form.</p></div><div class="note"><p><s
 				Masinter. <a href="http://www.ietf.org/rfc/rfc2396.txt"><cite>Uniform Resource
 				Identifiers (URI): Generic Syntax</cite></a>. IETF RFC 2396 August 1998. Available at <a href="http://www.ietf.org/rfc/rfc2396.txt">http://www.ietf.org/rfc/rfc2396.txt</a>.</dd><dt class="label"><a name="unicode" id="unicode" />Unicode</dt><dd>The Unicode Consortium.
 				<a href="http://www.unicode.org/versions/Unicode4.0.0/"><cite>The Unicode Standard, Version 4</cite></a>. ISBN 0-321-18578-1, as
-				updated from time to time by the publication of new versions. The latest version of <a href="http://www.unicode.org/unicode/standard/versions/">Unicode</a>
+				updated from time to time by the publication of new versions. The latest version of <a href="http://www.unicode.org/standard/versions/">Unicode</a>
 				and additional information on versions of the standard
 				and of the Unicode Character Database is available at http://www.unicode.org/unicode/standard/versions/.</dd><dt class="label"><a name="unicode32" id="unicode32" />Unicode  3.2</dt><dd>The Unicode Consortium.
-				<a href="http://www.unicode.org/unicode/standard/versions/enumeratedversions.html#Unicode_3_2_0"><cite>The Unicode Standard, Version 3.2.0</cite></a> is defined by
+				<a href="http://www.unicode.org/standard/versions/enumeratedversions.html"><cite>The Unicode Standard, Version 3.2.0</cite></a> is defined by
 				<a href="http://www.unicode.org/reports/tr28/"><cite>The Unicode Standard, Version 3.0</cite></a>, ISBN 0-201-61633-5, as amended by the <a href="http://www.unicode.org/reports/tr27/"><cite>Unicode
 				Standard Annex #27: Unicode 3.1</cite></a> (see 
 				<a href="http://www.unicode.org/reports/tr27/">http://www.unicode.org/reports/tr27/</a>)
@@ -855,16 +814,16 @@ specify that this output be in normalized form.</p></div><div class="note"><p><s
 				<a href="http://www.w3.org/TR/1998/WD-charreq-19980710"><cite>Requirements for String
 				Identity Matching and String Indexing</cite></a>. W3C Working Draft 10 July 1998. Available at <a href="http://www.w3.org/TR/1998/WD-charreq-19980710">http://www.w3.org/TR/1998/WD-charreq-19980710</a>. The latest version of <a href="http://www.w3.org/TR/WD-charreq">CharReq</a> is available at http://www.w3.org/TR/WD-charreq.</dd><dt class="label"><a name="css2" id="css2" />CSS2</dt><dd>Bert Bos, Håkon Wium Lie, Chris Lilley,
 				Ian Jacobs, Eds. <a href="http://www.w3.org/TR/1998/REC-CSS2-19980512/"><cite>Cascading
-				Style Sheets, level 2</cite></a>. W3C Recommendation 12 May 1998. Available at <a href="http://www.w3.org/TR/1998/REC-CSS2-19980512/">http://www.w3.org/TR/1998/REC-CSS2-19980512/</a>. The latest version of <a href="http://www.w3.org/TR/REC-CSS2/">CSS2</a> is available at http://www.w3.org/TR/REC-CSS2/.</dd><dt class="label"><a name="dom3ls" id="dom3ls" />DOM3 LS</dt><dd>Johnny Stenback, Andy Heninger, Eds. <a href="http://www.w3.org/TR/2004/REC-DOM-Level-3-LS-20040407/"><cite>Document Object Model
+				Style Sheets, level 2</cite></a>. W3C Recommendation 12 May 1998. Available at <a href="http://www.w3.org/TR/1998/REC-CSS2-19980512/">http://www.w3.org/TR/1998/REC-CSS2-19980512/</a>. The latest version of <a href="http://www.w3.org/TR/CSS2/">CSS2</a> is available at http://www.w3.org/TR/REC-CSS2/.</dd><dt class="label"><a name="dom3ls" id="dom3ls" />DOM3 LS</dt><dd>Johnny Stenback, Andy Heninger, Eds. <a href="http://www.w3.org/TR/2004/REC-DOM-Level-3-LS-20040407/"><cite>Document Object Model
 				(DOM) Level 3 Load and Save Specification</cite></a>. W3C Recommendation 7 April 2007.
 				Available at  <a href="http://www.w3.org/TR/2004/REC-DOM-Level-3-LS-20040407/">http://www.w3.org/TR/2004/REC-DOM-Level-3-LS-20040407/</a>. The latest version of <a href="http://www.w3.org/TR/DOM-Level-3-LS/">DOM3 LS</a> is available at http://www.w3.org/TR/DOM-Level-3-LS/.</dd><dt class="label"><a name="html40" id="html40" />HTML 4.0</dt><dd>Dave Raggett, Arnaud Le Hors, Ian
 				Jacobs, Eds. <a href="http://www.w3.org/TR/REC-html40-971218/"><cite>HTML 4.0
 				Specification</cite></a>. W3C Recommendation 18 December 1997. Available at <a href="http://www.w3.org/TR/REC-html40-971218/">http://www.w3.org/TR/REC-html40-971218/</a>. The latest version of <a href="http://www.w3.org/TR/REC-html40/">HTML 4.0</a> is available at http://www.w3.org/TR/REC-html40/.</dd><dt class="label"><a name="iso14651" id="iso14651" />ISO/IEC 14651</dt><dd>ISO/IEC 14651:2000. 
-				<a href="http://www.iso.ch/"><cite>Information technology --
+				<a href="http://www.iso.org/iso/home.html"><cite>Information technology --
 				  International string ordering and comparison -- Method for comparing character
 				  strings and description of the common template tailorable ordering</cite></a> as,
 				from time to time, amended, replaced by a new edition or expanded by the
-				addition of new parts. The latest version of <a href="http://www.iso.ch/">ISO/IEC 14651</a> is available at http://www.iso.ch/.</dd><dt class="label"><a name="Nicol" id="Nicol" />Nicol</dt><dd>Gavin Nicol.
+				addition of new parts. The latest version of <a href="http://www.iso.org/iso/home.html">ISO/IEC 14651</a> is available at http://www.iso.ch/.</dd><dt class="label"><a name="Nicol" id="Nicol" />Nicol</dt><dd>Gavin Nicol.
 				<a href="http://www.mind-to-mind.com/library/papers/multilingual/multilingual-www.html"><cite>The
 				Multilingual World Wide Web</cite></a>, Chapter 2: The WWW As A Multilingual
 				Application. Available at 
@@ -974,7 +933,7 @@ character that is not listed in the Composition Exclusion Table defined in
 Normalization (Non-Normative)</h2><p>The following are freely available programming resources related to
 		  normalization:</p><ul><li><p>Charlint (<a href="http://www.w3.org/International/charlint/">http://www.w3.org/International/charlint/</a>),
 				in Perl and written more for clarity than efficiency, in particular because it
-reads in the whole Unicode data file before doing anything.</p></li><li><p>Normalization Demo (<a href="http://www.unicode.org/unicode/reports/tr15/Normalizer.html">http://www.unicode.org/unicode/reports/tr15/Normalizer.html</a>),
+reads in the whole Unicode data file before doing anything.</p></li><li><p>Normalization Demo (<a href="http://www.unicode.org/reports/tr15/Normalizer.html">http://www.unicode.org/unicode/reports/tr15/Normalizer.html</a>),
 				a small demo working on a subset of base and combining characters.</p></li><li><p>ICU (<a href="http://icu.sourceforge.net/userguide/normalization.html">http://icu.sourceforge.net/userguide/normalization.html</a>).</p></li><li><p>Unicode::Normalize (<a href="http://homepage1.nifty.com/nomenclator/perl/Unicode-Normalize.html">http://homepage1.nifty.com/nomenclator/perl/Unicode-Normalize.html</a>),
 				a Perl module.</p></li><li><p>Normalization checking code (<a href="http://www.w3.org/2003/06/xml1.1test/">http://www.w3.org/2003/06/xml1.1test/</a>), compact code that shows how to check normalization without an expanding buffer.</p></li></ul></div><div class="div1">
 <h2><a name="sec-Acknowledgements" id="sec-Acknowledgements" />D Acknowledgements (Non-Normative)</h2><p>Asmus Freytag and in early stages Ian Jacobs provided significant help in the authoring and editing process of this document. The W3C I18N Working Group and Interest Group, as well as others, provided many comments and

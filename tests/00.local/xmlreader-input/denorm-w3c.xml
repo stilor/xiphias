@@ -1,0 +1,32 @@
+<?xml version="1.1"?>
+<!DOCTYPE a [
+<!ENTITY ccedil "&#xE7;">
+<!ENTITY cedilla "&#x327;">
+<!ENTITY c "c">
+<!ENTITY b "b">
+]>
+<a>
+su\U00E7\on
+sub\U0327\on
+su&#xE7;on
+sub&#x327;on
+su&#x62;\U0327\on
+su&ccedil;on
+su<![CDATA[\U00E7\on]]>
+su&b;\U0327\on
+sub&cedilla;on
+suc<!--comment-->\U0327\on
+sub<!--comment-->\U0327\on
+suc<em>\U0327\</em>on
+sub<em>\U0327\</em>on
+suc<?proc-instr?>\U0327\on
+sub<?proc-instr?>\U0327\on
+sub<![CDATA[\U0327\on]]>
+su&c;\U0327\on
+suc&#327;on
+su&#x63;\U0327\on
+suc&cedilla;on
+suc<![CDATA[\U0327\on]]>
+suc\U0327\on
+su\U00E7\<em>\U0338\</em>
+</a>

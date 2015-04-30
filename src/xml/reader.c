@@ -1258,14 +1258,6 @@ static const strbuf_ops_t xml_reader_transcode_ops = {
        - Name
        - Nmtoken
 
-    From this definition of normalization, it looks like the whole document
-    inside the root element is expected to be fully normalized. At the top
-    level, the following are expected to be normalized: PI targets,
-    element names and attribute names (but not attribute values!), and parts
-    of the document type definition. For now, though, we'll do simpler thing:
-    just signal to the application that a normalization error was detected,
-    regardless of its location.
-
     @param h Reader handle
     @param func Function to call to check for the condition
     @param arg Argument to @a func
@@ -4181,6 +4173,14 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
                 XML_READER_NORM_OFF : XML_READER_NORM_ON;
     }
 
+    /// @todo If the input is not in the Unicode encoding form (UTF-8, UTF-16 or UTF-32)
+    /// then it is not Unicode normalized. For full normalization, the rule is somewhat
+    /// relaxed then: "... if transcoded to a Unicode encoding form by a <i>normalizing</i>
+    /// transcoder...". At this time, transcoders implemented in this library do not perform
+    /// any normalization, so if the repertoir of the encoding includes, say, composing
+    /// characters, they will be presented verbatim in Unicode, even if this produces a
+    /// denormalized input. So, for non-Unicode encoding forms the normalization check is
+    /// stricter than prescribed by the standard.
     if (h->normalization == XML_READER_NORM_ON) {
         // Normalization requested. Allocate this external entity's handle (for Unicode
         // normalization check) and, for document entity, global handle (for include

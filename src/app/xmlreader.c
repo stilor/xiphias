@@ -5,10 +5,14 @@
 #include "util/strbuf.h"
 #include "util/opt.h"
 #include "xml/reader.h"
+#include "test/common/testlib.h"
 #include "test/xml/reader-event.h"
 
 /// Whether C code generation is requested
 static bool gencode;
+
+/// Whether escape sentences are substituted
+static bool subst;
 
 /// Transport encoding
 static const char *transport_encoding;
@@ -29,6 +33,12 @@ static const opt_t options[] = {
         OPT_HELP(NULL, "Generate C code rather than text description"),
         OPT_CNT_OPTIONAL,
         OPT_TYPE(BOOL, &gencode),
+    },
+    {
+        OPT_KEY('s', "substitute-escapes"),
+        OPT_HELP(NULL, "Substitute escape sequences \\Uxxxx\\, \\Bxx\\, etc."),
+        OPT_CNT_OPTIONAL,
+        OPT_TYPE(BOOL, &subst),
     },
     {
         OPT_KEY('t', "transport-encoding"),
@@ -78,6 +88,10 @@ main(int argc, char *argv[])
     /// @todo Allow to specify transport encoding
     opt_parse(options, argv);
     sbuf = strbuf_file_read(inputfile, 4096);
+
+    if (subst) {
+        sbuf = test_strbuf_subst(sbuf, '\\', 4096);
+    }
 
     if (gencode) {
         printf("(const xml_reader_cbparam_t[]){\n");
