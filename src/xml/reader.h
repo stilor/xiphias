@@ -232,4 +232,6 @@ bool xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
 
 void xml_reader_process(xml_reader_t *h);
 
+void xml_reader_stack(xml_reader_t *h, void (*func)(void *, const xmlerr_loc_t *), void *arg);
+
 #endif

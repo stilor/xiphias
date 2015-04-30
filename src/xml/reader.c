@@ -4315,3 +4315,22 @@ xml_reader_process(xml_reader_t *h)
     /// @todo Return the parsing success/failure?
     (void)xml_parse_by_ctx(h, &parser_document_entity);
 }
+
+/**
+    Invoke a callback for each input currently nested. This allows to generate a
+    "stacktrace" of the current position of the reader.
+
+    @param h Reader handle
+    @param func Function to call for each "frame"
+    @param arg Arbitrary argument to the callback function
+    @return Nothing
+*/
+void
+xml_reader_stack(xml_reader_t *h, void (*func)(void *, const xmlerr_loc_t *), void *arg)
+{
+    xml_reader_input_t *inp;
+
+    SLIST_FOREACH(inp, &h->active_input, link) {
+        func(arg, &inp->curloc);
+    }
+}
