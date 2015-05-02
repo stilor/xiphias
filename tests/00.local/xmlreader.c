@@ -109,7 +109,10 @@ run_testcase(const void *arg)
 
     // Set up input stream chain
     path = xasprintf("%s/%s", xml_input_dir, tc->input);
-    sbuf = strbuf_file_read(path, 4096);
+    if ((sbuf = strbuf_file_read(path, 4096)) == NULL) {
+        xfree(path);
+        return UNRESOLVED;
+    }
     sbuf = test_strbuf_subst(sbuf, '\\', 4096);
     if (tc->use_bom) {
         void *start, *end;

@@ -1,5 +1,6 @@
 /* vi: set ts=4 sw=4 et : */
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
+#include <errno.h>
 #include <stdio.h>
 
 #include "util/strbuf.h"
@@ -119,9 +120,12 @@ main(int argc, char *argv[])
     strbuf_t *sbuf;
     struct cb_arg_s cb_arg;
 
-    /// @todo Allow to specify transport encoding
     opt_parse(options, argv);
-    sbuf = strbuf_file_read(inputfile, 4096);
+    if ((sbuf = strbuf_file_read(inputfile, 4096)) == NULL) {
+        /// @todo Pool with 'last error' queue? Also for memory, file descs...
+        fprintf(stderr, "Failed to open `%s': %s\n", inputfile, strerror(errno));
+        return 2;
+    }
 
     if (subst) {
         sbuf = test_strbuf_subst(sbuf, '\\', 4096);

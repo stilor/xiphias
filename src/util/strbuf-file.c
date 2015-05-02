@@ -54,7 +54,7 @@ static const strbuf_ops_t file_ops = {
 
     @param path Path to the file being read
     @param sz Initial buffer size
-    @return String buffer structure
+    @return String buffer structure, or NULL if failed to open.
 */
 strbuf_t *
 strbuf_file_read(const char *path, size_t sz)
@@ -63,8 +63,7 @@ strbuf_file_read(const char *path, size_t sz)
     strbuf_t *buf;
 
     if ((f = fopen(path, "r")) == NULL) {
-        /// @todo fail-free xfopen()? Or pass error up?
-        OOPS;
+        return NULL;
     }
     buf = strbuf_new(sz);
     strbuf_setops(buf, &file_ops, f);
