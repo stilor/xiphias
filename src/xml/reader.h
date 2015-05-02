@@ -212,8 +212,6 @@ typedef struct {
     enum xml_reader_normalization_e normalization;
     bool loctrack;                      ///< Whether location tracking is enabled
     size_t tabsize;                     ///< Tabulation size for location tracking
-    xml_reader_cb_t func;               ///< Callback function
-    void *arg;                          ///< Argument to callback function
     size_t entity_hash_order;           ///< Log2(number of hash buckets for entities)
     size_t notation_hash_order;         ///< Log2(number of hash buckets for notations)
     size_t initial_tokenbuf;            ///< Initial size of the token buffer
@@ -223,6 +221,7 @@ void xml_reader_opts_default(xml_reader_options_t *opts);
 
 xml_reader_t *xml_reader_new(const xml_reader_options_t *opts);
 void xml_reader_delete(xml_reader_t *h);
+void xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg);
 
 void xml_reader_message(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
         const char *fmt, ...) __printflike(4,5);

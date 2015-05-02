@@ -91,7 +91,6 @@ test_cb(void *arg, xml_reader_cbparam_t *cbparam)
 static result_t
 run_testcase(const void *arg)
 {
-    xml_reader_options_t opts;
     const testcase_t *tc = arg;
     xml_reader_t *reader;
     strbuf_t *sbuf;
@@ -130,16 +129,13 @@ run_testcase(const void *arg)
     // Run the test
     printf("XML reader events:\n");
 
-    xml_reader_opts_default(&opts);
-    opts.func = test_cb;
-    opts.arg = &cbarg;
-
-    reader = xml_reader_new(&opts);
+    reader = xml_reader_new(NULL);
     cbarg.expect = tc->events;
     cbarg.failed = false;
     cbarg.h = reader;
     cbarg.tc = tc;
 
+    xml_reader_set_callback(reader, test_cb, &cbarg);
     xml_reader_add_parsed_entity(reader, sbuf, tc->input, tc->transport_encoding);
     xml_reader_process(reader); // Emits the events
 

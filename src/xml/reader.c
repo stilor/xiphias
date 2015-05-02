@@ -191,8 +191,8 @@ typedef struct xml_reader_input_s {
 
 /// XML reader structure
 struct xml_reader_s {
-    xml_reader_cb_t func;           ///< Callback function
-    void *arg;                      ///< Argument to callback function
+    xml_reader_cb_t cb_func;        ///< Callback function
+    void *cb_arg;                   ///< Argument to callback function
 
     ucs4_t *ucs4buf;                ///< Buffer for saved UCS-4 text
     size_t ucs4len;                 ///< Count of UCS-4 characters
@@ -985,8 +985,6 @@ static const xml_reader_options_t opts_default = {
     .normalization = XML_READER_NORM_DEFAULT,
     .loctrack = true,
     .tabsize = 8,
-    .func = dummy_callback,
-    .arg = NULL,
     .entity_hash_order = 6,
     .notation_hash_order = 4,
     .initial_tokenbuf = 1024,
@@ -1020,8 +1018,8 @@ xml_reader_new(const xml_reader_options_t *opts)
     }
     h = xmalloc(sizeof(xml_reader_t));
     memset(h, 0, sizeof(xml_reader_t));
-    h->func = opts->func;
-    h->arg = opts->arg;
+    h->cb_func = dummy_callback;
+    h->cb_arg = NULL;
     h->tabsize = opts->tabsize;
     if (opts->loctrack) {
         h->flags |= R_LOCTRACK;
@@ -1087,6 +1085,21 @@ xml_reader_delete(xml_reader_t *h)
 }
 
 /**
+    Change the callback function/argument for XML events.
+
+    @param h Reader handle
+    @param func Function to call for XML events
+    @param arg Argument to @a func
+    @return Nothing
+*/
+void
+xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg)
+{
+    h->cb_func = func;
+    h->cb_arg  = arg;
+}
+
+/**
     Call a user-registered function for the specified event.
 
     @param h Reader handle
@@ -1096,7 +1109,7 @@ xml_reader_delete(xml_reader_t *h)
 static inline void
 xml_reader_invoke_callback(xml_reader_t *h, xml_reader_cbparam_t *cbparam)
 {
-    h->func(h->arg, cbparam);
+    h->cb_func(h->cb_arg, cbparam);
 }
 
 /**

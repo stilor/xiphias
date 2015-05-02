@@ -115,7 +115,6 @@ cb(void *arg, xml_reader_cbparam_t *cbparam)
 int
 main(int argc, char *argv[])
 {
-    xml_reader_options_t opts;
     xml_reader_t *reader;
     strbuf_t *sbuf;
     struct cb_arg_s cb_arg;
@@ -135,13 +134,11 @@ main(int argc, char *argv[])
         printf("(const xml_reader_cbparam_t[]){\n");
     }
 
-    xml_reader_opts_default(&opts);
-    opts.func = cb;
-    opts.arg = &cb_arg;
-
-    reader = xml_reader_new(&opts);
+    reader = xml_reader_new(NULL);
     cb_arg.exitstatus = 0;
     cb_arg.h = reader;
+
+    xml_reader_set_callback(reader, cb, &cb_arg);
 
     xml_reader_add_parsed_entity(reader, sbuf,
             location ? location : inputfile, transport_encoding);
