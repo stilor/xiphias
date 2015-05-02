@@ -35,7 +35,6 @@ enum {
     R_LOCTRACK          = 0x0008,       ///< Track the current position for error reporting
     R_SAVE_UCS4         = 0x0010,       ///< Also save UCS-4 codepoints
     R_NO_INC_NORM       = 0x0020,       ///< No checking of include normalization
-    R_RELEVANT          = 0x0040,       ///< Begin reading a relevant contstruct
 };
 
 /// Notation information
@@ -98,6 +97,9 @@ typedef struct xml_reference_ops_s {
 
     /// Flags for entity recognition
     uint32_t flags;
+
+    /// Whether these options describe a relevant construct
+    const char *relevant;
 
     /// Stop condition function
     xml_condread_func_t condread;
@@ -197,6 +199,7 @@ struct xml_reader_s {
     size_t ucs4sz;                  ///< Size of UCS-4 buffer, in characters
 
     uint32_t flags;                 ///< Reader flags
+    const char *relevant;           ///< If not NULL, reading a relevant contruct
     size_t tabsize;                 ///< Tabulation character equal to these many spaces
 
     enum xml_info_standalone_e standalone;          ///< Document's standalone status
@@ -1405,7 +1408,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 // subject to this check: "A character reference is included when
                 // the indicated character is processed in place of the reference
                 // itself."
-                if (h->flags & R_RELEVANT) {
+                if (h->relevant) {
                     if (!norm_warned && (ucs4_get_ccc(cp0) || ucs4_get_cw_len(cp0))) {
                         // XML 1.1 spec:
                         // A composing character is a character that is one or both of
@@ -1416,13 +1419,14 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                         // 2. of non-zero canonical combining class (as defined in Unicode
                         // [Unicode]).
                         xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
-                                "Relevant construct begins with a composing character");
+                                "Relevant construct (%s) begins with a composing character",
+                                h->relevant);
                         // TBD test both with direct character insertion and character references
                         // TBD set R_RELEVANT where applicable: NmToken, and replacement text
                         // of parsed entities [check at definition - as the rule apparently
                         // applies even if entity is not used anywhere].
                     }
-                    h->flags &= ~R_RELEVANT;
+                    h->relevant = NULL;
                 }
             }
 
@@ -1611,15 +1615,15 @@ xml_read_Name(xml_reader_t *h, uint32_t flags)
 
     // May stop at either non-Name character, or input boundary. The first character
     // is also subject to composing character check if normalization check is active.
-    h->flags |= R_RELEVANT;
+    h->relevant = "Name";
     (void)xml_read_until(h, xml_cb_not_name, &startchar, flags);
     if (!h->tokenlen) {
         // No error: this is an auxillary function often used to differentiate between
         // Name or some alternative (e.g. entity vs char references)
-        h->flags &= ~R_RELEVANT;
+        h->relevant = NULL;
         return PR_NOMATCH;
     }
-    // At least 1 character was accepted, and R_RELEVANT is cleared on the first accepted
+    // At least 1 character was accepted, and h->relevant is cleared on the first accepted
     // character.
     return PR_OK;
 }
@@ -2211,7 +2215,7 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
     enum xml_reader_reference_e reftype = XML_READER_REF__MAX; // No reference yet
     xml_reader_entity_t *e;
     xml_reader_entity_t fakechar;
-    uint32_t saved_relevant;
+    const char *saved_relevant;
 
     // R_RELEVANT is special: it is allowed to be set in callback and is thus checked
     // from handle, not from the 'one-time-flags' (4th argument). It is also set for
@@ -2229,7 +2233,7 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
                 // "... and by then verifying that none of the relevant constructs listed
                 // above begins (after character references are expanded) with a composing
                 // character..."
-                h->flags |= refops->flags & R_RELEVANT;
+                h->relevant = refops->relevant;
             }
             stopstatus = xml_read_until(h, refops->condread, arg, refops->flags);
             if (refops->textblock) {
@@ -2238,21 +2242,21 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         } while (stopstatus == XRU_INPUT_BOUNDARY);
 
         if (stopstatus != XRU_REFERENCE) {
-            h->flags &= ~R_RELEVANT;
+            h->relevant = NULL;
             return stopstatus; // Saw the terminating condition or EOF
         }
 
         // We have some kind of entity, read its name or code point. Entity reference
         // itself is not a relevant construct (although Name production inside it,
         // if it is an entity reference, is).
-        saved_relevant = h->flags & R_RELEVANT;
-        h->flags &= ~R_RELEVANT;
+        saved_relevant = h->relevant;
+        h->relevant = NULL;
         if (xml_parse_reference(h, &reftype) != PR_OK) {
             // no recovery - interpret anything after error as plain text
             reftype = XML_READER_REF__MAX;
             continue;
         }
-        h->flags |= saved_relevant;
+        h->relevant = saved_relevant;
 
         switch (reftype) {
         case XML_READER_REF__CHAR:
@@ -2399,6 +2403,7 @@ static const xml_reference_ops_t reference_ops_pseudo = {
     .errinfo = XMLERR(ERROR, XML, P_XMLDecl),
     .condread = xml_cb_literal,
     .flags = 0,
+    .relevant = NULL,
     .hnd = { /* No entities expected */ },
 };
 
@@ -2408,6 +2413,7 @@ static const xml_reference_ops_t reference_ops_AttValue = {
     .errinfo = XMLERR(ERROR, XML, P_AttValue),
     .condread = xml_cb_literal,
     .flags = R_RECOGNIZE_REF,
+    .relevant = NULL,
     .textblock = textblock_append_literal,
     .hnd = {
         /* Default: 'Not recognized' */
@@ -2423,6 +2429,7 @@ static const xml_reference_ops_t reference_ops_SystemLiteral = {
     .errinfo = XMLERR(ERROR, XML, P_SystemLiteral),
     .condread = xml_cb_literal,
     .flags = 0,
+    .relevant = NULL,
     .hnd = { /* No entities expected */ },
 };
 
@@ -2434,6 +2441,7 @@ static const xml_reference_ops_t reference_ops_PubidLiteral = {
     .errinfo = XMLERR(ERROR, XML, P_PubidLiteral),
     .condread = xml_cb_literal,
     .flags = 0,
+    .relevant = NULL,
     .hnd = { /* No entities expected */ },
 };
 
@@ -2442,6 +2450,7 @@ static const xml_reference_ops_t reference_ops_EntityValue_internal = {
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
     .condread = xml_cb_literal,
     .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
+    .relevant = NULL,
     .textblock = textblock_append_literal,
     .hnd = {
         [XML_READER_REF_PARAMETER] = reference_forbidden,
@@ -2457,6 +2466,7 @@ static const xml_reference_ops_t reference_ops_EntityValue_external = {
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
     .condread = xml_cb_literal,
     .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
+    .relevant = NULL,
     .textblock = textblock_append_literal,
     .hnd = {
         [XML_READER_REF_PARAMETER] = reference_included_in_literal,
@@ -2857,7 +2867,8 @@ textblock_append_CharData(void *arg)
 static const xml_reference_ops_t reference_ops_CharData = {
     .errinfo = XMLERR(ERROR, XML, P_CharData),
     .condread = xml_cb_CharData,
-    .flags = R_RECOGNIZE_REF | R_RELEVANT,
+    .flags = R_RECOGNIZE_REF,
+    .relevant = "CharData",
     .textblock = textblock_append_CharData,
     .hnd = {
         /* Default: 'Not recognized' */
@@ -3083,16 +3094,17 @@ xml_parse_CDSect(xml_reader_t *h)
     cbp.loc = h->lastreadloc;
 
     // Starting CData - which is relevant construct
-    h->flags |= R_RELEVANT;
+    h->relevant = "CData";
     if (xml_read_termstring(h, &termstring_cdata, NULL, NULL) != PR_OK) {
         // no need to recover (EOF)
         /// @todo Test unterminated comments/PIs/CDATA in entities - is PR_STOP proper here?
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_CDSect),
                 "Unterminated CDATA section");
         xml_reader_input_unlock_assert(h);
+        h->relevant = NULL;
         return PR_STOP;
     }
-    h->flags &= ~R_RELEVANT; // In case we didn't read anything
+    h->relevant = NULL;
     cbp.token.str = h->tokenbuf;
     cbp.token.len = h->tokenlen;
     cbp.append.ws = false;
