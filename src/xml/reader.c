@@ -1397,17 +1397,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                             "Input is not include-normalized");
                     norm_warned = true;
                 }
-                // Checking handle's flags, not cached value: the func callback
-                // may set this flag while parsing the same production (e.g.,
-                // when parsing NmTokens, this flag will be set at the beginning
-                // of each token). Entity references (but not character references)
-                // are also subject to this check - if an entity reference is a part
-                // of content production, for example, than any character data in the
-                // entity's replacement text must match CharData production, and the
-                // rule is then applied recursively. Character references are not
-                // subject to this check: "A character reference is included when
-                // the indicated character is processed in place of the reference
-                // itself."
+                // Relevant construct start?
                 if (h->relevant) {
                     if (!norm_warned && (ucs4_get_ccc(cp0) || ucs4_get_cw_len(cp0))) {
                         // XML 1.1 spec:
