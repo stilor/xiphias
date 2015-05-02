@@ -1421,10 +1421,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                         xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
                                 "Relevant construct (%s) begins with a composing character",
                                 h->relevant);
-                        // TBD test both with direct character insertion and character references
-                        // TBD set R_RELEVANT where applicable: NmToken, and replacement text
-                        // of parsed entities [check at definition - as the rule apparently
-                        // applies even if entity is not used anywhere].
+                        // TBD set h->relevant in NmToken (non-CDATA attributes)
                     }
                     h->relevant = NULL;
                 }
@@ -1748,7 +1745,7 @@ xml_cb_termstring(void *arg, ucs4_t cp)
         st->pos++;
     }
 
-    // Strictly speaking, R_RELEVANT flag should be handled specially here:
+    // Strictly speaking, h->relevant flag should be handled specially here:
     // when starting to parse the terminator, we should stop checking for
     // relevant construct's first character until we conclude that the
     // character is not a part of the terminator. Then, when failing back
@@ -2217,14 +2214,7 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
     xml_reader_entity_t fakechar;
     const char *saved_relevant;
 
-    // R_RELEVANT is special: it is allowed to be set in callback and is thus checked
-    // from handle, not from the 'one-time-flags' (4th argument). It is also set for
-    // each text block found. Text blocks are separated by entity references, but not
-    // by character references.
     /// @todo drop 4th arg and set all flags in h->flags?
-    /// TBD EntityValue - only the 1st character is to be checked. R_RELEVANT_ONCE?
-    /// TBD Also, in literal R_RELEVANT needs to be set after the initial quote (or
-    /// we'll check the quote itself).
     while (true) {
         do {
             if (reftype != XML_READER_REF__CHAR) {
@@ -2398,6 +2388,31 @@ xml_cb_literal(void *arg, ucs4_t cp)
     }
 }
 
+/**
+    Special version of literal parser for parsed entity values: they are considered
+    relevant constructs and must perform the check for composing character right
+    after the opening quote.
+
+    @param arg Current state
+    @param cp Codepoint
+    @return true if this character is rejected
+*/
+static ucs4_t
+xml_cb_literal_EntityValue(void *arg, ucs4_t cp)
+{
+    xml_cb_literal_state_t *st = arg;
+
+    if (st->quote != UCS4_NOCHAR
+            && st->h->tokenlen == 0) {
+        st->h->relevant = "parsed entity value";
+    }
+
+    // Strictly speaking  we should also clear h->relevant when the closing quote is
+    // seen, but it is going to pass the check for composing character anyway, so why
+    // bother?
+    return xml_cb_literal(arg, cp);
+}
+
 /// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
 static const xml_reference_ops_t reference_ops_pseudo = {
     .errinfo = XMLERR(ERROR, XML, P_XMLDecl),
@@ -2448,7 +2463,7 @@ static const xml_reference_ops_t reference_ops_PubidLiteral = {
 /// Virtual methods for reading entity value (EntityValue production) in internal subset
 static const xml_reference_ops_t reference_ops_EntityValue_internal = {
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
-    .condread = xml_cb_literal,
+    .condread = xml_cb_literal_EntityValue,
     .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
     .relevant = NULL,
     .textblock = textblock_append_literal,
@@ -2464,7 +2479,7 @@ static const xml_reference_ops_t reference_ops_EntityValue_internal = {
 /// Virtual methods for reading entity value (EntityValue production) in external subset
 static const xml_reference_ops_t reference_ops_EntityValue_external = {
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
-    .condread = xml_cb_literal,
+    .condread = xml_cb_literal_EntityValue,
     .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
     .relevant = NULL,
     .textblock = textblock_append_literal,
@@ -3984,6 +3999,12 @@ xml_parse_ETag(xml_reader_t *h)
     Expected tokens/handlers for parsing content production.
     Can be used either as non-root context, or as a root context for external
     parsed entities.
+
+    The content production is defined in XML 1.1 as one of the relevant constructs,
+    meaning that it cannot start with a composing character. We do not check that
+    explicitly though: this parse context checks that the content starts either with
+    a less-than (which is not composing), or with CharData (which is also a relevant
+    construct and performs the same check for the first character).
 
     @verbatim
     content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
