@@ -44,13 +44,16 @@
     - Generic validator to be used by DTD/XML Schema/RelaxNG/...
 
     @section OPENISSUES Open issues
-    @subsection OPENISSUES-XML XML 1.0/1.1
+    @subsection OPENISSUES-CHARMOD Character Model for WWW 1.0
     - In Character Model for WWW 1.0: Normalization, the following example is listed as
       not include normalized: "suc<![CDATA[¸on]]>". This implies that CDATA sections
       are considered "includes" for the purposes of normalization checking. However,
       this contradicts the XML 1.1 specification, where normative appendix B links the
-      "includes" term to section 4.4.2, which deals only with the inclusion of the
+      "includes" term to section 4.4.2, which describes only the inclusion of the
       entities.
+    - Typo in example: in the leading text for the XML examples, the entity is named
+      "ccedil", but the example used "ccedill" (double-ell).
+    @subsection OPENISSUES-XML XML 1.0/1.1
     - Reserved xml namespaces - latest errata in 1.0 changed the reservation from
       [Xx][Mm][Ll] to xml- in PIs and xml: in element and attribute names. There is
       no similar errata in XML 1.1 spec.

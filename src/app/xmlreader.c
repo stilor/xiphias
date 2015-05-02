@@ -94,12 +94,16 @@ cb(void *arg, xml_reader_cbparam_t *cbparam)
     struct cb_arg_s *cba = arg;
 
     if (gencode) {
-        xml_reader_stack(cba->h, stacktrace_code, NULL);
+        if (stacktrace) {
+            xml_reader_stack(cba->h, stacktrace_code, NULL);
+        }
         xmlreader_event_gencode(cbparam);
     }
     else {
         xmlreader_event_print(cbparam);
-        xml_reader_stack(cba->h, stacktrace_human, NULL);
+        if (stacktrace) {
+            xml_reader_stack(cba->h, stacktrace_human, NULL);
+        }
         if (cbparam->cbtype == XML_READER_CB_MESSAGE
                 && XMLERR_SEVERITY(cbparam->message.info) == XMLERR_ERROR) {
             cba->exitstatus = 1;

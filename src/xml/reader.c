@@ -51,10 +51,10 @@ typedef struct xml_reader_notation_s {
 
 /// Context for adding new external entity to the document
 enum xml_reader_external_context_e {
-    CTXT_DOCUMENT_ENTITY,
-    CTXT_DTD_EXTERNAL_SUBSET,
-    CTXT_PARSED_PARAMETER_ENTITY,
-    CTXT_PARSED_GENERAL_ENTITY,
+    CTXT_DOCUMENT_ENTITY,           ///< Main document
+    CTXT_DTD_EXTERNAL_SUBSET,       ///< External subset included from main document
+    CTXT_PARSED_PARAMETER_ENTITY,   ///< External parameter entity
+    CTXT_PARSED_GENERAL_ENTITY,     ///< External general entity
 };
 
 /// Information on a pre-defined entity.
@@ -1304,11 +1304,12 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
             if (saw_cr && (cp0 == 0x0A || cp0 == 0x85)) {
                 // EOL normalization. This is "continuation" of a previous character - so
                 // is treated before positioning update.
+                /// @todo This also means these characters do not reach the normalization
+                /// checker... but they are never denormalizing (neither decomposanble, nor
+                /// do they appear in decompositions of other characters), so that's ok.
                 saw_cr = false;
                 continue;
             }
-
-            /// @todo Normalization check goes here
 
             // XML processor MUST behave as if it normalized all line breaks
             // in external parsed entities (including the document entity) on input,
@@ -1378,11 +1379,14 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
             // But, need to feed the character to both normalization checkers to maintain context.
             if (h->normalization == XML_READER_NORM_ON) {
                 norm_warned = false;
-                if (!nfc_check_nextchar(h->current_entity->norm_unicode, cp0)) {
+                // Does it come from the regular input or was a result of some substitution?
+                if (inp->external
+                        && !nfc_check_nextchar(inp->external->norm_unicode, cp0)) {
                     xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
                             "Input is not Unicode-normalized");
                     norm_warned = true;
                 }
+                // Is this going to be a part of the document or will it be replaced?
                 if ((flags & R_NO_INC_NORM) == 0
                         && !nfc_check_nextchar(h->norm_include, cp0)
                         && !norm_warned) {
@@ -1393,7 +1397,14 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 // Checking handle's flags, not cached value: the func callback
                 // may set this flag while parsing the same production (e.g.,
                 // when parsing NmTokens, this flag will be set at the beginning
-                // of each token).
+                // of each token). Entity references (but not character references)
+                // are also subject to this check - if an entity reference is a part
+                // of content production, for example, than any character data in the
+                // entity's replacement text must match CharData production, and the
+                // rule is then applied recursively. Character references are not
+                // subject to this check: "A character reference is included when
+                // the indicated character is processed in place of the reference
+                // itself."
                 if (h->flags & R_RELEVANT) {
                     if (!norm_warned && (ucs4_get_ccc(cp0) || ucs4_get_cw_len(cp0))) {
                         // XML 1.1 spec:
@@ -1407,10 +1418,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                         xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
                                 "Relevant construct begins with a composing character");
                         // TBD test both with direct character insertion and character references
-                        // TBD set R_RELEVANT where applicable: NmToken, CharData, CData,
-                        // content [needed? content may either start with CharData or markup,
-                        // all of which starts with < or & - either of them is ok for
-                        // "first character is not composing" rule], and replacement text
+                        // TBD set R_RELEVANT where applicable: NmToken, and replacement text
                         // of parsed entities [check at definition - as the rule apparently
                         // applies even if entity is not used anywhere].
                     }
@@ -1735,6 +1743,20 @@ xml_cb_termstring(void *arg, ucs4_t cp)
     if (ucs4_fromlocal(st->term.str[st->pos]) == cp) {
         st->pos++;
     }
+
+    // Strictly speaking, R_RELEVANT flag should be handled specially here:
+    // when starting to parse the terminator, we should stop checking for
+    // relevant construct's first character until we conclude that the
+    // character is not a part of the terminator. Then, when failing back
+    // via fail function, we should catch up by feeding the characters
+    // between the new and the old positions in the terminator to the
+    // normalization checker.
+    // That's a lot of complication that we can avoid by relying on
+    // terminator string to be ASCII-only (which it is, XML spec does
+    // not define any terminator strings with non-ASCII characters).
+    // With that in mind, we may end up checking the first character of the
+    // terminator string for being a non-composing character - and that
+    // check will always pass, since none of ASCII characters are composing.
     return st->pos == st->term.len ? (cp | UCS4_LASTCHAR) : cp;
 }
 
@@ -2186,19 +2208,29 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
 {
     xru_t stopstatus;
     xml_reader_cbparam_t cbp;
-    enum xml_reader_reference_e reftype;
+    enum xml_reader_reference_e reftype = XML_READER_REF__MAX; // No reference yet
     xml_reader_entity_t *e;
     xml_reader_entity_t fakechar;
-    uint32_t relevant;
+    uint32_t saved_relevant;
 
     // R_RELEVANT is special: it is allowed to be set in callback and is thus checked
     // from handle, not from the 'one-time-flags' (4th argument). It is also set for
-    // each text block found.
+    // each text block found. Text blocks are separated by entity references, but not
+    // by character references.
     /// @todo drop 4th arg and set all flags in h->flags?
-    relevant = refops->flags & R_RELEVANT;
+    /// TBD EntityValue - only the 1st character is to be checked. R_RELEVANT_ONCE?
+    /// TBD Also, in literal R_RELEVANT needs to be set after the initial quote (or
+    /// we'll check the quote itself).
     while (true) {
         do {
-            h->flags |= relevant;
+            if (reftype != XML_READER_REF__CHAR) {
+                // For normalization checking, character references are considered a part
+                // of the construct they belong to.
+                // "... and by then verifying that none of the relevant constructs listed
+                // above begins (after character references are expanded) with a composing
+                // character..."
+                h->flags |= refops->flags & R_RELEVANT;
+            }
             stopstatus = xml_read_until(h, refops->condread, arg, refops->flags);
             if (refops->textblock) {
                 refops->textblock(arg);
@@ -2206,15 +2238,21 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         } while (stopstatus == XRU_INPUT_BOUNDARY);
 
         if (stopstatus != XRU_REFERENCE) {
-            h->flags &= ~relevant;
+            h->flags &= ~R_RELEVANT;
             return stopstatus; // Saw the terminating condition or EOF
         }
 
-        // We have some kind of entity, read its name or code point
+        // We have some kind of entity, read its name or code point. Entity reference
+        // itself is not a relevant construct (although Name production inside it,
+        // if it is an entity reference, is).
+        saved_relevant = h->flags & R_RELEVANT;
+        h->flags &= ~R_RELEVANT;
         if (xml_parse_reference(h, &reftype) != PR_OK) {
             // no recovery - interpret anything after error as plain text
+            reftype = XML_READER_REF__MAX;
             continue;
         }
+        h->flags |= saved_relevant;
 
         switch (reftype) {
         case XML_READER_REF__CHAR:
@@ -2224,12 +2262,14 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
                 xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_CharRef),
                         "Character reference did not evaluate to a valid "
                         "UCS-4 code point");
+                reftype = XML_READER_REF__MAX;
                 continue;
             }
             if (!xml_valid_char_reference(h, h->charrefval)) {
                 // Recover by skipping invalid character.
                 xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_CharRef),
                         "Referenced character does not match Char production");
+                reftype = XML_READER_REF__MAX;
                 continue;
             }
             fakechar.type = XML_READER_REF__CHAR;
@@ -2789,6 +2829,7 @@ xml_cb_CharData(void *arg, ucs4_t cp)
 {
     cb_CharData_t *st = arg;
 
+    // TBD: need to check if the content matches ']]>' token and raise an error if it does
     if (!ucs4_cheq(cp, '<') || SLIST_FIRST(&st->h->active_input)->charref) {
         if (st->ws && !xml_is_whitespace(cp)) {
             st->ws = false;
@@ -3040,6 +3081,9 @@ xml_parse_CDSect(xml_reader_t *h)
     xml_reader_input_lock(h);
     cbp.cbtype = XML_READER_CB_CDSECT;
     cbp.loc = h->lastreadloc;
+
+    // Starting CData - which is relevant construct
+    h->flags |= R_RELEVANT;
     if (xml_read_termstring(h, &termstring_cdata, NULL, NULL) != PR_OK) {
         // no need to recover (EOF)
         /// @todo Test unterminated comments/PIs/CDATA in entities - is PR_STOP proper here?
@@ -3048,6 +3092,7 @@ xml_parse_CDSect(xml_reader_t *h)
         xml_reader_input_unlock_assert(h);
         return PR_STOP;
     }
+    h->flags &= ~R_RELEVANT; // In case we didn't read anything
     cbp.token.str = h->tokenbuf;
     cbp.token.len = h->tokenlen;
     cbp.append.ws = false;
