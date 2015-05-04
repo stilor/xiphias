@@ -1,0 +1,6 @@
+<!DOCTYPE a [
+<!ENTITY y "a">
+<!ENTITY x "<&y;>foo</&y;>">
+<!ELEMENT a ANY>
+]>
+<a>&x;</a>

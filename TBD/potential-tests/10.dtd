@@ -1,0 +1,2 @@
+<!ENTITY % x "ENTITY foo &#x22;text&#x22;">
+<%x;>

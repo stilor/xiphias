@@ -1,0 +1,6 @@
+<!DOCTYPE a [
+<!ENTITY % foo SYSTEM "7-bar.dtd">
+%foo;
+<!ELEMENT a ANY>
+]>
+<a/>

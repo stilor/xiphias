@@ -1,0 +1,207 @@
+Index: src/xml/reader.c
+===================================================================
+--- src/xml/reader.c	(revision 928)
++++ src/xml/reader.c	(working copy)
+@@ -160,6 +160,16 @@
+     const xml_reader_xmldecl_attrdesc_t *attrlist; ///< Allowed/required attributes
+ } xml_reader_xmldecl_declinfo_t;
+ 
++/// Tracking of element nesting
++typedef struct xml_reader_nesting_s {
++    /// Link for stack of nested elements
++    SLIST_ENTRY(xml_reader_nesting_s) link;
++
++    size_t offs;                    ///< Offset into name storage buffer
++    size_t len;                     ///< Length of the element type
++    xmlerr_loc_t loc;               ///< Location of the element in the document
++} xml_reader_nesting_t;
++
+ /**
+     Input method: either strbuf for an external entity, replacement text for an internal
+     entity or internal memory buffer (for character references).
+@@ -199,6 +209,7 @@
+     enum xml_reader_external_context_e ext_ctxt;    ///< Context for external entities
+     xml_reader_external_t *current_entity;          ///< Entity being parsed    
+ 
++    // TBD replace with a callback guard function for patterns?
+     uint32_t nestlvl;               ///< Element nesting level
+ 
+     utf8_t *tokenbuf;               ///< Token buffer
+@@ -205,6 +216,10 @@
+     utf8_t *tokenbuf_end;           ///< End of the token buffer
+     size_t tokenlen;                ///< Length of the token in the buffer
+ 
++    utf8_t *namestorage;            ///< Buffer for storing element types
++    size_t namestorage_size;        ///< Size of the name storage buffer
++    size_t namestorage_offs;        ///< Current offset into namestorage
++
+     xmlerr_loc_t lastreadloc;       ///< Reader's position at the beginning of last token
+     ucs4_t rejected;                ///< Next character (rejected by xml_read_until_*)
+     ucs4_t charrefval;              ///< When parsing character reference: stored value
+@@ -215,6 +230,8 @@
+     SLIST_HEAD(,xml_reader_input_s) active_input;   ///< Currently active inputs
+     SLIST_HEAD(,xml_reader_input_s) free_input;     ///< Free list of input structures
+     SLIST_HEAD(,xml_reader_external_s) external;    ///< All external entities
++    SLIST_HEAD(,xml_reader_nesting_s) elem_nested;  ///< Currently nested elements
++    SLIST_HEAD(,xml_reader_nesting_s) elem_free;    ///< Free nesting trackers
+ };
+ 
+ /// Return status for production parser
+@@ -940,9 +957,15 @@
+     h->tokenbuf_end = h->tokenbuf + INITIAL_TOKENBUF_SIZE;
+     h->tokenlen = 0;
+ 
++    h->namestorage_size = INITIAL_NAMESTACK_SIZE;
++    h->namestorage_offs = 0;
++    h->namestorage = xmalloc(INITIAL_NAMESTACK_SIZE);
++
+     SLIST_INIT(&h->active_input);
+     SLIST_INIT(&h->free_input);
+     SLIST_INIT(&h->external);
++    SLIST_INIT(&h->elem_nested);
++    SLIST_INIT(&h->elem_free);
+ 
+     h->entities_param = strhash_create(ENTITY_HASH_ORDER, xml_entity_destroy);
+     h->entities_gen = strhash_create(ENTITY_HASH_ORDER, xml_entity_destroy);
+@@ -961,6 +984,7 @@
+ xml_reader_delete(xml_reader_t *h)
+ {
+     xml_reader_input_t *inp;
++    xml_reader_nesting_t *n;
+     xml_reader_external_t *ex;
+ 
+     while ((inp = SLIST_FIRST(&h->active_input)) != NULL) {
+@@ -974,11 +998,20 @@
+         SLIST_REMOVE_HEAD(&h->external, link);
+         xml_reader_external_destroy(ex);
+     }
++    while ((n = SLIST_FIRST(&h->elem_nested)) != NULL) {
++        SLIST_REMOVE_HEAD(&h->elem_nested, link);
++        xfree(n);
++    }
++    while ((n = SLIST_FIRST(&h->elem_free)) != NULL) {
++        SLIST_REMOVE_HEAD(&h->elem_free, link);
++        xfree(n);
++    }
+ 
+     strhash_destroy(h->entities_param);
+     strhash_destroy(h->entities_gen);
+ 
+     xfree(h->tokenbuf);
++    xfree(h->namestorage);
+     xfree(h->ucs4buf);
+     xfree(h);
+ }
+@@ -3484,6 +3517,86 @@
+ }
+ 
+ /**
++    Push a name onto a stack of nested elements.
++
++    @param h Reader handle
++    @param loc Location of the element opening tag
++    @return Nothing
++*/
++static void
++xml_elemtype_push(xml_reader_t *h, const xmlerr_loc_t *loc)
++{
++    xml_reader_nesting_t *n;
++    const utf8_t *name = h->tokenbuf;
++    size_t len = h->tokenlen;
++
++    // Allocate tracking structure
++    if ((n = SLIST_FIRST(&h->elem_free)) != NULL) {
++        SLIST_REMOVE_HEAD(&h->elem_free, link);
++    }
++    else {
++        n = xmalloc(sizeof(xml_reader_nesting_t));
++    }
++
++    // Adjust buffer size if needed
++    while (h->namestorage_offs + len > h->namestorage_size) {
++        h->namestorage_size *= 2;
++        h->namestorage = xrealloc(h->namestorage, h->namestorage_size);
++    }
++    n->offs = h->namestorage_offs;
++    n->len = len;
++    n->loc = *loc;
++    memcpy(&h->namestorage[n->offs], name, len);
++    h->namestorage_offs += len;
++    SLIST_INSERT_HEAD(&h->elem_nested, n, link);
++}
++
++/**
++    Pop a name from a stack of nested elements and compare it against the name
++    provided by caller.
++
++    @param h Reader handle
++    @return Baton from the nesting tracker
++*/
++static void
++xml_elemtype_pop(xml_reader_t *h)
++{
++    xml_reader_nesting_t *n;
++    const utf8_t *name = h->tokenbuf;
++    size_t len = h->tokenlen;
++
++    n = SLIST_FIRST(&h->elem_nested);
++    OOPS_ASSERT(n);
++    SLIST_REMOVE_HEAD(&h->elem_nested, link);
++    if (len != n->len || memcmp(&h->namestorage[n->offs], name, len)) {
++        xml_reader_message_lastread(h, XMLERR(ERROR, XML, WFC_ELEMENT_TYPE_MATCH),
++                "Closing element type mismatch: '%.*s'", (int)len, name);
++        xml_reader_message(h, &n->loc, XMLERR_NOTE,
++                "Opening element: '%.*s'", (int)n->len, &h->namestorage[n->offs]);
++    }
++    h->namestorage_offs = n->offs;
++    SLIST_INSERT_HEAD(&h->elem_free, n, link);
++}
++
++/**
++    Drop a name tracker structure without checking for name match.
++
++    @param h Reader handle
++    @return Nothing
++*/
++static void
++xml_elemtype_drop(xml_reader_t *h)
++{
++    xml_reader_nesting_t *n;
++
++    n = SLIST_FIRST(&h->elem_nested);
++    OOPS_ASSERT(n);
++    SLIST_REMOVE_HEAD(&h->elem_nested, link);
++    h->namestorage_offs = n->offs;
++    SLIST_INSERT_HEAD(&h->elem_free, n, link);
++}
++
++/**
+     Read and process STag/EmptyElemTag productions.
+     Both productions are the same with the exception of the final part:
+ 
+@@ -3517,6 +3630,9 @@
+         goto malformed;
+     }
+ 
++    // Remember the element type for wellformedness check in closing tag
++    xml_elemtype_push(h, &cbp.loc);
++
+     // Notify the application that a new element has started
+     cbp.token.str = h->tokenbuf;
+     cbp.token.len = h->tokenlen;
+@@ -3529,6 +3645,7 @@
+                 goto malformed;
+             }
+             is_empty = true;
++            xml_elemtype_drop(h);
+             break;
+         }
+         else if (ucs4_cheq(h->rejected, '>')) {
+@@ -3624,6 +3741,7 @@
+         xml_reader_input_unlock_assert(h);
+         return PR_OK;
+     }
++    xml_elemtype_pop(h);
+ 
+     // Do not decrement nest level if already at the root level. This document
+     // is already malformed, so an error message should already be raised.

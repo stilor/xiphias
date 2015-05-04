@@ -1,0 +1,2 @@
+<!ENTITY % bar SYSTEM "7-bar.dtd">
+<!ENTITY foo "%bar;">

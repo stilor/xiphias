@@ -1,0 +1,6 @@
+<!DOCTYPE a [
+<!ENTITY ws "   
+   ">
+<!ELEMENT a (a*)>
+]>
+<a><a>&ws;<a/><a/></a><a></a><![CDATA[   ]]></a>

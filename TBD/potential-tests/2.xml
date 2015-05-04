@@ -1,0 +1,6 @@
+<!DOCTYPE a [
+<!ENTITY xx "<f>b</f>">
+<!ELEMENT a EMPTY>
+<!ATTLIST a foo CDATA #IMPLIED>
+]>
+<a foo="q&xx;w"/>

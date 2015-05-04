@@ -1,0 +1,6 @@
+<?xml-stylesheet href="1.xsl" title="What a &quot;stylesheet!"?>
+<?another-pi with-content="of course"?>
+<!-- comment - outside --- --><a>
+	<?pi-inside attr="val"?>
+	<!-- comment inside -->
+</a>
