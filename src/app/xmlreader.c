@@ -22,12 +22,32 @@ static bool load_ent;
 /// Generate verbose "stacktraces" for each event
 static bool stacktrace;
 
-/// Transport encoding
-static const char *transport_encoding;
+/**
+    Interject a escape-substitution string buffer if one was requested.
 
-/// Location used for the document entity
-/// @todo Figure out linker flags so that binaries are runnable from any directory
-static const char *location;
+    @param arg Ignored
+    @param sbuf String buffer from loader
+    @return If substitution is performed, chained string buffer. Otherwise,
+        @a sbuf.
+*/
+static strbuf_t *
+sbuf_subst(void *arg, strbuf_t *sbuf)
+{
+    return subst ? test_strbuf_subst(sbuf, '\\', 4096) : sbuf;
+}
+
+/// Search paths
+static const char *search_paths[2] = { NULL, NULL }; // First one to be overwritten
+
+/// Loader options for external entities (including the document entity)
+/// @todo Allow options to be specified multiple times (variable array,
+/// perhaps) to have multiple search paths
+static xml_loader_opts_file_t file_loader_opts = {
+    .searchpaths = search_paths,
+    .transport_encoding = NULL,
+    .subst_func = sbuf_subst,
+    .subst_arg = NULL,
+};
 
 /// Input file name
 static const char *inputfile;
@@ -58,19 +78,19 @@ static const opt_t options[] = {
         OPT_KEY('t', "transport-encoding"),
         OPT_HELP( "ENCODING", "Specify encoding reported from transport layer"),
         OPT_CNT_OPTIONAL,
-        OPT_TYPE(STRING, &transport_encoding),
-    },
-    {
-        OPT_KEY('l', "location"),
-        OPT_HELP( "LOC", "Specify location for the document entity"),
-        OPT_CNT_OPTIONAL,
-        OPT_TYPE(STRING, &location),
+        OPT_TYPE(STRING, &file_loader_opts.transport_encoding),
     },
     {
         OPT_KEY('e', "load-external-entities"),
         OPT_HELP(NULL, "Load external entities"),
         OPT_CNT_OPTIONAL,
         OPT_TYPE(BOOL, &load_ent),
+    },
+    {
+        OPT_KEY('\0', "search"),
+        OPT_HELP("DIR", "search for external entities in directory DIR"),
+        OPT_CNT_OPTIONAL,
+        OPT_TYPE(STRING, &search_paths[0]),
     },
     {
         OPT_ARGUMENT,
@@ -125,19 +145,9 @@ int
 main(int argc, char *argv[])
 {
     xml_reader_t *reader;
-    strbuf_t *sbuf;
     struct cb_arg_s cb_arg;
 
     opt_parse(options, argv);
-    if ((sbuf = strbuf_file_read(inputfile, 4096)) == NULL) {
-        /// @todo Pool with 'last error' queue? Also for memory, file descs...
-        fprintf(stderr, "Failed to open `%s': %s\n", inputfile, strerror(errno));
-        return 2;
-    }
-
-    if (subst) {
-        sbuf = test_strbuf_subst(sbuf, '\\', 4096);
-    }
 
     if (gencode) {
         printf("(const xml_reader_cbparam_t[]){\n");
@@ -148,13 +158,13 @@ main(int argc, char *argv[])
     cb_arg.h = reader;
 
     xml_reader_set_callback(reader, cb, &cb_arg);
+    xml_reader_set_loader(reader, xml_loader_file, &file_loader_opts);
+    xml_reader_load_parsed_entity(reader, NULL, inputfile);
 
-    if (load_ent) {
-        xml_reader_set_loader(reader, xml_loader_file, NULL);
+    if (!load_ent) {
+        xml_reader_set_loader(reader, xml_loader_noload, NULL);
     }
 
-    xml_reader_add_parsed_entity(reader, sbuf,
-            location ? location : inputfile, transport_encoding);
     xml_reader_process(reader);
     xml_reader_delete(reader);
     if (gencode) {

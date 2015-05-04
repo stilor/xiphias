@@ -23,11 +23,27 @@ struct xml_reader_s;
 typedef void (*xml_loader_t)(struct xml_reader_s *h, void *arg,
         const char *pubid, const char *sysid);
 
-// TBD use loader to add first (document) entity in xmlreader app & test
-// TBD add 'search path list' as an option to xml_loader_file and use it instead of -d in test
-// (and add to app)
+/**
+    Callback for loader options that allows to chain other string buffers
+    to the one about to be added as an entity's input.
+
+    @param arg Arbitrary argument
+    @param sbuf Input string buffer opened by the loader
+    @return Possibly new string buffer
+*/
+typedef strbuf_t *(*xml_loader_subst_t)(void *arg, strbuf_t *sbuf);
+
 void xml_loader_noload(struct xml_reader_s *h, void *arg,
         const char *pubid, const char *sysid);
+
+/// Loader options for file loader
+typedef struct {
+    const char **searchpaths;      ///< Possible prefixes to relative paths, NULL-terminated
+    const char *transport_encoding;///< Report this as a transport encoding
+    xml_loader_subst_t subst_func; ///< Substitution function
+    void *subst_arg;               ///< Argument to substitution function
+} xml_loader_opts_file_t;
+
 void xml_loader_file(struct xml_reader_s *h, void *arg,
         const char *pubid, const char *sysid);
 

@@ -83,6 +83,33 @@ test_cb(void *arg, xml_reader_cbparam_t *cbparam)
 }
 
 /**
+    Substitute string buffer from loader with some postprocessing.
+
+    @param arg Test case description
+    @param sbuf String buffer from loader
+    @return String buffer for testing
+*/
+static strbuf_t *
+sbuf_subst(void *arg, strbuf_t *sbuf)
+{
+    const testcase_t *tc = arg;
+    void *start, *end;
+
+    sbuf = test_strbuf_subst(sbuf, '\\', 4096);
+    if (tc->use_bom) {
+        if (strbuf_wptr(sbuf, &start, &end) < 3) {
+            OOPS; // There shouldn't be anything in the buffer yet
+        }
+        memcpy(start, "\xEF\xBB\xBF", 3); // BOM in UTF-8
+        strbuf_wadvance(sbuf, 3);
+    }
+    if (tc->encoding) {
+        sbuf = strbuf_iconv_read(sbuf, "UTF-8", tc->encoding, 4096);
+    }
+    return sbuf;
+}
+
+/**
     Run a single test case and compare produced events with expected events.
 
     @param arg Testcase description
@@ -91,10 +118,10 @@ test_cb(void *arg, xml_reader_cbparam_t *cbparam)
 static result_t
 run_testcase(const void *arg)
 {
+    const char *search_paths[2] = { xml_input_dir, NULL };
+    xml_loader_opts_file_t file_loader_opts;
     const testcase_t *tc = arg;
     xml_reader_t *reader;
-    strbuf_t *sbuf;
-    char *path = NULL;
     result_t rc;
     test_cb_t cbarg;
 
@@ -106,25 +133,10 @@ run_testcase(const void *arg)
             tc->encoding ? tc->encoding : "UTF-8",
             tc->use_bom ? "with" : "without");
 
-    // Set up input stream chain
-    path = xasprintf("%s/%s", xml_input_dir, tc->input);
-    if ((sbuf = strbuf_file_read(path, 4096)) == NULL) {
-        xfree(path);
-        return UNRESOLVED;
-    }
-    sbuf = test_strbuf_subst(sbuf, '\\', 4096);
-    if (tc->use_bom) {
-        void *start, *end;
-
-        if (strbuf_wptr(sbuf, &start, &end) < 3) {
-            OOPS; // There shouldn't be anything in the buffer yet
-        }
-        memcpy(start, "\xEF\xBB\xBF", 3); // BOM in UTF-8
-        strbuf_wadvance(sbuf, 3);
-    }
-    if (tc->encoding) {
-        sbuf = strbuf_iconv_read(sbuf, "UTF-8", tc->encoding, 4096);
-    }
+    file_loader_opts.searchpaths = search_paths;
+    file_loader_opts.subst_func = sbuf_subst;
+    file_loader_opts.subst_arg = DECONST(tc); // sbuf_subst will cast it back to const
+    file_loader_opts.transport_encoding = tc->transport_encoding;
 
     // Run the test
     printf("XML reader events:\n");
@@ -136,7 +148,8 @@ run_testcase(const void *arg)
     cbarg.tc = tc;
 
     xml_reader_set_callback(reader, test_cb, &cbarg);
-    xml_reader_add_parsed_entity(reader, sbuf, tc->input, tc->transport_encoding);
+    xml_reader_set_loader(reader, xml_loader_file, &file_loader_opts);
+    xml_reader_load_parsed_entity(reader, NULL, tc->input);
     xml_reader_process(reader); // Emits the events
 
     while (cbarg.expect->cbtype != XML_READER_CB_NONE) {
@@ -148,7 +161,6 @@ run_testcase(const void *arg)
     rc = cbarg.failed ? FAIL : PASS;
 
     xml_reader_delete(reader);
-    xfree(path);
     return rc;
 }
 
@@ -165,7 +177,7 @@ static test_opt_t topt;
 static const opt_t options[] = {
     { OPT_USAGE("Test cases for encodings.") },
     {
-        OPT_KEY('d', "dir-input"),
+        OPT_KEY('d', "search-dir"),
         OPT_HELP("DIR", "Directory where test XML inputs are located"),
         OPT_CNT_OPTIONAL,
         OPT_TYPE(STRING, &xml_input_dir)

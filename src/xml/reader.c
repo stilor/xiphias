@@ -4191,7 +4191,7 @@ static const xml_reader_external_ctxt_t external_context[] = {
     @param context Content for this new entity
     @return Nothing
 */
-static bool
+static void
 xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
         const char *location, const char *transport_encoding,
         xml_reader_entity_t *e, enum xml_reader_external_context_e context)
@@ -4378,13 +4378,12 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
                 ex->ctxt.declinfo->name, encoding_name(ex->enc));
     }
 
-    return true;
+    return;
 
 failed:
     // Keep the external in the list of entities we attempted to read, so that
     // the locations for events remain valid.
     xml_reader_input_complete(h, inp);
-    return false;
 }
 
 /**
@@ -4393,13 +4392,15 @@ failed:
     add a DTD entity. If expanding an external general entity, add an external
     entity.
 
+    This is primarily an internal interface to be invoked by the loader.
+
     @param h Reader handle
     @param buf Buffer to read
     @param location Location string to be used in messages
     @param transport_encoding Encoding from the transport layer
-    @return true if entity added to input queue, false otherwise
+    @return Nothing
 */
-bool
+void
 xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
         const char *location, const char *transport_encoding)
 {
@@ -4418,8 +4419,22 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     default:
         OOPS_UNREACHABLE;
     }
-    return xml_reader_add_external(h, buf, location, transport_encoding,
+    xml_reader_add_external(h, buf, location, transport_encoding,
             e, h->ext_ctxt);
+}
+
+/**
+    Higher-level interface for loading entities that's supposed to be used by consumers.
+
+    @param h Reader handle
+    @param pubid Entity's public ID
+    @param sysid Entity's system ID
+    @return Nothing
+*/
+void
+xml_reader_load_parsed_entity(xml_reader_t *h, const char *pubid, const char *sysid)
+{
+    h->loader(h, h->loader_arg, pubid, sysid);
 }
 
 /**
@@ -4441,7 +4456,7 @@ xml_reader_message(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
     cbparam.cbtype = XML_READER_CB_MESSAGE;
     cbparam.token.str = NULL;
     cbparam.token.len = 0;
-    cbparam.loc = *loc;
+    cbparam.loc = loc ? *loc : h->lastreadloc;
     cbparam.message.info = info;
     va_start(ap, fmt);
     cbparam.message.msg = xvasprintf(fmt, ap);

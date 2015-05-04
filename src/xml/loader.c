@@ -27,6 +27,14 @@ xml_loader_noload(xml_reader_t *h, void *arg, const char *pubid, const char *sys
     // No-op
 }
 
+// Default search option for file loader
+static const xml_loader_opts_file_t default_file_opts = {
+    .searchpaths = (const char *[]){ NULL },
+    .transport_encoding = NULL,
+    .subst_func = NULL,
+    .subst_arg = NULL,
+};
+
 /**
     Loader interpreting system ID as a file path.
 
@@ -39,10 +47,51 @@ xml_loader_noload(xml_reader_t *h, void *arg, const char *pubid, const char *sys
 void
 xml_loader_file(xml_reader_t *h, void *arg, const char *pubid, const char *sysid)
 {
+    const xml_loader_opts_file_t *opts = arg ? arg : &default_file_opts;
     strbuf_t *buf;
+    const char **srch;
+    bool is_absolute;
+    const char *tmppath;
 
-    if ((buf = strbuf_file_read(sysid, DEFAULT_BUFFER_SIZE)) != NULL) {
-        xml_reader_add_parsed_entity(h, buf, sysid, NULL);
+    if (!strncmp(sysid, "file://", 7)) {
+        // URL must be absolute
+        sysid += 7;
+        is_absolute = true;
     }
-    // TBD signal a 'failed to load' error if opening a file failed
+    else if (sysid[0] == '/') {
+        // Absolute path
+        is_absolute = true;
+    }
+    else {
+        // Prepare the search paths
+        is_absolute = false;
+    }
+
+    // First, try the path as is. If we're successful, we're done
+    if ((buf = strbuf_file_read(sysid, DEFAULT_BUFFER_SIZE)) != NULL) {
+        goto success;
+    }
+
+    // For relative paths, try to prepend search paths
+    if (!is_absolute) {
+        for (srch = opts->searchpaths; *srch; srch++) {
+            tmppath = xasprintf("%s/%s", *srch, sysid);
+            buf = strbuf_file_read(tmppath, DEFAULT_BUFFER_SIZE);
+            xfree(tmppath);
+            if (buf) {
+                goto success;
+            }
+        }
+    }
+
+    // None of the search paths worked
+    xml_reader_message(h, NULL, XMLERR(ERROR, XML, ENTITY_LOAD_FAILURE),
+            "Entity failed to load: %s", sysid);
+    return;
+
+success:
+    if (opts->subst_func) {
+        buf = opts->subst_func(opts->subst_arg, buf);
+    }
+    xml_reader_add_parsed_entity(h, buf, sysid, opts->transport_encoding);
 }
