@@ -16,6 +16,7 @@
 #include "unicode/encoding.h"
 #include "unicode/nfc.h"
 
+#include "xml/loader.h"
 #include "xml/reader.h"
 
 /**
@@ -79,6 +80,7 @@ typedef struct xml_reader_entity_s {
     const ucs4_t *refrplc;                  ///< Reference replacement text
     size_t refrplclen;                      ///< Length of the reference replacement text in bytes
     xmlerr_loc_t declared;                  ///< Location of the declaration
+    xmlerr_loc_t included;                  ///< Where this entity has been included from
     const xml_predefined_entity_t *predef;  ///< The definition came from a predefined entity
 } xml_reader_entity_t;
 
@@ -186,13 +188,15 @@ typedef struct xml_reader_input_s {
     bool charref;                   ///< Input originated from a character reference
     xml_reader_entity_t *entity;    ///< Associated entity if any
     xml_reader_external_t *external;///< External entity information
-    void *baton;                    ///< Saved user data for entity being parsed
 } xml_reader_input_t;
 
 /// XML reader structure
 struct xml_reader_s {
     xml_reader_cb_t cb_func;        ///< Callback function
     void *cb_arg;                   ///< Argument to callback function
+
+    xml_loader_t loader;            ///< External entity loader
+    void *loader_arg;               ///< Argument to loader function
 
     ucs4_t *ucs4buf;                ///< Buffer for saved UCS-4 text
     size_t ucs4len;                 ///< Count of UCS-4 characters
@@ -205,7 +209,9 @@ struct xml_reader_s {
     enum xml_info_standalone_e standalone;          ///< Document's standalone status
     enum xml_reader_normalization_e normalization;  ///< Desired normalization behavior
     enum xml_reader_external_context_e ext_ctxt;    ///< Context for external entities
-    xml_reader_external_t *current_entity;          ///< Entity being parsed
+
+    xml_reader_external_t *current_external;        ///< External entity being parsed
+    xml_reader_entity_t *current_entityref;         ///< Reference to external entity being included
 
     nfc_t *norm_include;            ///< Normalization check handle for include normalization
 
@@ -482,6 +488,7 @@ xml_reader_input_new(xml_reader_t *h, const char *location)
     if ((inp = SLIST_FIRST(&h->free_input)) != NULL) {
         SLIST_REMOVE_HEAD(&h->free_input, link);
         buf = inp->buf; // Buffer retained when input is on free list
+        strbuf_clear(buf);
     }
     else {
         inp = xmalloc(sizeof(xml_reader_input_t));
@@ -533,10 +540,10 @@ xml_reader_input_complete(xml_reader_t *h, xml_reader_input_t *inp)
     }
     SLIST_REMOVE_HEAD(&h->active_input, link);
     if (inp->external) {
-        h->current_entity = NULL;
+        h->current_external = NULL;
         SLIST_FOREACH(next, &h->active_input, link) {
             if (next->external) {
-                h->current_entity = next->external;
+                h->current_external = next->external;
                 break;
             }
         }
@@ -1018,8 +1025,12 @@ xml_reader_new(const xml_reader_options_t *opts)
     }
     h = xmalloc(sizeof(xml_reader_t));
     memset(h, 0, sizeof(xml_reader_t));
+
     h->cb_func = dummy_callback;
     h->cb_arg = NULL;
+    h->loader = xml_loader_noload;
+    h->loader_arg = NULL;
+
     h->tabsize = opts->tabsize;
     if (opts->loctrack) {
         h->flags |= R_LOCTRACK;
@@ -1097,6 +1108,21 @@ xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg)
 {
     h->cb_func = func;
     h->cb_arg  = arg;
+}
+
+/**
+    Change the entity loader for external entities.
+
+    @param h Reader handle
+    @param func Loader function
+    @param arg Argument to @a func
+    @return Nothing
+*/
+void
+xml_reader_set_loader(xml_reader_t *h, xml_loader_t func, void *arg)
+{
+    h->loader = func;
+    h->loader_arg = arg;
 }
 
 /**
@@ -1377,7 +1403,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
                         "Non-ASCII characters in %s", inp->external->ctxt.declinfo->name);
             }
-            else if (!inp->charref && xml_is_restricted(cp0, h->current_entity->version)) {
+            else if (!inp->charref && xml_is_restricted(cp0, h->current_external->version)) {
                 // Ignore if it came from character reference (if it is prohibited,
                 // the character reference parser already complained)
                 // Non-fatal: just let the app figure what to do with it
@@ -2007,36 +2033,57 @@ xml_valid_char_reference(xml_reader_t *h, ucs4_t cp)
 
     // The rest is allowed in XML 1.1. In XML 1.0, restricted characters
     // are prohibited even via character references.
-    return (h->current_entity->version == XML_INFO_VERSION_1_1) ?
+    return (h->current_external->version == XML_INFO_VERSION_1_1) ?
             true : !xml_is_restricted(cp, XML_INFO_VERSION_1_0);
+}
+
+/**
+    Notify application when entity parsing starts
+
+    @param h Reader handle
+    @param e Entity
+    @return Nothing
+*/
+static void
+entity_start(xml_reader_t *h, xml_reader_entity_t *e)
+{
+    xml_reader_cbparam_t cbp;
+
+    cbp.cbtype = XML_READER_CB_ENTITY_START;
+    cbp.loc = h->lastreadloc;
+    cbp.entity.type = e->type;
+    cbp.token.str = e->name;
+    cbp.token.len = e->namelen;
+    cbp.entity.system_id = e->system_id;
+    cbp.entity.public_id = e->public_id;
+    xml_reader_invoke_callback(h, &cbp);
+    e->included = h->lastreadloc;
+    e->being_parsed = true;
 }
 
 /**
     When entity finishes parsing, mark it available for other references.
 
     @param h Reader handle
-    @param arg Entity being parsed
+    @param arg Input that has completed
     @return Nothing
 */
 static void
-entity_input_end(xml_reader_t *h, void *arg)
+entity_end(xml_reader_t *h, void *arg)
 {
-    xml_reader_input_t *inp = arg;
-    xml_reader_entity_t *e = inp->entity;
+    xml_reader_entity_t *e = arg;
     xml_reader_cbparam_t cbp;
 
+    memset(&cbp, 0, sizeof(cbp));
     cbp.cbtype = XML_READER_CB_ENTITY_END;
+    cbp.loc = e->included;
     cbp.token.str = e->name;
     cbp.token.len = e->namelen;
-    cbp.loc = SLIST_NEXT(inp, link)->curloc;
     cbp.entity.type = e->type;
     cbp.entity.system_id = e->system_id;
     cbp.entity.public_id = e->public_id;
-    cbp.entity.baton = inp->baton;
-
     xml_reader_invoke_callback(h, &cbp);
-
-    inp->entity->being_parsed = false;
+    e->being_parsed = false;
 }
 
 /**
@@ -2068,29 +2115,17 @@ static void
 reference_included_common(xml_reader_t *h, xml_reader_entity_t *e, bool inc_in_literal)
 {
     xml_reader_input_t *inp;
-    xml_reader_cbparam_t cbp;
 
-    cbp.cbtype = XML_READER_CB_ENTITY_START;
-    cbp.loc = h->lastreadloc;
-    cbp.entity.type = e->type;
-    cbp.token.str = e->name;
-    cbp.token.len = e->namelen;
-    cbp.entity.system_id = e->system_id;
-    cbp.entity.public_id = e->public_id;
-    cbp.entity.baton = NULL;
-    xml_reader_invoke_callback(h, &cbp);
-
+    entity_start(h, e);
     OOPS_ASSERT(e->system_id == NULL); // Must be internal entity
-    e->being_parsed = true;
     inp = xml_reader_input_new(h, e->location);
     strbuf_set_input(inp->buf, e->rplc, e->rplclen);
     inp->entity = e;
     /// @todo replace with a srcid or inp pointer check? nested entities are not handled properly
     inp->inc_in_literal = inc_in_literal;
-    inp->baton = cbp.entity.baton;
 
-    inp->complete = entity_input_end;
-    inp->complete_arg = inp;
+    inp->complete = entity_end;
+    inp->complete_arg = e;
 }
 
 /**
@@ -2129,7 +2164,17 @@ reference_included(xml_reader_t *h, xml_reader_entity_t *e)
 static void
 reference_included_if_validating(xml_reader_t *h, xml_reader_entity_t *e)
 {
-    /// @todo Implement
+    entity_start(h, e);
+
+    // Hidden argument: if the loader decides to add an external input for this
+    // entity, we know what entity it belongs to.
+    h->current_entityref = e;
+    h->loader(h, h->loader_arg, e->public_id, e->system_id);
+    if (h->current_entityref) {
+        // No input has been added - consider it end of this entity's parsing
+        entity_end(h, e);
+        h->current_entityref = NULL;
+    }
 }
 
 /**
@@ -2300,8 +2345,11 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
             cbp.token.len = h->tokenlen;
             cbp.entity.system_id = NULL;
             cbp.entity.public_id = NULL;
-            cbp.entity.baton = NULL;
             xml_reader_invoke_callback(h, &cbp);
+        }
+        else if (e->being_parsed) {
+            xml_reader_message_lastread(h, XMLERR(ERROR, XML, WFC_NO_RECURSION),
+                    "Parsed entity may not contain a recursive reference to itself");
         }
         else if (refops->hnd[e->type]) {
             refops->hnd[e->type](h, e);
@@ -2726,7 +2774,7 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
 static prodres_t
 xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
 {
-    const xml_reader_xmldecl_declinfo_t *declinfo = h->current_entity->ctxt.declinfo;
+    const xml_reader_xmldecl_declinfo_t *declinfo = h->current_external->ctxt.declinfo;
     const xml_reader_xmldecl_attrdesc_t *attrlist = declinfo->attrlist;
     xml_reader_cbparam_t cbp;
     utf8_t labuf[6]; // ['<?xml' + whitespace] or [?>]
@@ -2799,7 +2847,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
 
         if (attrlist->name) {
             // Check/get value and advance to the next attribute
-            attrlist->check(h->current_entity);
+            attrlist->check(h->current_external);
             attrlist++;
         }
     }
@@ -2821,8 +2869,8 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     h->lastreadloc = cbp.loc;
 
     // Emit an event (callback) for XML declaration
-    cbp.xmldecl.encoding = h->current_entity->enc_declared;
-    cbp.xmldecl.version = h->current_entity->version;
+    cbp.xmldecl.encoding = h->current_external->enc_declared;
+    cbp.xmldecl.version = h->current_external->version;
     cbp.xmldecl.standalone = h->standalone; // TBD do away with XML declaration reporting? doesn't seem
                                             // to have any value for consumer, and standalone status
                                             // does not make sense except in doc entity. Instead,
@@ -3490,7 +3538,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     case PR_NOMATCH:
         // Must have EntityValue then
         h->ucs4len = 0;
-        if (xml_parse_literal(h, h->current_entity->ctxt.entity_value_parser) != PR_OK) {
+        if (xml_parse_literal(h, h->current_external->ctxt.entity_value_parser) != PR_OK) {
             goto malformed;
         }
         if (predef) {
@@ -4086,12 +4134,21 @@ static const xml_reader_context_t parser_document_entity = {
 static void
 external_entity_end(xml_reader_t *h, void *arg)
 {
-    xml_reader_external_t *ex = arg;
+    xml_reader_input_t *inp = arg;
+    xml_reader_external_t *ex = inp->external;
 
     // Only if parsing of entity went far enough to establish encoding...
     if (ex->enc && !encoding_clean(ex->enc)) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "Partial characters at end of input");
+    }
+    // Clear the ops - this closes the old buffer's underlying resources
+    // but retains the buffer structure
+    strbuf_setops(inp->buf, NULL, NULL);
+
+    // Call general entity handler if this was an included entity
+    if (inp->entity) {
+        entity_end(h, inp->entity);
     }
 }
 
@@ -4130,13 +4187,14 @@ static const xml_reader_external_ctxt_t external_context[] = {
     @param buf Buffer to read
     @param location Location string to be used in messages
     @param transport_encoding Encoding from the transport layer
+    @param e Entity that is being added; NULL for main document
     @param context Content for this new entity
     @return Nothing
 */
 static bool
 xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
         const char *location, const char *transport_encoding,
-        enum xml_reader_external_context_e context)
+        xml_reader_entity_t *e, enum xml_reader_external_context_e context)
 {
     xml_reader_external_t *ex;
     xml_reader_input_t *inp;
@@ -4154,12 +4212,13 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
     ex->norm_unicode = NULL;
 
     SLIST_INSERT_HEAD(&h->external, ex, link);
-    h->current_entity = ex;
+    h->current_external = ex;
 
     inp = xml_reader_input_new(h, ex->location);
+    inp->entity = e;
     inp->external = ex;
     inp->complete = external_entity_end;
-    inp->complete_arg = ex;
+    inp->complete_arg = inp;
 
     ex->ctxt = external_context[context];
 
@@ -4281,10 +4340,7 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
         }
     }
 
-    // Set up permanent transcoder (we do it always, but the caller probably won't
-    // proceed with further decoding if READER_FATAL is reported). Clear any cached
-    // content as new transcoding ops will re-parse the input at the offset right past
-    // the XML declaration
+    // Set up permanent transcoder
     strbuf_setops(inp->buf, &xml_reader_transcode_ops, ex);
 
     // Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
@@ -4347,8 +4403,23 @@ bool
 xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
         const char *location, const char *transport_encoding)
 {
+    xml_reader_entity_t *e = h->current_entityref;
+
+    switch (h->ext_ctxt) {
+    case CTXT_DOCUMENT_ENTITY:
+    case CTXT_DTD_EXTERNAL_SUBSET:
+        OOPS_ASSERT(!e); // Not added as an entity
+        break;
+    case CTXT_PARSED_PARAMETER_ENTITY:
+    case CTXT_PARSED_GENERAL_ENTITY:
+        OOPS_ASSERT(e); // Must have associated entity
+        h->current_entityref = NULL; // Ensure only one external for each entity
+        break;
+    default:
+        OOPS_UNREACHABLE;
+    }
     return xml_reader_add_external(h, buf, location, transport_encoding,
-            h->ext_ctxt);
+            e, h->ext_ctxt);
 }
 
 /**

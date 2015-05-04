@@ -6,6 +6,7 @@
 */
 #include "util/defs.h"
 
+#include "xml/reader.h"
 #include "xml/loader.h"
 
 /// Default size for buffer's internal storage
@@ -43,4 +44,5 @@ xml_loader_file(xml_reader_t *h, void *arg, const char *pubid, const char *sysid
     if ((buf = strbuf_file_read(sysid, DEFAULT_BUFFER_SIZE)) != NULL) {
         xml_reader_add_parsed_entity(h, buf, sysid, NULL);
     }
+    // TBD signal a 'failed to load' error if opening a file failed
 }

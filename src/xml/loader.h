@@ -8,7 +8,8 @@
 #ifndef __xml_loader_h_
 #define __xml_loader_h_
 
-#include "xml/reader.h"
+// Forward declarations
+struct xml_reader_s;
 
 /**
     Callback for loading external entities
@@ -19,12 +20,15 @@
     @param sysid System ID of the entity
     @return Nothing
 */
-typedef void (*xml_loader_t)(xml_reader_t *h, void *arg,
+typedef void (*xml_loader_t)(struct xml_reader_s *h, void *arg,
         const char *pubid, const char *sysid);
 
-void xml_loader_noload(xml_reader_t *h, void *arg,
+// TBD use loader to add first (document) entity in xmlreader app & test
+// TBD add 'search path list' as an option to xml_loader_file and use it instead of -d in test
+// (and add to app)
+void xml_loader_noload(struct xml_reader_s *h, void *arg,
         const char *pubid, const char *sysid);
-void xml_loader_file(xml_reader_t *h, void *arg,
+void xml_loader_file(struct xml_reader_s *h, void *arg,
         const char *pubid, const char *sysid);
 
 // TBD: URL loader, catalog-based resolver

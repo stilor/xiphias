@@ -5,6 +5,7 @@
 
 #include "util/strbuf.h"
 #include "util/opt.h"
+#include "xml/loader.h"
 #include "xml/reader.h"
 #include "test/common/testlib.h"
 #include "test/xml/reader-event.h"
@@ -14,6 +15,9 @@ static bool gencode;
 
 /// Whether escape sentences are substituted
 static bool subst;
+
+/// Whether external entities are loaded
+static bool load_ent;
 
 /// Generate verbose "stacktraces" for each event
 static bool stacktrace;
@@ -57,11 +61,16 @@ static const opt_t options[] = {
         OPT_TYPE(STRING, &transport_encoding),
     },
     {
-        // TBD remove
         OPT_KEY('l', "location"),
         OPT_HELP( "LOC", "Specify location for the document entity"),
         OPT_CNT_OPTIONAL,
         OPT_TYPE(STRING, &location),
+    },
+    {
+        OPT_KEY('e', "load-external-entities"),
+        OPT_HELP(NULL, "Load external entities"),
+        OPT_CNT_OPTIONAL,
+        OPT_TYPE(BOOL, &load_ent),
     },
     {
         OPT_ARGUMENT,
@@ -139,6 +148,10 @@ main(int argc, char *argv[])
     cb_arg.h = reader;
 
     xml_reader_set_callback(reader, cb, &cb_arg);
+
+    if (load_ent) {
+        xml_reader_set_loader(reader, xml_loader_file, NULL);
+    }
 
     xml_reader_add_parsed_entity(reader, sbuf,
             location ? location : inputfile, transport_encoding);

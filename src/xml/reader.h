@@ -14,8 +14,9 @@
 #include "util/strbuf.h"
 #include "unicode/unicode.h"
 
-#include "infoset.h"
-#include "xmlerr.h"
+#include "xml/infoset.h"
+#include "xml/loader.h"
+#include "xml/xmlerr.h"
 
 // Forward declarations
 struct strbuf_s;
@@ -222,6 +223,7 @@ void xml_reader_opts_default(xml_reader_options_t *opts);
 xml_reader_t *xml_reader_new(const xml_reader_options_t *opts);
 void xml_reader_delete(xml_reader_t *h);
 void xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg);
+void xml_reader_set_loader(xml_reader_t *h, xml_loader_t func, void *arg);
 
 void xml_reader_message(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
         const char *fmt, ...) __printflike(4,5);

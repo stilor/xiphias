@@ -1,0 +1,5 @@
+<!DOCTYPE a [
+<!ENTITY foo SYSTEM "entities08-2.xml">
+<!ENTITY bar "BAR">
+]>
+<a>&foo;&foo;</a>
