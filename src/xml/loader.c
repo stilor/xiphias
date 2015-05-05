@@ -13,16 +13,39 @@
 #define DEFAULT_BUFFER_SIZE 4096
 
 /**
+    Initialize loader information structure.
+
+    @param loader_info Loader information structure
+    @return Nothing
+*/
+void xml_loader_info_init(xml_loader_info_t *loader_info)
+{
+    loader_info->public_id = NULL;
+    loader_info->system_id = NULL;
+}
+
+/**
+    Destroy loader information structure.
+
+    @param loader_info Loader information structure
+    @return Nothing
+*/
+void xml_loader_info_destroy(xml_loader_info_t *loader_info)
+{
+    xfree(loader_info->public_id);
+    xfree(loader_info->system_id);
+}
+
+/**
     Dummy loader: always reports a failure to load.
 
     @param h Reader handle
     @param arg Ignored
-    @param pubid Ignored
-    @param sysid Ignored
+    @param loader_info Loader information (ignored)
     @return Nothing
 */
 void
-xml_loader_noload(xml_reader_t *h, void *arg, const char *pubid, const char *sysid)
+xml_loader_noload(xml_reader_t *h, void *arg, const xml_loader_info_t *loader_info)
 {
     // No-op
 }
@@ -40,18 +63,24 @@ static const xml_loader_opts_file_t default_file_opts = {
 
     @param h Reader handle
     @param arg Ignored
-    @param pubid Ignored
-    @param sysid File path to open (cannot be URL)
+    @param loader_info Loader information
     @return String buffer for the file, or NULL if file cannot be opened
 */
 void
-xml_loader_file(xml_reader_t *h, void *arg, const char *pubid, const char *sysid)
+xml_loader_file(xml_reader_t *h, void *arg, const xml_loader_info_t *loader_info)
 {
     const xml_loader_opts_file_t *opts = arg ? arg : &default_file_opts;
+    const char *sysid = loader_info->system_id;
     strbuf_t *buf;
     const char **srch;
     bool is_absolute;
     const char *tmppath;
+
+    if (!sysid) {
+        xml_reader_message(h, NULL, XMLERR(ERROR, XML, ENTITY_LOAD_FAILURE),
+                "%s() can only load entities with system ID", __func__);
+        return;
+    }
 
     if (!strncmp(sysid, "file://", 7)) {
         // URL must be absolute

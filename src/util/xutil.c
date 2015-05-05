@@ -74,16 +74,18 @@ xfree(const void *ptr)
 /**
     String duplication.
 
-    @param s String to be duplicated
+    @param s String to be duplicated; may be NULL (in which case, NULL is returned)
     @return Allocated copy of the string
 */
 char *
 xstrdup(const char *s)
 {
-    char *rv;
+    char *rv = NULL;
 
-    rv = strdup(s);
-    OOPS_ASSERT(rv);
+    if (s) {
+        rv = strdup(s);
+        OOPS_ASSERT(rv);
+    }
     return rv;
 }
 

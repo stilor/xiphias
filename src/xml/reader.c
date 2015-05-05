@@ -45,8 +45,7 @@ enum {
 typedef struct xml_reader_notation_s {
     const utf8_t *name;                     ///< Notation name
     size_t namelen;                         ///< Notation name length in bytes
-    const char *system_id;                  ///< System ID of the notation
-    const char *public_id;                  ///< Public ID of the notation
+    xml_loader_info_t loader_info;          ///< Loader information for this notation
 } xml_reader_notation_t;
 
 /// Context for adding new external entity to the document
@@ -69,8 +68,7 @@ typedef struct xml_reader_entity_s {
     const utf8_t *name;                     ///< Entity name
     size_t namelen;                         ///< Entity name length in bytes
     enum xml_reader_reference_e type;       ///< Entity type
-    const char *system_id;                  ///< System ID of the entity (NULL for internal)
-    const char *public_id;                  ///< Public ID of the entity
+    xml_loader_info_t loader_info;          ///< Loader information for this entity
     const char *location;                   ///< How input from this entity will be reported
     xml_reader_notation_t *notation;        ///< Associated notation
     bool being_parsed;                      ///< Recursion detection: this entity is being parsed
@@ -225,6 +223,8 @@ struct xml_reader_s {
     xmlerr_loc_t lastreadloc;       ///< Reader's position at the beginning of last token
     ucs4_t rejected;                ///< Next character (rejected by xml_read_until_*)
     ucs4_t charrefval;              ///< When parsing character reference: stored value
+
+    xml_loader_info_t dtd_loader_info;              ///< DTD public/system ID
 
     strhash_t *entities_param;      ///< Parameter entities
     strhash_t *entities_gen;        ///< General entities
@@ -816,6 +816,7 @@ xml_notation_new(strhash_t *hash, const utf8_t *name, size_t namelen)
 
     n = xmalloc(sizeof(xml_reader_notation_t));
     memset(n, 0, sizeof(xml_reader_notation_t));
+    xml_loader_info_init(&n->loader_info);
     n->name = strhash_set(hash, name, namelen, n);
     n->namelen = namelen;
     return n;
@@ -832,8 +833,7 @@ xml_notation_destroy(void *arg)
 {
     xml_reader_notation_t *n = arg;
 
-    xfree(n->public_id);
-    xfree(n->system_id);
+    xml_loader_info_destroy(&n->loader_info);
     xfree(n);
 }
 
@@ -853,6 +853,7 @@ xml_entity_new(strhash_t *ehash, const utf8_t *name, size_t namelen)
 
     e = xmalloc(sizeof(xml_reader_entity_t));
     memset(e, 0, sizeof(xml_reader_entity_t));
+    xml_loader_info_init(&e->loader_info);
     e->name = strhash_set(ehash, name, namelen, e);
     e->namelen = namelen;
     s = utf8_strtolocal(e->name);
@@ -872,8 +873,7 @@ xml_entity_destroy(void *arg)
 {
     xml_reader_entity_t *e = arg;
 
-    xfree(e->public_id);
-    xfree(e->system_id);
+    xml_loader_info_destroy(&e->loader_info);
     xfree(e->refrplc);
     xfree(e->rplc);
     xfree(e->location);
@@ -1045,13 +1045,15 @@ xml_reader_new(const xml_reader_options_t *opts)
     h->tokenbuf_end = h->tokenbuf + opts->initial_tokenbuf;
     h->tokenlen = 0;
 
-    SLIST_INIT(&h->active_input);
-    SLIST_INIT(&h->free_input);
-    SLIST_INIT(&h->external);
+    xml_loader_info_init(&h->dtd_loader_info);
 
     h->entities_param = strhash_create(opts->entity_hash_order, xml_entity_destroy);
     h->entities_gen = strhash_create(opts->entity_hash_order, xml_entity_destroy);
     h->notations = strhash_create(opts->notation_hash_order, xml_notation_destroy);
+
+    SLIST_INIT(&h->active_input);
+    SLIST_INIT(&h->free_input);
+    SLIST_INIT(&h->external);
 
     xml_entity_populate(h->entities_gen);
 
@@ -1085,6 +1087,8 @@ xml_reader_delete(xml_reader_t *h)
     if (h->norm_include) {
         nfc_destroy(h->norm_include);
     }
+
+    xml_loader_info_destroy(&h->dtd_loader_info);
 
     strhash_destroy(h->entities_param);
     strhash_destroy(h->entities_gen);
@@ -1136,6 +1140,19 @@ static inline void
 xml_reader_invoke_callback(xml_reader_t *h, xml_reader_cbparam_t *cbparam)
 {
     h->cb_func(h->cb_arg, cbparam);
+}
+
+/**
+    Call user-registered entity loader.
+
+    @param h Reader handle
+    @param loader_info Loader information for entity being loaded
+    @return Nothing
+*/
+static inline void
+xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info)
+{
+    h->loader(h, h->loader_arg, loader_info);
 }
 
 /**
@@ -2054,8 +2071,8 @@ entity_start(xml_reader_t *h, xml_reader_entity_t *e)
     cbp.entity.type = e->type;
     cbp.token.str = e->name;
     cbp.token.len = e->namelen;
-    cbp.entity.system_id = e->system_id;
-    cbp.entity.public_id = e->public_id;
+    cbp.entity.system_id = e->loader_info.system_id;
+    cbp.entity.public_id = e->loader_info.public_id;
     xml_reader_invoke_callback(h, &cbp);
     e->included = h->lastreadloc;
     e->being_parsed = true;
@@ -2080,8 +2097,8 @@ entity_end(xml_reader_t *h, void *arg)
     cbp.token.str = e->name;
     cbp.token.len = e->namelen;
     cbp.entity.type = e->type;
-    cbp.entity.system_id = e->system_id;
-    cbp.entity.public_id = e->public_id;
+    cbp.entity.system_id = e->loader_info.system_id;
+    cbp.entity.public_id = e->loader_info.public_id;
     xml_reader_invoke_callback(h, &cbp);
     e->being_parsed = false;
 }
@@ -2117,13 +2134,10 @@ reference_included_common(xml_reader_t *h, xml_reader_entity_t *e, bool inc_in_l
     xml_reader_input_t *inp;
 
     entity_start(h, e);
-    OOPS_ASSERT(e->system_id == NULL); // Must be internal entity
     inp = xml_reader_input_new(h, e->location);
     strbuf_set_input(inp->buf, e->rplc, e->rplclen);
     inp->entity = e;
-    /// @todo replace with a srcid or inp pointer check? nested entities are not handled properly
     inp->inc_in_literal = inc_in_literal;
-
     inp->complete = entity_end;
     inp->complete_arg = e;
 }
@@ -2169,7 +2183,7 @@ reference_included_if_validating(xml_reader_t *h, xml_reader_entity_t *e)
     // Hidden argument: if the loader decides to add an external input for this
     // entity, we know what entity it belongs to.
     h->current_entityref = e;
-    h->loader(h, h->loader_arg, e->public_id, e->system_id);
+    xml_reader_invoke_loader(h, &e->loader_info);
     if (h->current_entityref) {
         // No input has been added - consider it end of this entity's parsing
         entity_end(h, e);
@@ -2315,7 +2329,6 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
                 continue;
             }
             fakechar.type = XML_READER_REF__CHAR;
-            fakechar.system_id = NULL;
             fakechar.location = "character reference";
             fakechar.being_parsed = false;
             fakechar.rplc = &h->charrefval;
@@ -3087,8 +3100,8 @@ xml_parse_PI(xml_reader_t *h)
     cbp.token.str = h->tokenbuf;
     cbp.token.len = h->tokenlen;
     n = strhash_get(h->notations, h->tokenbuf, h->tokenlen);
-    cbp.ndata.public_id = n ? n->public_id : NULL;
-    cbp.ndata.system_id = n ? n->system_id : NULL;
+    cbp.ndata.public_id = n ? n->loader_info.public_id : NULL;
+    cbp.ndata.system_id = n ? n->loader_info.system_id : NULL;
     xml_reader_invoke_callback(h, &cbp);
 
     // Content, if any, must be separated by a whitespace
@@ -3186,19 +3199,15 @@ xml_parse_CDSect(xml_reader_t *h)
     @param h Reader handle
     @param allowed_PublicID If true, PublicID production is allowed. In that case, this
         function may also consume the whitespace following the PubidLiteral.
-    @param pub_func Callback if PubidLiteral is parsed
-    @param sys_func Callback if SysidLiteral is parsed
-    @param arg Argument to @a pub_func and @a sys_func
-
+    @param loader_info If non-NULL, points to the structure where system/public ID copies
+        will be saved
     @return PR_OK if parsed either of these productions; PR_FAIL if parsing error was
         detected or PR_NOMATCH if there was no whitespace or it was not followed by 'S'
         or 'P' characters. In case of PR_NOMATCH, whitespace is consumed.
 */
 static prodres_t
 xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
-        void (*pub_func)(void *, const utf8_t *, size_t),
-        void (*sys_func)(void *, const utf8_t *, size_t),
-        void *arg)
+        xml_loader_info_t *loader_info)
 {
     xml_reader_cbparam_t cbp;
     bool has_system_id = false;
@@ -3232,8 +3241,8 @@ xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
         if (xml_parse_literal(h, &reference_ops_PubidLiteral) != PR_OK) {
             return PR_FAIL;
         }
-        if (pub_func) {
-            pub_func(arg, h->tokenbuf, h->tokenlen);
+        if (loader_info) {
+            loader_info->public_id = utf8_ndup(h->tokenbuf, h->tokenlen);
         }
         cbp.cbtype = XML_READER_CB_PUBID;
         cbp.loc = h->lastreadloc;
@@ -3259,8 +3268,8 @@ xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
         if (xml_parse_literal(h, &reference_ops_SystemLiteral) != PR_OK) {
             return PR_FAIL;
         }
-        if (sys_func) {
-            sys_func(arg, h->tokenbuf, h->tokenlen);
+        if (loader_info) {
+            loader_info->system_id = utf8_ndup(h->tokenbuf, h->tokenlen);
         }
         cbp.cbtype = XML_READER_CB_SYSID;
         cbp.loc = h->lastreadloc;
@@ -3320,42 +3329,6 @@ xml_parse_AttlistDecl(xml_reader_t *h)
     /// @todo Implement
     xml_read_until(h, xml_cb_gt, NULL, 0);
     return PR_OK;
-}
-
-/**
-    Helper function: record public ID for an entity.
-
-    @param arg Entity pointer (cast to void)
-    @param s String with public ID
-    @param len Length of the public ID string
-    @return Nothing
-*/
-static void
-entity_set_pubid(void *arg, const utf8_t *s, size_t len)
-{
-    xml_reader_entity_t *e = arg;
-
-    if (e) { // May get NULL if redefining an entity
-        e->public_id = utf8_ndup(s, len);
-    }
-}
-
-/**
-    Helper function: record system ID for an entity.
-
-    @param arg Entity pointer (cast to void)
-    @param s String with system ID
-    @param len Length of the system ID string
-    @return Nothing
-*/
-static void
-entity_set_sysid(void *arg, const utf8_t *s, size_t len)
-{
-    xml_reader_entity_t *e = arg;
-
-    if (e) { // May get NULL if redefining an entity
-        e->system_id = utf8_ndup(s, len);
-    }
 }
 
 /**
@@ -3476,7 +3449,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
 
     // This may be followed by either [ExternalID], [ExternalID NDataDecl]
     // (only for general entities) or [EntityValue]
-    switch (xml_parse_ExternalID(h, false, entity_set_pubid, entity_set_sysid, e)) {
+    switch (xml_parse_ExternalID(h, false, e ? &e->loader_info : NULL)) {
     case PR_FAIL:
         goto malformed;
 
@@ -3517,8 +3490,8 @@ xml_parse_EntityDecl(xml_reader_t *h)
                 cbp.loc = h->lastreadloc;
                 cbp.token.str = h->tokenbuf;
                 cbp.token.len = h->tokenlen;
-                cbp.ndata.system_id = n->system_id;
-                cbp.ndata.public_id = n->public_id;
+                cbp.ndata.system_id = n->loader_info.system_id;
+                cbp.ndata.public_id = n->loader_info.public_id;
                 xml_reader_invoke_callback(h, &cbp);
             }
             else {
@@ -3604,38 +3577,6 @@ malformed:
 }
 
 /**
-    Helper function: record public ID for a notation.
-
-    @param arg Notation pointer (cast to void)
-    @param s String with public ID
-    @param len Length of the public ID string
-    @return Nothing
-*/
-static void
-notation_set_pubid(void *arg, const utf8_t *s, size_t len)
-{
-    xml_reader_notation_t *n = arg;
-
-    n->public_id = utf8_ndup(s, len);
-}
-
-/**
-    Helper function: record system ID for a notation.
-
-    @param arg Notation pointer (cast to void)
-    @param s String with system ID
-    @param len Length of the system ID string
-    @return Nothing
-*/
-static void
-notation_set_sysid(void *arg, const utf8_t *s, size_t len)
-{
-    xml_reader_notation_t *n = arg;
-
-    n->system_id = utf8_ndup(s, len);
-}
-
-/**
     Parse notation declaration (NotationDecl).
 
     @verbatim
@@ -3684,7 +3625,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
         goto malformed;
     }
 
-    switch (xml_parse_ExternalID(h, true, notation_set_pubid, notation_set_sysid, n)) {
+    switch (xml_parse_ExternalID(h, true, &n->loader_info)) {
     case PR_FAIL:
         // Error already provided
         goto malformed;
@@ -3819,6 +3760,7 @@ xml_parse_doctypedecl(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
     prodres_t rv;
+    bool has_ext_subset = false;
 
     // Expanding doctypedecl production, we get these possible variants:
     //   '<!DOCTYPE' S Name S? '>'
@@ -3848,9 +3790,12 @@ xml_parse_doctypedecl(xml_reader_t *h)
     xml_reader_invoke_callback(h, &cbp);
 
     if (xml_parse_whitespace(h) == PR_OK) {
-        rv = xml_parse_ExternalID(h, false, NULL, NULL, NULL);
-        if (rv != PR_OK && rv != PR_NOMATCH) {
-            return rv;
+        rv = xml_parse_ExternalID(h, false, &h->dtd_loader_info);
+        if (rv == PR_OK) {
+            has_ext_subset = true; // Will load after parsing internal subset
+        }
+        else if (rv != PR_NOMATCH) {
+            return rv; // See above: no recovery
         }
     }
 
@@ -3886,10 +3831,16 @@ xml_parse_doctypedecl(xml_reader_t *h)
 
     // This is where the application will queue external subset for parsing
     // if it wants to read it.
-    h->ext_ctxt = CTXT_DTD_EXTERNAL_SUBSET;
+    if (has_ext_subset) {
+        h->ext_ctxt = CTXT_DTD_EXTERNAL_SUBSET;
+        xml_reader_invoke_loader(h, &h->dtd_loader_info);
+        // TBD invoke context parser for external subset
+    }
+    h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
+
+    // Signal the end of DTD parsing
     cbp.cbtype = XML_READER_CB_DTD_END;
     xml_reader_invoke_callback(h, &cbp);
-    h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
     return PR_OK;
 }
 
@@ -4434,7 +4385,13 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
 void
 xml_reader_load_parsed_entity(xml_reader_t *h, const char *pubid, const char *sysid)
 {
-    h->loader(h, h->loader_arg, pubid, sysid);
+    xml_loader_info_t info;
+
+    xml_loader_info_init(&info);
+    info.public_id = xstrdup(pubid);
+    info.system_id = xstrdup(sysid);
+    xml_reader_invoke_loader(h, &info);
+    xml_loader_info_destroy(&info);
 }
 
 /**

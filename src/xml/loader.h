@@ -11,17 +11,25 @@
 // Forward declarations
 struct xml_reader_s;
 
+/// Information passed to entity loader
+typedef struct {
+    const char *public_id;         ///< Public ID
+    const char *system_id;         ///< System ID
+} xml_loader_info_t;
+
+void xml_loader_info_init(xml_loader_info_t *loader_info);
+void xml_loader_info_destroy(xml_loader_info_t *loader_info);
+
 /**
     Callback for loading external entities
 
     @param h Reader handle
     @param arg Arbitrary argument to the loader (e.g. options)
-    @param pubid Public ID of the entity
-    @param sysid System ID of the entity
+    @param loader_info Loader information
     @return Nothing
 */
 typedef void (*xml_loader_t)(struct xml_reader_s *h, void *arg,
-        const char *pubid, const char *sysid);
+        const xml_loader_info_t *loader_info);
 
 /**
     Callback for loader options that allows to chain other string buffers
@@ -34,7 +42,7 @@ typedef void (*xml_loader_t)(struct xml_reader_s *h, void *arg,
 typedef strbuf_t *(*xml_loader_subst_t)(void *arg, strbuf_t *sbuf);
 
 void xml_loader_noload(struct xml_reader_s *h, void *arg,
-        const char *pubid, const char *sysid);
+        const xml_loader_info_t *loader_info);
 
 /// Loader options for file loader
 typedef struct {
@@ -45,7 +53,7 @@ typedef struct {
 } xml_loader_opts_file_t;
 
 void xml_loader_file(struct xml_reader_s *h, void *arg,
-        const char *pubid, const char *sysid);
+        const xml_loader_info_t *loader_info);
 
 // TBD: URL loader, catalog-based resolver
 
