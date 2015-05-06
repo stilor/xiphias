@@ -136,7 +136,7 @@ typedef struct xml_reader_external_ctxt_s {
     External entity information (including main document entity).
 */
 typedef struct xml_reader_external_s {
-    SLIST_ENTRY(xml_reader_external_s) link;    ///< List pointer
+    STAILQ_ENTRY(xml_reader_external_s) link;   ///< List pointer
     enum xml_info_version_e version;            ///< Entity's declared version
     const char *location;           ///< Location string for messages
     const char *enc_transport;      ///< Encoding reported by transport protocol
@@ -176,7 +176,7 @@ typedef struct xml_reader_xmldecl_declinfo_s {
     entity or internal memory buffer (for character references).
 */
 typedef struct xml_reader_input_s {
-    SLIST_ENTRY(xml_reader_input_s) link;   ///< Stack of diversions
+    SLIST_ENTRY(xml_reader_input_s) link;  ///< Stack of diversions
     strbuf_t *buf;                  ///< String buffer to use
     xmlerr_loc_t curloc;            ///< Current location in this input
 
@@ -191,6 +191,9 @@ typedef struct xml_reader_input_s {
     xml_reader_entity_t *entity;    ///< Associated entity if any
     xml_reader_external_t *external;///< External entity information
 } xml_reader_input_t;
+
+/// Input head
+typedef SLIST_HEAD(,xml_reader_input_s) xml_reader_input_head_t;
 
 /// XML reader structure
 struct xml_reader_s {
@@ -234,9 +237,11 @@ struct xml_reader_s {
     strhash_t *entities_gen;        ///< General entities
     strhash_t *notations;           ///< Notations
 
-    SLIST_HEAD(,xml_reader_input_s) active_input;   ///< Currently active inputs
-    SLIST_HEAD(,xml_reader_input_s) free_input;     ///< Free list of input structures
-    SLIST_HEAD(,xml_reader_external_s) external;    ///< All external entities
+    xml_reader_input_head_t active_input;       ///< Currently active inputs
+    xml_reader_input_head_t free_input;         ///< Free list of input structures
+    xml_reader_input_t *completed;              ///< Deferred completion notification
+
+    STAILQ_HEAD(,xml_reader_external_s) external;       ///< All external entities
 };
 
 /// Return status for production parser
@@ -526,6 +531,25 @@ xml_reader_input_destroy(xml_reader_input_t *inp)
 }
 
 /**
+    Process deferred completions.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_reader_input_complete_notify(xml_reader_t *h)
+{
+    xml_reader_input_t *inp;
+
+    if ((inp = h->completed) != NULL) {
+        h->lastreadloc = inp->curloc;
+        inp->complete(h, inp->complete_arg);
+        SLIST_INSERT_HEAD(&h->free_input, inp, link);
+        h->completed = NULL;
+    }
+}
+
+/**
     Housekeeping after input parsing is completed.
 
     @param h Reader handle
@@ -539,9 +563,6 @@ xml_reader_input_complete(xml_reader_t *h, xml_reader_input_t *inp)
 
     OOPS_ASSERT(inp == SLIST_FIRST(&h->active_input));
 
-    if (inp->complete) {
-        inp->complete(h, inp->complete_arg);
-    }
     SLIST_REMOVE_HEAD(&h->active_input, link);
     if (inp->external) {
         h->current_external = NULL;
@@ -552,7 +573,15 @@ xml_reader_input_complete(xml_reader_t *h, xml_reader_input_t *inp)
             }
         }
     }
-    SLIST_INSERT_HEAD(&h->free_input, inp, link);
+    // Postpone notifications so that we issue them after processing the
+    // last token from this input.
+    if (inp->complete) {
+        OOPS_ASSERT(!h->completed); // One pending notification at a time
+        h->completed = inp;
+    }
+    else {
+        SLIST_INSERT_HEAD(&h->free_input, inp, link);
+    }
 }
 
 /**
@@ -682,6 +711,7 @@ xml_reader_input_radvance(xml_reader_t *h, size_t sz)
 static bool
 xml_eof(xml_reader_t *h)
 {
+    xml_reader_input_complete_notify(h);
     return SLIST_EMPTY(&h->active_input);
 }
 
@@ -1057,7 +1087,8 @@ xml_reader_new(const xml_reader_options_t *opts)
 
     SLIST_INIT(&h->active_input);
     SLIST_INIT(&h->free_input);
-    SLIST_INIT(&h->external);
+    h->completed = NULL;
+    STAILQ_INIT(&h->external);
 
     xml_entity_populate(h->entities_gen);
 
@@ -1079,12 +1110,13 @@ xml_reader_delete(xml_reader_t *h)
     while ((inp = SLIST_FIRST(&h->active_input)) != NULL) {
         xml_reader_input_complete(h, inp);
     }
+    xml_reader_input_complete_notify(h);
     while ((inp = SLIST_FIRST(&h->free_input)) != NULL) {
         SLIST_REMOVE_HEAD(&h->free_input, link);
         xml_reader_input_destroy(inp);
     }
-    while ((ex = SLIST_FIRST(&h->external)) != NULL) {
-        SLIST_REMOVE_HEAD(&h->external, link);
+    while ((ex = STAILQ_FIRST(&h->external)) != NULL) {
+        STAILQ_REMOVE_HEAD(&h->external, link);
         xml_reader_external_destroy(ex);
     }
 
@@ -1341,6 +1373,8 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
     bool saw_cr = false;
     bool saved_loc = false;
     bool norm_warned;
+
+    xml_reader_input_complete_notify(h); // Process any outstanding notifications
 
     bufptr = h->tokenbuf;
     h->rejected = UCS4_NOCHAR;
@@ -4188,7 +4222,7 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
     ex->norm_unicode = NULL;
     ex->aborted = false;
 
-    SLIST_INSERT_HEAD(&h->external, ex, link);
+    STAILQ_INSERT_TAIL(&h->external, ex, link);
     h->current_external = ex;
 
     inp = xml_reader_input_new(h, ex->location);
