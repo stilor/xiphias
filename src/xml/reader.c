@@ -36,6 +36,9 @@ enum {
     R_LOCTRACK          = 0x0008,       ///< Track the current position for error reporting
     R_SAVE_UCS4         = 0x0010,       ///< Also save UCS-4 codepoints
     R_NO_INC_NORM       = 0x0020,       ///< No checking of include normalization
+    R_HAS_ROOT          = 0x0040,       ///< Root element seen
+    R_HAS_DTD           = 0x0080,       ///< Document declaration seen
+    R_ABORTED           = 0x0100,       ///< Main document entity aborted early
 };
 
 /// Notation information
@@ -145,6 +148,7 @@ typedef struct xml_reader_external_s {
     strbuf_t *buf;                  ///< Raw input buffer (in document's encoding)
     nfc_t *norm_unicode;            ///< Normalization check handle for Unicode normalization
 
+    bool aborted;                   ///< If true, entity was not fully parsed
     xml_reader_external_ctxt_t ctxt;/// Type-specific settings
 } xml_reader_external_t;
 
@@ -302,7 +306,7 @@ typedef enum {
 
 /// Convenience macro: report an error at current location (i.e. after a lookahead)
 #define xml_reader_message_current(h, ...) \
-        xml_reader_message(h, &SLIST_FIRST(&h->active_input)->curloc, __VA_ARGS__)
+        xml_reader_message(h, NULL, __VA_ARGS__)
 
 /**
     Determine if a character is a restricted character. Restricted characters are
@@ -3775,6 +3779,13 @@ xml_parse_doctypedecl(xml_reader_t *h)
     cbp.cbtype = XML_READER_CB_DTD_BEGIN;
     cbp.loc = h->lastreadloc;
 
+    // DTD allowed only once and only before the root element
+    if (h->flags & (R_HAS_DTD|R_HAS_ROOT)) {
+        xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_document),
+                "Document type definition not allowed here");
+    }
+    h->flags |= R_HAS_DTD;
+
     if (xml_parse_whitespace(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_doctypedecl),
                 "Expect whitespace here");
@@ -3870,6 +3881,17 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     xml_reader_input_lock(h);
     cbp.cbtype = XML_READER_CB_STAG;
     cbp.loc = h->lastreadloc;
+
+    // Check the document production: at the top level, only one element is allowed
+    if (!h->nestlvl) {
+        if (h->flags & R_HAS_ROOT) {
+            xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_document),
+                    "One root element allowed in a document");
+        }
+        else {
+            h->flags |= R_HAS_ROOT;
+        }
+    }
 
     if (xml_read_Name(h, 0) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
@@ -4023,7 +4045,10 @@ static const xml_reader_context_t parser_content = {
         LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
         LOOKAHEAD("", xml_parse_CharData), // catch-all
     },
-    .flags = R_RECOGNIZE_REF,
+    .flags = R_RECOGNIZE_REF,   // TBD currently unused - not needed here anyway as CharData does
+                                // its own flag setting and xml_parse_by_ctx does not use this at all.
+                                // Drop and supply the flags explicitly in each parser, including
+                                // R_RECOGNIZE_PEREF?
     .nonroot = &parser_content,
 };
 
@@ -4088,8 +4113,8 @@ external_entity_end(xml_reader_t *h, void *arg)
     xml_reader_input_t *inp = arg;
     xml_reader_external_t *ex = inp->external;
 
-    // Only if parsing of entity went far enough to establish encoding...
-    if (ex->enc && !encoding_clean(ex->enc)) {
+    // Only if input was parsed fully (i.e. not aborted during addition)
+    if (!ex->aborted && !encoding_clean(ex->enc)) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "Partial characters at end of input");
     }
@@ -4161,6 +4186,7 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
     ex->buf = buf;
     ex->location = xstrdup(location);
     ex->norm_unicode = NULL;
+    ex->aborted = false;
 
     SLIST_INSERT_HEAD(&h->external, ex, link);
     h->current_external = ex;
@@ -4334,6 +4360,11 @@ xml_reader_add_external(xml_reader_t *h, strbuf_t *buf,
 failed:
     // Keep the external in the list of entities we attempted to read, so that
     // the locations for events remain valid.
+    if (context == CTXT_DOCUMENT_ENTITY) {
+        // Suppress end-of-document checks
+        h->flags |= R_ABORTED;
+    }
+    ex->aborted = true;
     xml_reader_input_complete(h, inp);
 }
 
@@ -4408,12 +4439,21 @@ xml_reader_message(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
         const char *fmt, ...)
 {
     xml_reader_cbparam_t cbparam;
+    xml_reader_input_t *inp;
     va_list ap;
 
     cbparam.cbtype = XML_READER_CB_MESSAGE;
     cbparam.token.str = NULL;
     cbparam.token.len = 0;
-    cbparam.loc = loc ? *loc : h->lastreadloc;
+    if (loc) {
+        cbparam.loc = *loc;
+    }
+    else if ((inp = SLIST_FIRST(&h->active_input)) != NULL) {
+        cbparam.loc = inp->curloc;
+    }
+    else {
+        cbparam.loc = h->lastreadloc;
+    }
     cbparam.message.info = info;
     va_start(ap, fmt);
     cbparam.message.msg = xvasprintf(fmt, ap);
@@ -4438,6 +4478,12 @@ xml_reader_process(xml_reader_t *h)
     /// a standalone DTD?
     /// @todo Return the parsing success/failure?
     (void)xml_parse_by_ctx(h, &parser_document_entity);
+
+    // If document entity was aborted, no need to spam: already complained
+    if ((h->flags & (R_ABORTED | R_HAS_ROOT)) == 0) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
+                "No root element");
+    }
 }
 
 /**
