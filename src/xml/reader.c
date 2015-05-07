@@ -195,55 +195,6 @@ typedef struct xml_reader_input_s {
 /// Input head
 typedef SLIST_HEAD(,xml_reader_input_s) xml_reader_input_head_t;
 
-/// XML reader structure
-struct xml_reader_s {
-    xml_reader_cb_t cb_func;        ///< Callback function
-    void *cb_arg;                   ///< Argument to callback function
-
-    xml_loader_t loader;            ///< External entity loader
-    void *loader_arg;               ///< Argument to loader function
-
-    ucs4_t *ucs4buf;                ///< Buffer for saved UCS-4 text
-    size_t ucs4len;                 ///< Count of UCS-4 characters
-    size_t ucs4sz;                  ///< Size of UCS-4 buffer, in characters
-
-    uint32_t flags;                 ///< Reader flags
-    const char *relevant;           ///< If not NULL, reading a relevant contruct
-    size_t tabsize;                 ///< Tabulation character equal to these many spaces
-
-    enum xml_info_standalone_e standalone;          ///< Document's standalone status
-    enum xml_reader_normalization_e normalization;  ///< Desired normalization behavior
-    enum xml_reader_external_context_e ext_ctxt;    ///< Context for external entities
-
-    xml_reader_external_t *current_external;        ///< External entity being parsed
-    xml_reader_entity_t *current_entityref;         ///< Reference to external entity being included
-
-    nfc_t *norm_include;            ///< Normalization check handle for include normalization
-
-    uint32_t nestlvl;               ///< Element nesting level
-    uint32_t brokenlocks;           ///< Number of locked inputs forcibly unlocked
-
-    utf8_t *tokenbuf;               ///< Token buffer
-    utf8_t *tokenbuf_end;           ///< End of the token buffer
-    size_t tokenlen;                ///< Length of the token in the buffer
-
-    xmlerr_loc_t lastreadloc;       ///< Reader's position at the beginning of last token
-    ucs4_t rejected;                ///< Next character (rejected by xml_read_until_*)
-    ucs4_t charrefval;              ///< When parsing character reference: stored value
-
-    xml_loader_info_t dtd_loader_info;              ///< DTD public/system ID
-
-    strhash_t *entities_param;      ///< Parameter entities
-    strhash_t *entities_gen;        ///< General entities
-    strhash_t *notations;           ///< Notations
-
-    xml_reader_input_head_t active_input;       ///< Currently active inputs
-    xml_reader_input_head_t free_input;         ///< Free list of input structures
-    xml_reader_input_t *completed;              ///< Deferred completion notification
-
-    STAILQ_HEAD(,xml_reader_external_s) external;       ///< All external entities
-};
-
 /// Return status for production parser
 typedef enum {
     PR_OK,                      ///< Parsed successfully or performed recovery
@@ -281,19 +232,60 @@ typedef struct {
     Parser settings: entity recognition settings at root level, set of lookahead
     patterns for root level, pointer to a settings for non-root level.
 */
-typedef struct xml_reader_settings_s {
+typedef struct xml_reader_context_s {
     /// Lookahead patterns
     const xml_reader_pattern_t lookahead[MAX_LA_PAIRS];
-
-    /// Recovery function (if the handler for recognized pattern returns failure)
-    prodparser_t nomatch;
-
-    /// Entity recognition flags
-    uint32_t flags;
-
-    /// Settings for non-root context (if this corresponds to root context)
-    const struct xml_reader_settings_s *nonroot;
 } xml_reader_context_t;
+
+/// XML reader structure
+struct xml_reader_s {
+    xml_reader_cb_t cb_func;        ///< Callback function
+    void *cb_arg;                   ///< Argument to callback function
+
+    xml_loader_t loader;            ///< External entity loader
+    void *loader_arg;               ///< Argument to loader function
+
+    ucs4_t *ucs4buf;                ///< Buffer for saved UCS-4 text
+    size_t ucs4len;                 ///< Count of UCS-4 characters
+    size_t ucs4sz;                  ///< Size of UCS-4 buffer, in characters
+
+    uint32_t flags;                 ///< Reader flags
+    const char *relevant;           ///< If not NULL, reading a relevant contruct
+    size_t tabsize;                 ///< Tabulation character equal to these many spaces
+
+    enum xml_info_standalone_e standalone;          ///< Document's standalone status
+    enum xml_reader_normalization_e normalization;  ///< Desired normalization behavior
+    enum xml_reader_external_context_e ext_ctxt;    ///< Context for external entities
+
+    xml_reader_external_t *current_external;        ///< External entity being parsed
+    xml_reader_entity_t *current_entityref;         ///< Reference to external entity being included
+    const xml_reader_context_t *current_context;    ///< Current reader context
+
+    nfc_t *norm_include;            ///< Normalization check handle for include normalization
+
+    uint32_t nestlvl;               ///< Element nesting level
+    uint32_t brokenlocks;           ///< Number of locked inputs forcibly unlocked
+
+    utf8_t *tokenbuf;               ///< Token buffer
+    utf8_t *tokenbuf_end;           ///< End of the token buffer
+    size_t tokenlen;                ///< Length of the token in the buffer
+
+    xmlerr_loc_t lastreadloc;       ///< Reader's position at the beginning of last token
+    ucs4_t rejected;                ///< Next character (rejected by xml_read_until_*)
+    ucs4_t charrefval;              ///< When parsing character reference: stored value
+
+    xml_loader_info_t dtd_loader_info;              ///< DTD public/system ID
+
+    strhash_t *entities_param;      ///< Parameter entities
+    strhash_t *entities_gen;        ///< General entities
+    strhash_t *notations;           ///< Notations
+
+    xml_reader_input_head_t active_input;       ///< Currently active inputs
+    xml_reader_input_head_t free_input;         ///< Free list of input structures
+    xml_reader_input_t *completed;              ///< Deferred completion notification
+
+    STAILQ_HEAD(,xml_reader_external_s) external;       ///< All external entities
+};
 
 /// xml_read_until_* return codes
 typedef enum {
@@ -304,6 +296,11 @@ typedef enum {
     XRU_INPUT_BOUNDARY,     ///< Encountered input (entity) boundary
     XRU_INPUT_LOCKED,       ///< Some production wanted to end in this input
 } xru_t;
+
+// Known contexts
+static const xml_reader_context_t parser_content;
+static const xml_reader_context_t parser_document_entity;
+static const xml_reader_context_t parser_internal_subset;
 
 /// Convenience macro: report an error at the start of the last token
 #define xml_reader_message_lastread(h, ...) \
@@ -799,11 +796,10 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz)
     keeping track when entity parsing started and ended.
 
     @param h Reader handle
-    @param rootctx Root context
     @return Nothing
 */
 static prodres_t
-xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
+xml_parse_by_ctx(xml_reader_t *h)
 {
     /// @todo Have lookahead read into tokenbuf? Do we need to use xml_lookahead() elsewhere?
     utf8_t labuf[MAX_PATTERN];
@@ -812,10 +808,12 @@ xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
     size_t len;
     prodres_t rv;
 
-    rv = PR_OK;
-    while (rv == PR_OK && !xml_eof(h)) {
+    do {
         len = xml_lookahead(h, labuf, sizeof(labuf));
-        ctx = h->nestlvl ? rootctx->nonroot : rootctx;
+        if (xml_eof(h)) {
+            return PR_STOP;
+        }
+        ctx = h->current_context; // Reload at each cycle, as callback below may change it
         rv = PR_NOMATCH;
         for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS;
                 pat < end && pat->func;
@@ -825,14 +823,9 @@ xml_parse_by_ctx(xml_reader_t *h, const xml_reader_context_t *rootctx)
                 break;
             }
         }
-        if (xml_eof(h)) {
-            break;
-        }
-        if (rv == PR_NOMATCH && ctx->nomatch) {
-            rv = ctx->nomatch(h);
-        }
-    }
-    return xml_eof(h) ? PR_STOP : rv;
+    } while (rv == PR_OK);
+
+    return rv;
 }
 
 /**
@@ -1070,6 +1063,8 @@ xml_reader_new(const xml_reader_options_t *opts)
         h->flags |= R_LOCTRACK;
     }
 
+    // TBD move ext_ctxt into the xml_reader_context_t? Seems like reader context always defines
+    // what would be the context of the entities loaded from it
     h->ext_ctxt = CTXT_DOCUMENT_ENTITY;
     h->standalone = XML_INFO_STANDALONE_NO_VALUE;
     h->normalization = opts->normalization;
@@ -3770,7 +3765,6 @@ static const xml_reader_context_t parser_internal_subset = {
         LOOKAHEAD("]", xml_end_internal_subset),
         LOOKAHEAD("", xml_parse_DeclSep),
     },
-    .nonroot = &parser_internal_subset,
 };
 
 /**
@@ -3858,9 +3852,13 @@ xml_parse_doctypedecl(xml_reader_t *h)
 
         // Parse internal subset. Any external entities therein are
         // interpreted as external parameter entities.
+        // TBD this is recursion! Change context and return to parse_by_ctx to continue
         h->ext_ctxt = CTXT_PARSED_PARAMETER_ENTITY;
-        if (xml_parse_by_ctx(h, &parser_internal_subset) != PR_STOP) {
-            h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
+        h->current_context = &parser_internal_subset;
+        rv = xml_parse_by_ctx(h);
+        h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
+        h->current_context = &parser_document_entity;
+        if (rv != PR_STOP) {
             return PR_FAIL;
         }
     }
@@ -3870,18 +3868,15 @@ xml_parse_doctypedecl(xml_reader_t *h)
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
         // The only case we're attempting recovery in doctypedecl. Restore
         // context for future entities.
-        h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
         return xml_read_until_gt(h);
     }
 
     // This is where the application will queue external subset for parsing
     // if it wants to read it.
     if (has_ext_subset) {
-        h->ext_ctxt = CTXT_DTD_EXTERNAL_SUBSET;
         xml_reader_invoke_loader(h, &h->dtd_loader_info);
         // TBD invoke context parser for external subset
     }
-    h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
 
     // Signal the end of DTD parsing
     cbp.cbtype = XML_READER_CB_DTD_END;
@@ -3953,6 +3948,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
             xml_read_string_assert(h, ">");
             is_empty = false;
             h->nestlvl++; // Opened element
+            h->current_context = &parser_content; // No longer at top level
             break;
         }
         else if (had_ws && xml_read_Name(h, 0) == PR_OK) {
@@ -4010,7 +4006,7 @@ malformed:
     Additionally, Name in ETag must match the element type in STag.
 
     @param h Reader handle
-    @return PR_OK if parsed successfully, PR_NOMATCH
+    @return PR_OK if parsed successfully
 */
 static prodres_t
 xml_parse_ETag(xml_reader_t *h)
@@ -4044,6 +4040,10 @@ xml_parse_ETag(xml_reader_t *h)
     // is already malformed, so an error message should already be raised.
     if (h->nestlvl) {
         h->nestlvl--;
+        if (!h->nestlvl) {
+            // Returned to top level
+            h->current_context = &parser_document_entity;
+        }
     }
     if (!xml_reader_input_unlock(h)) {
         // Error, no recovery needed
@@ -4051,6 +4051,29 @@ xml_parse_ETag(xml_reader_t *h)
                 "Replacement text for entity must match content production");
     }
     return PR_OK;
+}
+
+/**
+    Wrapper function: consume whitespace or recover by skipping up to the next
+    angle bracket.
+
+    @param h Reader handle
+    @return PR_OK if parsed successfully
+*/
+static prodres_t
+xml_parse_whitespace_or_recover(xml_reader_t *h)
+{
+    prodres_t rv;
+
+    // Top level
+    if ((rv = xml_parse_whitespace(h)) != PR_NOMATCH) {
+        return rv;
+    }
+
+    // Recover by skipping to the next angle bracket
+    xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
+            "Invalid content at root level");
+    return xml_read_until_lt(h);
 }
 
 /**
@@ -4077,30 +4100,9 @@ static const xml_reader_context_t parser_content = {
         LOOKAHEAD("<!--", xml_parse_Comment),
         LOOKAHEAD("</", xml_parse_ETag),
         LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
-        LOOKAHEAD("", xml_parse_CharData), // catch-all
+        LOOKAHEAD("", xml_parse_CharData),
     },
-    .flags = R_RECOGNIZE_REF,   // TBD currently unused - not needed here anyway as CharData does
-                                // its own flag setting and xml_parse_by_ctx does not use this at all.
-                                // Drop and supply the flags explicitly in each parser, including
-                                // R_RECOGNIZE_PEREF?
-    .nonroot = &parser_content,
 };
-
-/**
-    Root-level recovery function.
-
-    @param h Reader handle
-    @return Always PR_OK (we've done our best, try to proceed further)
-*/
-static prodres_t
-recover_document_entity_root(xml_reader_t *h)
-{
-    // Recover by reading up until next left angle bracket. Report
-    // the error at failing location (not the last valid token)
-    xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
-            "Invalid content at root level");
-    return xml_read_until_lt(h);
-}
 
 /**
     Root context for parsing document entity. We get here after XMLDecl, if any,
@@ -4128,10 +4130,8 @@ static const xml_reader_context_t parser_document_entity = {
         LOOKAHEAD("<!--", xml_parse_Comment),
         LOOKAHEAD("</", xml_parse_ETag),
         LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
-        LOOKAHEAD("", xml_parse_whitespace),
+        LOOKAHEAD("", xml_parse_whitespace_or_recover),
     },
-    .nomatch = recover_document_entity_root,
-    .nonroot = &parser_content,
 };
 
 /**
@@ -4511,7 +4511,9 @@ xml_reader_process(xml_reader_t *h)
     /// @todo Have 2nd argument saved in external info? Or have a separate func for pre-reading
     /// a standalone DTD?
     /// @todo Return the parsing success/failure?
-    (void)xml_parse_by_ctx(h, &parser_document_entity);
+    // TBD when setting context in each external entity, move this setting to document entity addition
+    h->current_context = &parser_document_entity;
+    (void)xml_parse_by_ctx(h);
 
     // If document entity was aborted, no need to spam: already complained
     if ((h->flags & (R_ABORTED | R_HAS_ROOT)) == 0) {
