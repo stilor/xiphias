@@ -8,16 +8,24 @@
 #ifndef __xml_loader_h_
 #define __xml_loader_h_
 
+#include "unicode/unicode.h"
+
 // Forward declarations
 struct xml_reader_s;
 
 /// Information passed to entity loader
-typedef struct {
+typedef struct xml_loader_info_s {
     const char *public_id;         ///< Public ID
     const char *system_id;         ///< System ID
 } xml_loader_info_t;
 
-void xml_loader_info_init(xml_loader_info_t *loader_info);
+void xml_loader_info_init(xml_loader_info_t *loader_info,
+        const char *public_id, const char *system_id);
+void xml_loader_info_set_public_id(xml_loader_info_t *loader_info,
+        const utf8_t *id, size_t len);
+void xml_loader_info_set_system_id(xml_loader_info_t *loader_info,
+        const utf8_t *id, size_t len);
+bool xml_loader_info_isset(const xml_loader_info_t *loader_info);
 void xml_loader_info_destroy(xml_loader_info_t *loader_info);
 
 /**

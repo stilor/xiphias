@@ -785,50 +785,6 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz)
 }
 
 /**
-    Look ahead and parse according to the list of expected tokens.
-
-    Note that content is a recursive production: it may contain element, which in turn
-    may contain content. We are processing this in a flat way (substituting loop for
-    recursion); instead, we just track the nesting level (to keep track if we're at
-    the root level or not). The proper nesting of STag/ETag cannot be checked with
-    this approach; it needs to be verified by a higher level, SAX or DOM. Higher level
-    is also responsible for checking that both STag/ETag belong to the same input by
-    keeping track when entity parsing started and ended.
-
-    @param h Reader handle
-    @return Nothing
-*/
-static prodres_t
-xml_parse_by_ctx(xml_reader_t *h)
-{
-    /// @todo Have lookahead read into tokenbuf? Do we need to use xml_lookahead() elsewhere?
-    utf8_t labuf[MAX_PATTERN];
-    const xml_reader_context_t *ctx;
-    const xml_reader_pattern_t *pat, *end;
-    size_t len;
-    prodres_t rv;
-
-    do {
-        len = xml_lookahead(h, labuf, sizeof(labuf));
-        if (xml_eof(h)) {
-            return PR_STOP;
-        }
-        ctx = h->current_context; // Reload at each cycle, as callback below may change it
-        rv = PR_NOMATCH;
-        for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS;
-                pat < end && pat->func;
-                pat++) {
-            if (pat->patlen <= len && !memcmp(labuf, pat->pattern, pat->patlen)) {
-                rv = pat->func(h);
-                break;
-            }
-        }
-    } while (rv == PR_OK);
-
-    return rv;
-}
-
-/**
     Allocate a new notation.
 
     @param hash Hash with notations
@@ -843,7 +799,7 @@ xml_notation_new(strhash_t *hash, const utf8_t *name, size_t namelen)
 
     n = xmalloc(sizeof(xml_reader_notation_t));
     memset(n, 0, sizeof(xml_reader_notation_t));
-    xml_loader_info_init(&n->loader_info);
+    xml_loader_info_init(&n->loader_info, NULL, NULL);
     n->name = strhash_set(hash, name, namelen, n);
     n->namelen = namelen;
     return n;
@@ -880,7 +836,7 @@ xml_entity_new(strhash_t *ehash, const utf8_t *name, size_t namelen)
 
     e = xmalloc(sizeof(xml_reader_entity_t));
     memset(e, 0, sizeof(xml_reader_entity_t));
-    xml_loader_info_init(&e->loader_info);
+    xml_loader_info_init(&e->loader_info, NULL, NULL);
     e->name = strhash_set(ehash, name, namelen, e);
     e->namelen = namelen;
     s = utf8_strtolocal(e->name);
@@ -1074,7 +1030,7 @@ xml_reader_new(const xml_reader_options_t *opts)
     h->tokenbuf_end = h->tokenbuf + opts->initial_tokenbuf;
     h->tokenlen = 0;
 
-    xml_loader_info_init(&h->dtd_loader_info);
+    xml_loader_info_init(&h->dtd_loader_info, NULL, NULL);
 
     h->entities_param = strhash_create(opts->entity_hash_order, xml_entity_destroy);
     h->entities_gen = strhash_create(opts->entity_hash_order, xml_entity_destroy);
@@ -3275,7 +3231,8 @@ xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
             return PR_FAIL;
         }
         if (loader_info) {
-            loader_info->public_id = utf8_ndup(h->tokenbuf, h->tokenlen);
+            xml_loader_info_set_public_id(loader_info,
+                    h->tokenbuf, h->tokenlen);
         }
         cbp.cbtype = XML_READER_CB_PUBID;
         cbp.loc = h->lastreadloc;
@@ -3302,7 +3259,8 @@ xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
             return PR_FAIL;
         }
         if (loader_info) {
-            loader_info->system_id = utf8_ndup(h->tokenbuf, h->tokenlen);
+            xml_loader_info_set_system_id(loader_info,
+                    h->tokenbuf, h->tokenlen);
         }
         cbp.cbtype = XML_READER_CB_SYSID;
         cbp.loc = h->lastreadloc;
@@ -3720,7 +3678,44 @@ xml_parse_DeclSep(xml_reader_t *h)
 }
 
 /**
+    Common parser for DTD final part: we may handle DTD parsing in two separate
+    locations, depending on whether the internal subset was present.
+
+    @param h Reader handle
+    @return PR_OK if parsed successfully
+*/
+static prodres_t
+xml_parse_dtd_end(xml_reader_t *h)
+{
+    xml_reader_cbparam_t cbp;
+
+    // This is where the application will queue external subset for parsing
+    // if it wants to read it.
+    if (xml_loader_info_isset(&h->dtd_loader_info)) {
+        xml_reader_invoke_loader(h, &h->dtd_loader_info);
+        // TBD invoke context parser for external subset
+    }
+
+    (void)xml_parse_whitespace(h);
+    if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
+        // The only case we're attempting recovery in doctypedecl. Restore
+        // context for future entities.
+        return xml_read_until_gt(h);
+    }
+
+    cbp.cbtype = XML_READER_CB_DTD_END;
+    cbp.loc = h->lastreadloc;
+    cbp.token.str = NULL,
+    cbp.token.len = 0;
+
+    // Signal the end of DTD parsing
+    xml_reader_invoke_callback(h, &cbp);
+    return PR_OK;
+}
+
+/**
     Trivial parser: exit from internal subset context when closing bracket is seen.
+    Note that it
 
     @param h Reader handle
     @return Always PR_STOP (this function is only called if lookahead confirmed next
@@ -3730,7 +3725,9 @@ static prodres_t
 xml_end_internal_subset(xml_reader_t *h)
 {
     xml_read_string_assert(h, "]");
-    return PR_STOP;
+    h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
+    h->current_context = &parser_document_entity;
+    return xml_parse_dtd_end(h);
 }
 
 /**
@@ -3792,7 +3789,6 @@ xml_parse_doctypedecl(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
     prodres_t rv;
-    bool has_ext_subset = false;
 
     // Expanding doctypedecl production, we get these possible variants:
     //   '<!DOCTYPE' S Name S? '>'
@@ -3830,17 +3826,10 @@ xml_parse_doctypedecl(xml_reader_t *h)
 
     if (xml_parse_whitespace(h) == PR_OK) {
         rv = xml_parse_ExternalID(h, false, &h->dtd_loader_info);
-        if (rv == PR_OK) {
-            has_ext_subset = true; // Will load after parsing internal subset
-        }
-        else if (rv != PR_NOMATCH) {
+        if (rv != PR_OK && rv != PR_NOMATCH) {
             return rv; // See above: no recovery
         }
     }
-
-    // Two other remaining messages bear no tokens
-    cbp.token.str = NULL,
-    cbp.token.len = 0;
 
     // Ignore optional whitespace before internal subset
     (void)xml_parse_whitespace(h);
@@ -3848,40 +3837,20 @@ xml_parse_doctypedecl(xml_reader_t *h)
         // Internal subset: '[' intSubset ']'
         xml_read_string_assert(h, "[");
         cbp.cbtype = XML_READER_CB_DTD_INTERNAL;
+        cbp.token.str = NULL,
+        cbp.token.len = 0;
         xml_reader_invoke_callback(h, &cbp);
 
-        // Parse internal subset. Any external entities therein are
-        // interpreted as external parameter entities.
-        // TBD this is recursion! Change context and return to parse_by_ctx to continue
+        // Will continue parsing the declaration with internal subset context
+        // Any external entities therein are interpreted as external parameter
+        // entities.
         h->ext_ctxt = CTXT_PARSED_PARAMETER_ENTITY;
         h->current_context = &parser_internal_subset;
-        rv = xml_parse_by_ctx(h);
-        h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
-        h->current_context = &parser_document_entity;
-        if (rv != PR_STOP) {
-            return PR_FAIL;
-        }
+        return PR_OK;
     }
 
     // Ignore optional whitespace before closing angle bracket
-    (void)xml_parse_whitespace(h);
-    if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
-        // The only case we're attempting recovery in doctypedecl. Restore
-        // context for future entities.
-        return xml_read_until_gt(h);
-    }
-
-    // This is where the application will queue external subset for parsing
-    // if it wants to read it.
-    if (has_ext_subset) {
-        xml_reader_invoke_loader(h, &h->dtd_loader_info);
-        // TBD invoke context parser for external subset
-    }
-
-    // Signal the end of DTD parsing
-    cbp.cbtype = XML_READER_CB_DTD_END;
-    xml_reader_invoke_callback(h, &cbp);
-    return PR_OK;
+    return xml_parse_dtd_end(h);
 }
 
 /**
@@ -4078,8 +4047,16 @@ xml_parse_whitespace_or_recover(xml_reader_t *h)
 
 /**
     Expected tokens/handlers for parsing content production.
-    Can be used either as non-root context, or as a root context for external
-    parsed entities.
+
+    Note that content is a recursive production: it may contain element, which in turn
+    may contain content. We are processing this in a flat way (substituting loop for
+    recursion); instead, we just track the nesting level (to keep track if we're at
+    the root level or not). The proper nesting of STag/ETag cannot be checked with
+    this approach; it needs to be verified by a higher level, SAX or DOM. Higher level
+    is also responsible for checking that both STag/ETag belong to the same input by
+    keeping track when entity parsing started and ended.
+
+    TBD nesting-check.diff - in that case, it proper nesting will be verified here
 
     The content production is defined in XML 1.1 as one of the relevant constructs,
     meaning that it cannot start with a composing character. We do not check that
@@ -4452,9 +4429,7 @@ xml_reader_load_parsed_entity(xml_reader_t *h, const char *pubid, const char *sy
 {
     xml_loader_info_t info;
 
-    xml_loader_info_init(&info);
-    info.public_id = xstrdup(pubid);
-    info.system_id = xstrdup(sysid);
+    xml_loader_info_init(&info, pubid, sysid);
     xml_reader_invoke_loader(h, &info);
     xml_loader_info_destroy(&info);
 }
@@ -4506,14 +4481,42 @@ void
 xml_reader_process(xml_reader_t *h)
 {
     // Any entities within are external parsed entities by default
-    h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
+    utf8_t labuf[MAX_PATTERN];
+    const xml_reader_context_t *ctx;
+    const xml_reader_pattern_t *pat, *end;
+    size_t len;
+    prodres_t rv;
 
     /// @todo Have 2nd argument saved in external info? Or have a separate func for pre-reading
     /// a standalone DTD?
     /// @todo Return the parsing success/failure?
     // TBD when setting context in each external entity, move this setting to document entity addition
+    // TBD add interface to load external DTD first
     h->current_context = &parser_document_entity;
-    (void)xml_parse_by_ctx(h);
+    h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
+
+    /// @todo Have lookahead read into tokenbuf? Do we need to use xml_lookahead() elsewhere?
+    do {
+        // xml_lookahead also removes completed inputs
+        len = xml_lookahead(h, labuf, sizeof(labuf));
+        if (xml_eof(h)) {
+            rv = PR_STOP;
+        }
+        else {
+            ctx = h->current_context; // Reload at each cycle, as callback below may change it
+            rv = PR_NOMATCH;
+            for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS;
+                    pat < end && pat->func;
+                    pat++) {
+                if (pat->patlen <= len && !memcmp(labuf, pat->pattern, pat->patlen)) {
+                    rv = pat->func(h);
+                    break;
+                }
+            }
+        }
+    } while (rv == PR_OK);
+
+    OOPS_ASSERT(rv == PR_STOP);
 
     // If document entity was aborted, no need to spam: already complained
     if ((h->flags & (R_ABORTED | R_HAS_ROOT)) == 0) {

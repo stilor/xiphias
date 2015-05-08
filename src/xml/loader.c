@@ -16,12 +16,60 @@
     Initialize loader information structure.
 
     @param loader_info Loader information structure
+    @param public_id Initial value of public ID
+    @param system_id Initial value of system ID
     @return Nothing
 */
-void xml_loader_info_init(xml_loader_info_t *loader_info)
+void
+xml_loader_info_init(xml_loader_info_t *loader_info,
+        const char *public_id, const char *system_id)
 {
-    loader_info->public_id = NULL;
-    loader_info->system_id = NULL;
+    loader_info->public_id = xstrdup(public_id);
+    loader_info->system_id = xstrdup(system_id);
+}
+
+/**
+    Set public ID of the entity for the loader.
+
+    @param loader_info Loader information structure
+    @param id Public ID string
+    @param len Length of the public ID string
+    @return Nothing
+*/
+void
+xml_loader_info_set_public_id(xml_loader_info_t *loader_info,
+        const utf8_t *id, size_t len)
+{
+    xfree(loader_info->public_id);
+    loader_info->public_id = utf8_ndup(id, len);
+}
+
+/**
+    Set system ID of the entity for the loader.
+
+    @param loader_info Loader information structure
+    @param id System ID string
+    @param len Length of the system ID string
+    @return Nothing
+*/
+void
+xml_loader_info_set_system_id(xml_loader_info_t *loader_info,
+        const utf8_t *id, size_t len)
+{
+    xfree(loader_info->system_id);
+    loader_info->system_id = utf8_ndup(id, len);
+}
+
+/**
+    Check if the loader info has been set (public/system ID or both).
+
+    @param loader_info Loader information structure
+    @return true if there is a loadable entity
+*/
+bool
+xml_loader_info_isset(const xml_loader_info_t *loader_info)
+{
+    return loader_info->public_id || loader_info->system_id;
 }
 
 /**
