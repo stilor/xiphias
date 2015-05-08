@@ -1,0 +1,367 @@
+Index: src/xml/reader.c
+===================================================================
+--- src/xml/reader.c	(revision 958)
++++ src/xml/reader.c	(working copy)
+@@ -120,18 +120,6 @@
+     uint32_t ecode;             ///< Error code associated with this type of references
+ } xml_reference_info_t;
+ 
+-/// Type-specific operations for external entity
+-typedef struct xml_reader_external_ctxt_s {
+-    /// Expected XMLDecl/TextDecl declaration
+-    const struct xml_reader_xmldecl_declinfo_s *declinfo;
+-
+-    /// What is allowed in EntityValue
+-    const struct xml_reference_ops_s *entity_value_parser;
+-
+-    xmlerr_info_t errcode;          ///< Error code when breaking the lock
+-    const char *production;         ///< Production this must match
+-} xml_reader_external_ctxt_t;
+-
+ /**
+     External entity information (including main document entity).
+ */
+@@ -149,7 +137,6 @@
+     nfc_t *norm_unicode;            ///< Normalization check handle for Unicode normalization
+ 
+     bool aborted;                   ///< If true, entity was not fully parsed
+-    xml_reader_external_ctxt_t ctxt;/// Type-specific settings
+ } xml_reader_external_t;
+ 
+ /**
+@@ -235,6 +222,18 @@
+ typedef struct xml_reader_context_s {
+     /// Lookahead patterns
+     const xml_reader_pattern_t lookahead[MAX_LA_PAIRS];
++
++    /// Expected XMLDecl/TextDecl declaration
++    const struct xml_reader_xmldecl_declinfo_s *declinfo;
++
++    /// What is allowed in EntityValue
++    const struct xml_reference_ops_s *entity_value_parser;
++
++    ///< Error code when breaking the input lock
++    xmlerr_info_t errcode;
++
++    ///< Production current entities must match
++    const char *production;
+ } xml_reader_context_t;
+ 
+ /// XML reader structure
+@@ -259,7 +258,7 @@
+ 
+     xml_reader_external_t *current_external;        ///< External entity being parsed
+     xml_reader_entity_t *current_entityref;         ///< Reference to external entity being included
+-    const xml_reader_context_t *current_context;    ///< Current reader context
++    const xml_reader_context_t *context;    ///< Current reader context
+ 
+     nfc_t *norm_include;            ///< Normalization check handle for include normalization
+ 
+@@ -297,11 +296,6 @@
+     XRU_INPUT_LOCKED,       ///< Some production wanted to end in this input
+ } xru_t;
+ 
+-// Known contexts
+-static const xml_reader_context_t parser_content;
+-static const xml_reader_context_t parser_document_entity;
+-static const xml_reader_context_t parser_internal_subset;
+-
+ /// Convenience macro: report an error at the start of the last token
+ #define xml_reader_message_lastread(h, ...) \
+         xml_reader_message(h, &h->lastreadloc, __VA_ARGS__)
+@@ -310,6 +304,12 @@
+ #define xml_reader_message_current(h, ...) \
+         xml_reader_message(h, NULL, __VA_ARGS__)
+ 
++// Forward declarations of parsing contexts
++static const xml_reader_context_t parser_internal_subset;
++static const xml_reader_context_t parser_internal_subset;
++static const xml_reader_context_t parser_content;
++static const xml_reader_context_t parser_document_entity;
++
+ /**
+     Determine if a character is a restricted character. Restricted characters are
+     completely illegal in XML1.0 (directly inserted and inserted as character reference).
+@@ -750,9 +750,9 @@
+             /// specific error info (i.e., which exact production locked the
+             /// input and most importantly where)
+             if (inp->external) {
+-                xml_reader_message_current(h, inp->external->ctxt.errcode,
++                xml_reader_message_current(h, h->context->errcode,
+                         "Fails to parse: does not match %s production",
+-                        inp->external->ctxt.production);
++                        h->context->production);
+             }
+             else {
+                 // Shouldn't be locking character references...
+@@ -1407,7 +1407,7 @@
+                 flags &= ~R_ASCII_ONLY;
+                 h->flags &= ~R_ASCII_ONLY;
+                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
+-                        "Non-ASCII characters in %s", inp->external->ctxt.declinfo->name);
++                        "Non-ASCII characters in %s", h->context->declinfo->name);
+             }
+             else if (!inp->charref && xml_is_restricted(cp0, h->current_external->version)) {
+                 // Ignore if it came from character reference (if it is prohibited,
+@@ -2776,7 +2776,7 @@
+ static prodres_t
+ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
+ {
+-    const xml_reader_xmldecl_declinfo_t *declinfo = h->current_external->ctxt.declinfo;
++    const xml_reader_xmldecl_declinfo_t *declinfo = h->context->declinfo;
+     const xml_reader_xmldecl_attrdesc_t *attrlist = declinfo->attrlist;
+     xml_reader_cbparam_t cbp;
+     utf8_t labuf[6]; // ['<?xml' + whitespace] or [?>]
+@@ -3502,7 +3502,7 @@
+     case PR_NOMATCH:
+         // Must have EntityValue then
+         h->ucs4len = 0;
+-        if (xml_parse_literal(h, h->current_external->ctxt.entity_value_parser) != PR_OK) {
++        if (xml_parse_literal(h, h->context->entity_value_parser) != PR_OK) {
+             goto malformed;
+         }
+         if (predef) {
+@@ -3726,45 +3726,11 @@
+ {
+     xml_read_string_assert(h, "]");
+     h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
+-    h->current_context = &parser_document_entity;
++    h->context = &parser_document_entity;
+     return xml_parse_dtd_end(h);
+ }
+ 
+ /**
+-    Context for parsing internal subset in a document type definition (DTD).
+-    Has no distinction between root/nonroot contexts.
+-
+-    @verbatim
+-    intSubset    ::= (markupdecl | DeclSep)*
+-    markupdecl   ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
+-    DeclSep      ::= PEReference | S
+-    elementdecl  ::= '<!ELEMENT' S Name S contentspec S? '>'
+-    AttlistDecl  ::= '<!ATTLIST' S Name AttDef* S? '>'
+-    EntityDecl   ::= GEDecl | PEDecl
+-    GEDecl       ::= '<!ENTITY' S Name S EntityDef S? '>'
+-    PEDecl       ::= '<!ENTITY' S '%' S Name S PEDef S? '>'
+-    NotationDecl ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
+-    PI           ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>' 
+-    Comment      ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
+-    @endverbatim
+-
+-    Additionally, in internal subset PEReference may only occur in DeclSep. So, we parse
+-    DeclSep as whitespace with PE reference substitution enabled.
+-*/
+-static const xml_reader_context_t parser_internal_subset = {
+-    .lookahead = {
+-        LOOKAHEAD("<!ELEMENT", xml_parse_elementdecl),
+-        LOOKAHEAD("<!ATTLIST", xml_parse_AttlistDecl),
+-        LOOKAHEAD("<!ENTITY", xml_parse_EntityDecl),
+-        LOOKAHEAD("<!NOTATION", xml_parse_NotationDecl),
+-        LOOKAHEAD("<?", xml_parse_PI),
+-        LOOKAHEAD("<!--", xml_parse_Comment),
+-        LOOKAHEAD("]", xml_end_internal_subset),
+-        LOOKAHEAD("", xml_parse_DeclSep),
+-    },
+-};
+-
+-/**
+     Read and process a document type declaration; the declaration may reference
+     an external subset and contain an internal subset, or have both, or none.
+ 
+@@ -3845,7 +3811,7 @@
+         // Any external entities therein are interpreted as external parameter
+         // entities.
+         h->ext_ctxt = CTXT_PARSED_PARAMETER_ENTITY;
+-        h->current_context = &parser_internal_subset;
++        h->context = &parser_internal_subset;
+         return PR_OK;
+     }
+ 
+@@ -3917,7 +3883,7 @@
+             xml_read_string_assert(h, ">");
+             is_empty = false;
+             h->nestlvl++; // Opened element
+-            h->current_context = &parser_content; // No longer at top level
++            h->context = &parser_content; // No longer at top level
+             break;
+         }
+         else if (had_ws && xml_read_Name(h, 0) == PR_OK) {
+@@ -4011,7 +3977,7 @@
+         h->nestlvl--;
+         if (!h->nestlvl) {
+             // Returned to top level
+-            h->current_context = &parser_document_entity;
++            h->context = &parser_document_entity;
+         }
+     }
+     if (!xml_reader_input_unlock(h)) {
+@@ -4046,6 +4012,65 @@
+ }
+ 
+ /**
++    Context for parsing internal subset in a document type definition (DTD).
++    Has no distinction between root/nonroot contexts.
++
++    @verbatim
++    intSubset    ::= (markupdecl | DeclSep)*
++    markupdecl   ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
++    DeclSep      ::= PEReference | S
++    elementdecl  ::= '<!ELEMENT' S Name S contentspec S? '>'
++    AttlistDecl  ::= '<!ATTLIST' S Name AttDef* S? '>'
++    EntityDecl   ::= GEDecl | PEDecl
++    GEDecl       ::= '<!ENTITY' S Name S EntityDef S? '>'
++    PEDecl       ::= '<!ENTITY' S '%' S Name S PEDef S? '>'
++    NotationDecl ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
++    PI           ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>' 
++    Comment      ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
++    @endverbatim
++
++    Additionally, in internal subset PEReference may only occur in DeclSep. So, we parse
++    DeclSep as whitespace with PE reference substitution enabled.
++*/
++static const xml_reader_context_t parser_internal_subset = {
++    .lookahead = {
++        LOOKAHEAD("<!ELEMENT", xml_parse_elementdecl),
++        LOOKAHEAD("<!ATTLIST", xml_parse_AttlistDecl),
++        LOOKAHEAD("<!ENTITY", xml_parse_EntityDecl),
++        LOOKAHEAD("<!NOTATION", xml_parse_NotationDecl),
++        LOOKAHEAD("<?", xml_parse_PI),
++        LOOKAHEAD("<!--", xml_parse_Comment),
++        LOOKAHEAD("]", xml_end_internal_subset),
++        LOOKAHEAD("", xml_parse_DeclSep),
++    },
++    .declinfo = &declinfo_textdecl,
++    .entity_value_parser = &reference_ops_EntityValue_internal,
++    .errcode = XMLERR_INTERNAL, // Should not happen: internal subset is not an entity
++    .production = NULL, // Should not happen: internal subset is not an entity
++};
++
++/**
++    Context for parsing an external subset. 
++    TBD: add productions parsed by this context
++    TBD: conditional sections, set the R_RECOGNIZE_PEREF while parsing external subset
++*/
++static const xml_reader_context_t parser_external_subset = {
++    .lookahead = {
++        LOOKAHEAD("<!ELEMENT", xml_parse_elementdecl),
++        LOOKAHEAD("<!ATTLIST", xml_parse_AttlistDecl),
++        LOOKAHEAD("<!ENTITY", xml_parse_EntityDecl),
++        LOOKAHEAD("<!NOTATION", xml_parse_NotationDecl),
++        LOOKAHEAD("<?", xml_parse_PI),
++        LOOKAHEAD("<!--", xml_parse_Comment),
++        LOOKAHEAD("", xml_parse_DeclSep),
++    },
++    .declinfo = &declinfo_textdecl,
++    .entity_value_parser = &reference_ops_EntityValue_external,
++    .errcode = XMLERR(ERROR, XML, P_extSubset),
++    .production = "extSubset",
++};
++
++/**
+     Expected tokens/handlers for parsing content production.
+ 
+     Note that content is a recursive production: it may contain element, which in turn
+@@ -4079,6 +4104,10 @@
+         LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
+         LOOKAHEAD("", xml_parse_CharData),
+     },
++    .declinfo = &declinfo_textdecl,
++    .entity_value_parser = NULL, // DTD not recognized
++    .errcode = XMLERR(ERROR, XML, P_content),
++    .production = "content",
+ };
+ 
+ /**
+@@ -4109,6 +4138,10 @@
+         LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
+         LOOKAHEAD("", xml_parse_whitespace_or_recover),
+     },
++    .declinfo = &declinfo_xmldecl,
++    .entity_value_parser = NULL, // DTD is not recognized
++    .errcode = XMLERR(ERROR, XML, P_document),
++    .production = "document",
+ };
+ 
+ /**
+@@ -4139,34 +4172,6 @@
+     }
+ }
+ 
+-/// External entity contexts
+-static const xml_reader_external_ctxt_t external_context[] = {
+-    [CTXT_DOCUMENT_ENTITY] = {
+-        .declinfo = &declinfo_xmldecl,
+-        .entity_value_parser = &reference_ops_EntityValue_internal,
+-        .errcode = XMLERR(ERROR, XML, P_document),
+-        .production = "document",
+-    },
+-    [CTXT_DTD_EXTERNAL_SUBSET] = {
+-        .declinfo = NULL,
+-        .entity_value_parser = &reference_ops_EntityValue_external,
+-        .errcode = XMLERR(ERROR, XML, P_extSubset),
+-        .production = "extSubset",
+-    },
+-    [CTXT_PARSED_PARAMETER_ENTITY] = {
+-        .declinfo = &declinfo_textdecl,
+-        .entity_value_parser = &reference_ops_EntityValue_external,
+-        .errcode = XMLERR(ERROR, XML, P_extSubset),
+-        .production = "extSubset",
+-    },
+-    [CTXT_PARSED_GENERAL_ENTITY] = {
+-        .declinfo = &declinfo_textdecl,
+-        .entity_value_parser = NULL, // DTD not recognized
+-        .errcode = XMLERR(ERROR, XML, P_content),
+-        .production = "content",
+-    },
+-};
+-
+ /**
+     Add an entity with the specified context.
+ 
+@@ -4208,8 +4213,6 @@
+     inp->complete = external_entity_end;
+     inp->complete_arg = inp;
+ 
+-    ex->ctxt = external_context[context];
+-
+     if (transport_encoding) {
+         if (!xml_reader_set_encoding(ex, transport_encoding)) {
+             goto failed;
+@@ -4241,8 +4244,8 @@
+         OOPS_ASSERT(rv);
+     }
+ 
+-    // External subset has no declaration
+-    if (ex->ctxt.declinfo) {
++    // External subset has no declaration; other entities may have one
++    if (h->context->declinfo) {
+         // Temporary reader state
+         xc.ex = ex;
+         xc.la_start = xc.initial;
+@@ -4363,7 +4366,7 @@
+         // Non-fatal: recover by using whatever encoding we detected
+         xml_reader_message_lastread(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                 "No external encoding information, no encoding in %s, content in %s encoding",
+-                ex->ctxt.declinfo->name, encoding_name(ex->enc));
++                h->context->declinfo->name, encoding_name(ex->enc));
+     }
+ 
+     return;
+@@ -4492,7 +4495,7 @@
+     /// @todo Return the parsing success/failure?
+     // TBD when setting context in each external entity, move this setting to document entity addition
+     // TBD add interface to load external DTD first
+-    h->current_context = &parser_document_entity;
++    h->context = &parser_document_entity;
+     h->ext_ctxt = CTXT_PARSED_GENERAL_ENTITY;
+ 
+     /// @todo Have lookahead read into tokenbuf? Do we need to use xml_lookahead() elsewhere?
+@@ -4503,7 +4506,7 @@
+             rv = PR_STOP;
+         }
+         else {
+-            ctx = h->current_context; // Reload at each cycle, as callback below may change it
++            ctx = h->context; // Reload at each cycle, as callback below may change it
+             rv = PR_NOMATCH;
+             for (pat = ctx->lookahead, end = pat + MAX_LA_PAIRS;
+                     pat < end && pat->func;
