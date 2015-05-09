@@ -159,7 +159,7 @@ main(int argc, char *argv[])
 
     xml_reader_set_callback(reader, cb, &cb_arg);
     xml_reader_set_loader(reader, xml_loader_file, &file_loader_opts);
-    xml_reader_load_parsed_entity(reader, NULL, inputfile);
+    xml_reader_load_document_entity(reader, NULL, inputfile);
 
     if (!load_ent) {
         xml_reader_set_loader(reader, xml_loader_noload, NULL);

@@ -21,6 +21,7 @@ ENUM_DECLARE(xml_standalone);
 static const enumval_t enumval_cbtype[] = {
     ENUM_VAL(XML_READER_CB_MESSAGE, "Message")
     ENUM_VAL(XML_READER_CB_ENTITY_UNKNOWN, "Unknown entity")
+    ENUM_VAL(XML_READER_CB_ENTITY_NOT_LOADED, "Entity not loaded")
     ENUM_VAL(XML_READER_CB_ENTITY_START, "Entity parsing start")
     ENUM_VAL(XML_READER_CB_ENTITY_END, "Entity parsing end")
     ENUM_VAL(XML_READER_CB_PUBID, "Public ID")
@@ -54,7 +55,9 @@ static const enumval_t enumval_reftype[] = {
 	ENUM_VAL(XML_READER_REF__CHAR, "Bad value (CHAR)")
 	ENUM_VAL(XML_READER_REF__MAX, "Bad value (MAX)")
 	ENUM_VAL(XML_READER_REF_GENERAL, "Undetermined general entity")
-	ENUM_VAL(XML_READER_REF__UNKNOWN, "Bad value (UNKNOWN)")
+	ENUM_VAL(XML_READER_REF_DOCUMENT, "Document entity")
+	ENUM_VAL(XML_READER_REF_EXT_SUBSET, "External subset")
+	ENUM_VAL(XML_READER_REF__NONE, "Bad value (unset)")
 };
 ENUM_DECLARE(reftype);
 

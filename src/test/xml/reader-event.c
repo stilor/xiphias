@@ -409,6 +409,7 @@ static const event_t events[] = {
     X(NONE)
     X(MESSAGE)
     X(ENTITY_UNKNOWN)
+    X(ENTITY_NOT_LOADED)
     X(ENTITY_START)
     X(ENTITY_END)
     X(PUBID)

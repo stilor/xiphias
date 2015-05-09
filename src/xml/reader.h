@@ -35,6 +35,9 @@ enum xml_reader_cbtype_e {
     /// Encountered unknown entity name (token: entity name; extra data in .entity)
     XML_READER_CB_ENTITY_UNKNOWN,
 
+    /// Entity was not loaded (token: entity name; extra data in .entity)
+    XML_READER_CB_ENTITY_NOT_LOADED,
+
     /// Started parsing an entity (token: entity name; extra data in .entity)
     XML_READER_CB_ENTITY_START,
 
@@ -106,14 +109,19 @@ enum xml_reader_cbtype_e {
 
 /// Types of references
 enum xml_reader_reference_e {
+    // Up to _MAX: references for which rules are defined in XML spec
     XML_READER_REF_PARAMETER,      ///< Parameter entity reference
     XML_READER_REF_INTERNAL,       ///< Internal parsed entity reference
     XML_READER_REF_EXTERNAL,       ///< External parsed entity reference
     XML_READER_REF_UNPARSED,       ///< Unparsed entity reference
     XML_READER_REF__CHAR,          ///< Internal value: not an entity, character reference
     XML_READER_REF__MAX,           ///< Internal value: array size for per-type handlers
+
+    // Internal values
     XML_READER_REF_GENERAL,        ///< Any general entity reference (internal/external/unparsed)
-    XML_READER_REF__UNKNOWN,       ///< Internal value: character or general (not yet determined)
+    XML_READER_REF_DOCUMENT,       ///< Document entity reference
+    XML_READER_REF_EXT_SUBSET,     ///< External subset
+    XML_READER_REF__NONE,          ///< To indicate unset reference type
 };
 
 /// Normalization type for an attribute
@@ -228,7 +236,7 @@ void xml_reader_set_loader(xml_reader_t *h, xml_loader_t func, void *arg);
 void xml_reader_message(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
         const char *fmt, ...) __printflike(4,5);
 
-void xml_reader_load_parsed_entity(xml_reader_t *h, const char *pubid, const char *sysid);
+void xml_reader_load_document_entity(xml_reader_t *h, const char *pubid, const char *sysid);
 void xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
         const char *location, const char *transport_encoding);
 

@@ -39,6 +39,7 @@ void xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam);
 #define FL_ETAG               __dummy
 #define FL_ATTR               attr
 #define FL_ENTITY_UNKNOWN     entity
+#define FL_ENTITY_NOT_LOADED  entity
 #define FL_ENTITY_START       entity
 #define FL_ENTITY_END         entity
 #define FL(t)                 FL_##t

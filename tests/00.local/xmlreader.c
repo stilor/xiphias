@@ -149,7 +149,7 @@ run_testcase(const void *arg)
 
     xml_reader_set_callback(reader, test_cb, &cbarg);
     xml_reader_set_loader(reader, xml_loader_file, &file_loader_opts);
-    xml_reader_load_parsed_entity(reader, NULL, tc->input);
+    xml_reader_load_document_entity(reader, NULL, tc->input);
     xml_reader_process(reader); // Emits the events
 
     while (cbarg.expect->cbtype != XML_READER_CB_NONE) {
