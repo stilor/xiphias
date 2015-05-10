@@ -2214,7 +2214,6 @@ reference_included_if_validating(xml_reader_t *h, xml_reader_entity_t *e)
 {
     entity_start(h, e);
 
-    // TBD external general entity context
     if (!xml_reader_invoke_loader(h, &e->loader_info, e, NULL)) {
         // No input has been added - consider it end of this entity's parsing
         entity_end(h, e);
@@ -3730,13 +3729,6 @@ xml_parse_dtd_end(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
 
-    // This is where the application will queue external subset for parsing
-    // if it wants to read it.
-    if (xml_loader_info_isset(&h->dtd_loader_info)) {
-        // TBD parser context for external subset
-        xml_reader_invoke_loader(h, &h->dtd_loader_info, NULL, &parser_external_subset);
-    }
-
     (void)xml_parse_whitespace(h);
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
         // The only case we're attempting recovery in doctypedecl. Restore
@@ -3744,10 +3736,19 @@ xml_parse_dtd_end(xml_reader_t *h)
         return xml_read_until_gt(h);
     }
 
+    // We know there's input in the queue, we've just read from it
+    h->lastreadloc = SLIST_FIRST(&h->active_input)->curloc;
+
     cbp.cbtype = XML_READER_CB_DTD_END;
     cbp.loc = h->lastreadloc;
     cbp.token.str = NULL,
     cbp.token.len = 0;
+
+    // This is where the application will queue external subset for parsing
+    // if it wants to read it.
+    if (xml_loader_info_isset(&h->dtd_loader_info)) {
+        xml_reader_invoke_loader(h, &h->dtd_loader_info, NULL, &parser_external_subset);
+    }
 
     // Signal the end of DTD parsing
     xml_reader_invoke_callback(h, &cbp);
@@ -4442,7 +4443,6 @@ xml_reader_load_document_entity(xml_reader_t *h, const char *pubid, const char *
     xml_loader_info_t info;
 
     xml_loader_info_init(&info, pubid, sysid);
-    // TBD pass document entity context
     if (xml_reader_invoke_loader(h, &info, NULL, &parser_document_entity)) {
         h->flags |= R_DOCUMENT_LOADED;
     }

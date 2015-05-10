@@ -1,2 +1,2 @@
-<!ENTITY % x "ENTITY foo &#x22;text&#x22;">
-<%x;>
+<!ENTITY % x "foo &#x22;text&#x22;">
+<!ENTITY %x;>
