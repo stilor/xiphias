@@ -118,6 +118,7 @@ enum xml_reader_reference_e {
     XML_READER_REF__MAX,           ///< Internal value: array size for per-type handlers
 
     // Internal values
+    XML_READER_REF_UNKNOWN,        ///< Malformed entity reference
     XML_READER_REF_GENERAL,        ///< Any general entity reference (internal/external/unparsed)
     XML_READER_REF_DOCUMENT,       ///< Document entity reference
     XML_READER_REF_EXT_SUBSET,     ///< External subset
