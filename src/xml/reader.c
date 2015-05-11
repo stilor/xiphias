@@ -1558,7 +1558,7 @@ xml_cb_not_whitespace(void *arg, ucs4_t cp)
     return UCS4_STOPCHAR;
 }
 
-/*
+/**
     Consumes whitespace without expanding entities. Does not modify the token buffer.
 
     @param h Reader handle
@@ -1567,16 +1567,15 @@ xml_cb_not_whitespace(void *arg, ucs4_t cp)
 static prodres_t
 xml_parse_whitespace(xml_reader_t *h)
 {
-    xru_t stopstatus;
     bool had_ws = false;
     size_t tlen;
 
     // Whitespace may cross entity boundaries; repeat until we get something other
     // than whitespace
     tlen = h->tokenlen;
-    do {
-        stopstatus = xml_read_until(h, xml_cb_not_whitespace, &had_ws, 0);
-    } while (stopstatus == XRU_INPUT_BOUNDARY);
+    while (xml_read_until(h, xml_cb_not_whitespace, &had_ws, 0) == XRU_INPUT_BOUNDARY) {
+        // Keep reading
+    }
     h->tokenlen = tlen;
     return had_ws ? PR_OK : PR_NOMATCH;
 }
@@ -2207,6 +2206,21 @@ reference_included_if_validating(xml_reader_t *h, xml_reader_entity_t *e)
 }
 
 /**
+    Entity handler: 'Included as PE (parameter entity)'
+
+    @param h Reader handle
+    @param e Entity information
+    @return Nothing
+*/
+static void
+reference_included_as_pe(xml_reader_t *h, xml_reader_entity_t *e)
+{
+    entity_start(h, e);
+    // TBD - implement. May be external or internal entity, need to handle both
+    entity_end(h, e);
+}
+
+/**
     Entity handler: 'Bypassed'
 
     @param h Reader handle
@@ -2388,6 +2402,71 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         }
     }
 }
+
+/// Virtual methods for reading whitespace with possible PEReference
+static const xml_reference_ops_t reference_ops_PEReference = {
+    .errinfo = XMLERR(ERROR, XML, P_CharData),
+    .condread = xml_cb_not_whitespace,
+    .flags = R_RECOGNIZE_PEREF,
+    .relevant = NULL,
+    .hnd = {
+        // Default: 'Not recognized'. The table in XML spec lists the
+        // rest of the references as 'forbidden' - but DTD grammar will not
+        // even recognize them.
+        [XML_READER_REF_PARAMETER] = reference_included_as_pe,
+    },
+};
+
+/**
+    Consume whitespace while checking for parameter entities. Used for parsing the
+    DeclSep production and, conditionally, for expanding entities in external subset
+    and parameter entities. See xml_parse_whitespace_conditional for details how this
+    works in the latter case.
+
+    This is similar to the regular xml_parse_whitespace() except that it calls
+    reference-expanding parser.
+
+    @param h Reader handle
+    @return PR_OK if consumed any whitespace, PR_NOMATCH otherwise.
+*/
+static prodres_t
+xml_parse_whitespace_peref(xml_reader_t *h)
+{
+    bool had_ws = false;
+    size_t tlen;
+
+    // Whitespace may cross entity boundaries; repeat until we get something other
+    // than whitespace
+    tlen = h->tokenlen;
+    (void)xml_read_until_parseref(h, &reference_ops_PEReference, &had_ws);
+    h->tokenlen = tlen;
+    return had_ws ? PR_OK : PR_NOMATCH;
+}
+
+/**
+    Smart consumption of whitespace: if in the internal subset, use the regular
+    whitespace consumer. If in the external subset, use PE-expanding consumer.
+
+    The rationale here is that the parameter entity substitution outside of the
+    EntityValue production is prepended and appended with a space. Therefore, entity
+    references are only valid where whitespace is permitted. We are thus expanding
+    them only when we look for whitespace and in that case we know the whitespace
+    will be matched. This function is hence used inside the production parsers
+    that may be used by external subset - if the same production appears (and is
+    allowed) in internal subset, this whitespace parser will behave as if it were
+    regular skip-the-whitespace.
+
+    @param h Reader handle
+    @return PR_OK if consumed any whitespace, PR_NOMATCH otherwise.
+*/
+static prodres_t
+xml_parse_whitespace_conditional(xml_reader_t *h)
+{
+    return h->ctx->reftype == XML_READER_REF_EXT_SUBSET ?
+            xml_parse_whitespace_peref(h) :
+            xml_parse_whitespace(h);
+}
+
 
 /**
     Common part of a handler for text block in literals or content.
@@ -3248,7 +3327,7 @@ xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
 
     if (has_public_id) {
         // Had external ID with PUBLIC: S PubidLiteral
-        if (xml_parse_whitespace(h) != PR_OK) {
+        if (xml_parse_whitespace_conditional(h) != PR_OK) {
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_ExternalID),
                     "Expect whitespace here");
             return PR_FAIL;
@@ -3269,13 +3348,13 @@ xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
     if (has_system_id) {
         // Had any external ID, or (if allowed) PublicID
         if (allowed_PublicID) {
-            if (xml_parse_whitespace(h) != PR_OK
+            if (xml_parse_whitespace_conditional(h) != PR_OK
                     || !(ucs4_cheq(h->rejected, '"') || ucs4_cheq(h->rejected, '\''))) {
                 return PR_OK; // Missing second (system) literal, but it's ok
             }
         }
         else {
-            if (xml_parse_whitespace(h) != PR_OK) {
+            if (xml_parse_whitespace_conditional(h) != PR_OK) {
                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_ExternalID),
                         "Expect whitespace here");
                 return PR_FAIL;
@@ -3386,7 +3465,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     cbp.cbtype = XML_READER_CB_ENTITY_DEF_START;
     cbp.loc = h->lastreadloc;
 
-    if (xml_parse_whitespace(h) != PR_OK) {
+    if (xml_parse_whitespace_conditional(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                 "Expect whitespace here");
         goto malformed;
@@ -3397,7 +3476,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
         xml_read_string_assert(h, "%");
         ehash = h->entities_param;
         parameter = true;
-        if (xml_parse_whitespace(h) != PR_OK) {
+        if (xml_parse_whitespace_conditional(h) != PR_OK) {
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                     "Expect whitespace here");
             goto malformed;
@@ -3458,7 +3537,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
         e->refrplc = rplc;
     }
 
-    if (xml_parse_whitespace(h) != PR_OK) {
+    if (xml_parse_whitespace_conditional(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                 "Expect whitespace here");
         goto malformed;
@@ -3480,11 +3559,11 @@ xml_parse_EntityDecl(xml_reader_t *h)
         }
         if (!parameter) {
             // Optional NDatadecl in general entities
-            if (xml_parse_whitespace(h) == PR_OK && ucs4_cheq(h->rejected, 'N')) {
+            if (xml_parse_whitespace_conditional(h) == PR_OK && ucs4_cheq(h->rejected, 'N')) {
                 if (xml_read_string(h, "NDATA", XMLERR(ERROR, XML, P_EntityDecl)) != PR_OK) {
                     goto malformed;
                 }
-                if (xml_parse_whitespace(h) != PR_OK) {
+                if (xml_parse_whitespace_conditional(h) != PR_OK) {
                     xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                             "Expect whitespace here");
                     goto malformed;
@@ -3574,7 +3653,7 @@ compatible:
     }
 
     // Optional whitespace and closing angle bracket
-    (void)xml_parse_whitespace(h);
+    (void)xml_parse_whitespace_conditional(h);
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_EntityDecl)) != PR_OK) {
         goto malformed;
     }
@@ -3616,7 +3695,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
     cbp.cbtype = XML_READER_CB_NOTATION_DEF_START;
     cbp.loc = h->lastreadloc;
 
-    if (xml_parse_whitespace(h) != PR_OK) {
+    if (xml_parse_whitespace_conditional(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_NotationDecl),
                 "Expect whitespace here");
         goto malformed;
@@ -3636,7 +3715,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
     cbp.token.len = h->tokenlen;
     xml_reader_invoke_callback(h, &cbp);
 
-    if (xml_parse_whitespace(h) != PR_OK) {
+    if (xml_parse_whitespace_conditional(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                 "Expect whitespace here");
         goto malformed;
@@ -3661,7 +3740,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
     }
 
     // Optional whitespace and closing angle bracket
-    (void)xml_parse_whitespace(h);
+    (void)xml_parse_whitespace_conditional(h);
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_NotationDecl)) != PR_OK) {
         goto malformed;
     }
@@ -3681,29 +3760,6 @@ malformed:
 }
 
 /**
-    Parse declaration separator (DeclSep).
-
-    @verbatim
-    DeclSep ::= PEReference | S
-    @endverbatim
-
-    Essentially, this function just parses whitespace while allowing for parameter entity
-    expansion.
-
-    @param h Reader handle
-    @return PR_OK if the declaration parsed successfully, or recovery was performed
-*/
-static prodres_t
-xml_parse_DeclSep(xml_reader_t *h)
-{
-    /// @todo This is not sufficient: it will exit at the beginning of an entity reference
-    /// but will not expand that reference. Need to call xml_read_until_parseref(), with
-    /// proper reference operations.
-    (void)xml_parse_whitespace(h);
-    return PR_OK;
-}
-
-/**
     Common parser for DTD final part: we may handle DTD parsing in two separate
     locations, depending on whether the internal subset was present.
 
@@ -3715,7 +3771,7 @@ xml_parse_dtd_end(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
 
-    (void)xml_parse_whitespace(h);
+    (void)xml_parse_whitespace(h); // Only appears in internal subset
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
         // The only case we're attempting recovery in doctypedecl. Restore
         // context for future entities.
@@ -3787,7 +3843,7 @@ static const xml_reader_context_t parser_internal_subset = {
         LOOKAHEAD("<?", xml_parse_PI),
         LOOKAHEAD("<!--", xml_parse_Comment),
         LOOKAHEAD("]", xml_end_internal_subset),
-        LOOKAHEAD("", xml_parse_DeclSep),
+        LOOKAHEAD("", xml_parse_whitespace_peref),
     },
     .declinfo = NULL,                   // Not used for reading any external entity
     .reftype = XML_READER_REF__NONE,    // Not an external entity
@@ -3800,7 +3856,7 @@ static const xml_reader_context_t parser_internal_subset = {
 // TBD
 static const xml_reader_context_t parser_external_subset = {
     .lookahead = {
-        LOOKAHEAD("", xml_parse_DeclSep),
+        LOOKAHEAD("", xml_parse_whitespace_peref),
     },
     .declinfo = &declinfo_textdecl,
     .reftype = XML_READER_REF_EXT_SUBSET, // If not parameter entity, this is external DTD
