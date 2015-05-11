@@ -1558,31 +1558,6 @@ xml_cb_not_whitespace(void *arg, ucs4_t cp)
     return UCS4_STOPCHAR;
 }
 
-/**
-    Consume whitespace; allows to specify which entities need to be interpreted.
-    Does not modify the token buffer.
-
-    @param h Reader handle
-    @param recognize Entity recognition flags
-    @return PR_OK if it consumed any whitespace, PR_NOMATCH otherwise
-*/
-static prodres_t
-xml_parse_whitespace_internal(xml_reader_t *h, uint32_t recognize)
-{
-    xru_t stopstatus;
-    bool had_ws = false;
-    size_t tlen;
-
-    // Whitespace may cross entity boundaries; repeat until we get something other
-    // than whitespace
-    tlen = h->tokenlen;
-    do {
-        stopstatus = xml_read_until(h, xml_cb_not_whitespace, &had_ws, recognize);
-    } while (stopstatus == XRU_INPUT_BOUNDARY);
-    h->tokenlen = tlen;
-    return had_ws ? PR_OK : PR_NOMATCH;
-}
-
 /*
     Consumes whitespace without expanding entities. Does not modify the token buffer.
 
@@ -1592,7 +1567,18 @@ xml_parse_whitespace_internal(xml_reader_t *h, uint32_t recognize)
 static prodres_t
 xml_parse_whitespace(xml_reader_t *h)
 {
-    return xml_parse_whitespace_internal(h, 0);
+    xru_t stopstatus;
+    bool had_ws = false;
+    size_t tlen;
+
+    // Whitespace may cross entity boundaries; repeat until we get something other
+    // than whitespace
+    tlen = h->tokenlen;
+    do {
+        stopstatus = xml_read_until(h, xml_cb_not_whitespace, &had_ws, 0);
+    } while (stopstatus == XRU_INPUT_BOUNDARY);
+    h->tokenlen = tlen;
+    return had_ws ? PR_OK : PR_NOMATCH;
 }
 
 /**
@@ -3713,7 +3699,7 @@ xml_parse_DeclSep(xml_reader_t *h)
     /// @todo This is not sufficient: it will exit at the beginning of an entity reference
     /// but will not expand that reference. Need to call xml_read_until_parseref(), with
     /// proper reference operations.
-    (void)xml_parse_whitespace_internal(h, R_RECOGNIZE_PEREF);
+    (void)xml_parse_whitespace(h);
     return PR_OK;
 }
 
