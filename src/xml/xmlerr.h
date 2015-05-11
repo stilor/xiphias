@@ -60,6 +60,7 @@ enum xmlerr_spec_e {
           XMLERR_DEF(XML, P_EntityDecl) \
           XMLERR_DEF(XML, P_EntityValue) \
           XMLERR_DEF(XML, P_NotationDecl) \
+          XMLERR_DEF(XML, P_DeclSep) \
           XMLERR_DEF(XML, P_intSubset) \
           XMLERR_DEF(XML, P_extSubset) \
           /* Other errors and recommendations (spelled in text of the spec) */ \

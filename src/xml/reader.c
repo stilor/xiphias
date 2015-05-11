@@ -3760,6 +3760,53 @@ malformed:
 }
 
 /**
+    Parse a conditional section in DTD.
+
+    @param h Reader handle
+    @return PR_OK if parsed successfully
+*/
+static prodres_t
+xml_parse_conditionalSect(xml_reader_t *h)
+{
+    return PR_OK; // TBD
+}
+
+/**
+    Parse declaration separator (DeclSep) which is whitespace or PE reference.
+    If unsuccessful, recover by 
+
+    @verbatim
+    DeclSep ::= PEReference | S
+    @endverbatim
+
+    Essentially, this function just parses whitespace while allowing for parameter entity
+    expansion.
+
+    @param h Reader handle
+    @return PR_OK if the declaration parsed successfully, or recovery was performed
+*/
+static prodres_t
+xml_parse_whitespace_peref_or_recover(xml_reader_t *h)
+{
+    prodres_t rv;
+
+    if ((rv = xml_parse_whitespace_peref(h)) != PR_NOMATCH) {
+        return rv;
+    }
+
+    xml_reader_message_current(h, XMLERR(ERROR, XML, P_DeclSep),
+            "Invalid content in DTD");
+
+    // Recover by skipping to the next angle bracket. If we are already at the
+    // angle bracket, then skip to the next one (we didn't recognize the production
+    // starting with that angle bracket)
+    if (ucs4_cheq(h->rejected, '<')) {
+        xml_read_until_gt(h);
+    }
+    return xml_read_until_lt(h);
+}
+
+/**
     Common parser for DTD final part: we may handle DTD parsing in two separate
     locations, depending on whether the internal subset was present.
 
@@ -3815,7 +3862,6 @@ xml_end_internal_subset(xml_reader_t *h)
 
 /**
     Context for parsing internal subset in a document type definition (DTD).
-    Has no distinction between root/nonroot contexts.
 
     @verbatim
     intSubset    ::= (markupdecl | DeclSep)*
@@ -3843,7 +3889,7 @@ static const xml_reader_context_t parser_internal_subset = {
         LOOKAHEAD("<?", xml_parse_PI),
         LOOKAHEAD("<!--", xml_parse_Comment),
         LOOKAHEAD("]", xml_end_internal_subset),
-        LOOKAHEAD("", xml_parse_whitespace_peref),
+        LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
     },
     .declinfo = NULL,                   // Not used for reading any external entity
     .reftype = XML_READER_REF__NONE,    // Not an external entity
@@ -3853,10 +3899,41 @@ static const xml_reader_context_t parser_internal_subset = {
     .document_entity = false,
 };
 
-// TBD
+/**
+    Context for parsing external subset in a document type definition (DTD), including
+    one loaded via parameter entity.
+
+    @verbatim
+    extSubset       ::= TextDecl? extSubsetDecl
+    extSubsetDecl   ::= (markupdecl | conditionalSect | DeclSep)*
+    conditionalSect ::= includeSect | ignoreSect
+    includeSect     ::= '<![' S? 'INCLUDE' S? '[' extSubsetDecl ']]>'
+    ignoreSect      ::= '<![' S? 'IGNORE' S? '[' ignoreSectContents* ']]>'
+    markupdecl      ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
+    DeclSep         ::= PEReference | S
+    elementdecl     ::= '<!ELEMENT' S Name S contentspec S? '>'
+    AttlistDecl     ::= '<!ATTLIST' S Name AttDef* S? '>'
+    EntityDecl      ::= GEDecl | PEDecl
+    GEDecl          ::= '<!ENTITY' S Name S EntityDef S? '>'
+    PEDecl          ::= '<!ENTITY' S '%' S Name S PEDef S? '>'
+    NotationDecl    ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
+    PI              ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>' 
+    Comment         ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
+    @endverbatim
+
+    Additionally, in internal subset PEReference may only occur in DeclSep. So, we parse
+    DeclSep as whitespace with PE reference substitution enabled.
+*/
 static const xml_reader_context_t parser_external_subset = {
     .lookahead = {
-        LOOKAHEAD("", xml_parse_whitespace_peref),
+        LOOKAHEAD("<!ELEMENT", xml_parse_elementdecl),
+        LOOKAHEAD("<!ATTLIST", xml_parse_AttlistDecl),
+        LOOKAHEAD("<!ENTITY", xml_parse_EntityDecl),
+        LOOKAHEAD("<!NOTATION", xml_parse_NotationDecl),
+        LOOKAHEAD("<![", xml_parse_conditionalSect),
+        LOOKAHEAD("<?", xml_parse_PI),
+        LOOKAHEAD("<!--", xml_parse_Comment),
+        LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
     },
     .declinfo = &declinfo_textdecl,
     .reftype = XML_READER_REF_EXT_SUBSET, // If not parameter entity, this is external DTD
@@ -4546,8 +4623,6 @@ xml_reader_process(xml_reader_t *h)
     /// @todo Have 2nd argument saved in external info? Or have a separate func for pre-reading
     /// a standalone DTD?
     /// @todo Return the parsing success/failure?
-    // TBD when setting context in each external entity, move this setting to document entity addition
-    // TBD add interface to load external DTD first
     h->ctx = &parser_document_entity;
 
     /// @todo Have lookahead read into tokenbuf? Do we need to use xml_lookahead() elsewhere?
