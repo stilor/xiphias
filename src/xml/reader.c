@@ -169,6 +169,7 @@ typedef struct xml_reader_input_s {
     // Other fields
     uint32_t locked;                ///< Number of productions 'locking' this input
     bool inc_in_literal;            ///< 'included in literal' - special handling of quotes
+    bool ignore_references;         ///< Ignore reference expansion in this input
     bool charref;                   ///< Input originated from a character reference
     xml_reader_entity_t *entity;    ///< Associated entity if any
     xml_reader_external_t *external;///< External entity information
@@ -1421,7 +1422,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
             // Check if entity expansion is needed
             if (((ucs4_cheq(cp0, '&') && (flags & R_RECOGNIZE_REF) != 0)
                         || (ucs4_cheq(cp0, '%') && (flags & R_RECOGNIZE_PEREF) != 0))
-                    && !inp->charref) {
+                    && !inp->ignore_references) {
                 rv = XRU_REFERENCE;
                 h->rejected = cp0;
                 break;
@@ -1450,7 +1451,8 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
                         "Non-ASCII characters in %s", h->ctx->declinfo->name);
             }
-            else if (!inp->charref && xml_is_restricted(cp0, h->current_external->version)) {
+            else if (!inp->charref
+                    && xml_is_restricted(cp0, h->current_external->version)) {
                 // Ignore if it came from character reference (if it is prohibited,
                 // the character reference parser already complained)
                 // Non-fatal: just let the app figure what to do with it
@@ -2033,14 +2035,14 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
 
 literal_percent:
     // Consider the percent sign as having literal meaning. Prepend an
-    // input with a fake 'character reference' to percent sign so that
-    // we don't try to interpre this as a PE reference again
+    // an input with percent sign; mark it as reference-ignoring so that
+    // we don't try to interpret this as a PE reference again
     h->flags &= ~R_NO_INC_NORM;
     xml_reader_input_unlock_assert(h);
     inp = xml_reader_input_new(h, "literal percent sign");
     strbuf_set_input(inp->buf, rplc_percent, sizeof(rplc_percent));
     inp->curloc = saveloc;
-    inp->charref = true;
+    inp->ignore_references = true;
     return PR_NOMATCH;
 
 read_content:
@@ -2261,7 +2263,7 @@ reference_bypassed(xml_reader_t *h, xml_reader_entity_t *e)
 
     inp = xml_reader_input_new(h, e->location);
     strbuf_set_input(inp->buf, e->refrplc, e->refrplclen);
-    inp->charref = true; ///< @todo rename; what this does is to prevent recognition of entities
+    inp->ignore_references = true;
 }
 
 /**
@@ -2305,6 +2307,7 @@ reference_included_charref(xml_reader_t *h, xml_reader_entity_t *e)
     // character does not terminate the literal). They also can represent references
     // to start characters which will not be recognized by xml_read_until.
     inp->inc_in_literal = true;
+    inp->ignore_references = true;
     inp->charref = true;
 }
 
@@ -2387,7 +2390,7 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
                 continue;
             }
             fakechar.type = XML_READER_REF__CHAR;
-            fakechar.location = "character reference";
+            fakechar.location = NULL;
             fakechar.being_parsed = false;
             fakechar.rplc = &h->charrefval;
             fakechar.rplclen = sizeof(h->charrefval);
