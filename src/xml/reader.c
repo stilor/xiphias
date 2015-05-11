@@ -39,6 +39,7 @@ enum {
     R_HAS_ROOT          = 0x0040,       ///< Root element seen
     R_HAS_DTD           = 0x0080,       ///< Document declaration seen
     R_DOCUMENT_LOADED   = 0x0100,       ///< Document entity has been added
+    R_AMBIGUOUS_PERCENT = 0x0200,       ///< '%' may either start PE reference or have literal meaning
 };
 
 /// Notation information
@@ -50,14 +51,6 @@ typedef struct xml_reader_notation_s {
     size_t namelen;                         ///< Notation name length in bytes
     xml_loader_info_t loader_info;          ///< Loader information for this notation
 } xml_reader_notation_t;
-
-/// Context for adding new external entity to the document
-enum xml_reader_external_context_e {
-    CTXT_DOCUMENT_ENTITY,           ///< Main document
-    CTXT_DTD_EXTERNAL_SUBSET,       ///< External subset included from main document
-    CTXT_PARSED_PARAMETER_ENTITY,   ///< External parameter entity
-    CTXT_PARSED_GENERAL_ENTITY,     ///< External general entity
-};
 
 /// Information on a pre-defined entity.
 typedef struct {
@@ -516,8 +509,11 @@ xml_reader_input_new(xml_reader_t *h, const char *location)
         inp->curloc.src = location;
         inp->curloc.line = 1;
         inp->curloc.pos = 1;
+        h->lastreadloc = inp->curloc;
     }
-    h->lastreadloc = inp->curloc;
+    else {
+        inp->curloc = h->lastreadloc;
+    }
 
     SLIST_INSERT_HEAD(&h->active_input, inp, link);
     return inp;
@@ -1965,7 +1961,9 @@ xml_entity_type_info(enum xml_reader_reference_e type)
 static prodres_t
 xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
 {
+    static ucs4_t rplc_percent[] = { 0x25 /* '%' in Unicode */ };
     xml_cb_charref_state_t st;
+    xml_reader_input_t *inp;
     const xml_reference_info_t *ri;
     xmlerr_loc_t saveloc;           // Report reference at the start character
     xru_t rv;
@@ -2012,7 +2010,10 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
         }
     }
     else if (ucs4_cheq(startchar, '%')) {
-        // PEReference
+        // PEReference or standalone percent sign. In external subset,
+        // percent sign may be taken literally in the parameter entity
+        // definition. If that's the case, it is followed by a whitespace
+        // (S) rather than Name.
         xml_read_string_assert(h, "%");
         xml_reader_input_lock(h);
         saveloc = h->lastreadloc;
@@ -2020,12 +2021,27 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
         if (xml_read_Name(h, 0) == PR_OK) {
             goto read_content;
         }
+        if (h->flags & R_AMBIGUOUS_PERCENT) {
+            goto literal_percent;
+        }
         goto malformed;
     }
     else {
         // How did we get here?
         OOPS;
     }
+
+literal_percent:
+    // Consider the percent sign as having literal meaning. Prepend an
+    // input with a fake 'character reference' to percent sign so that
+    // we don't try to interpre this as a PE reference again
+    h->flags &= ~R_NO_INC_NORM;
+    xml_reader_input_unlock_assert(h);
+    inp = xml_reader_input_new(h, "literal percent sign");
+    strbuf_set_input(inp->buf, rplc_percent, sizeof(rplc_percent));
+    inp->curloc = saveloc;
+    inp->charref = true;
+    return PR_NOMATCH;
 
 read_content:
     ri = xml_entity_type_info(*reftype);
@@ -2045,7 +2061,7 @@ malformed:
     xml_reader_message_lastread(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
             "Malformed %s reference", ri->desc);
     xml_reader_input_unlock_assert(h);
-    return PR_NOMATCH;
+    return PR_FAIL;
 }
 
 /**
@@ -2153,12 +2169,20 @@ reference_included_common(xml_reader_t *h, xml_reader_entity_t *e, bool inc_in_l
     xml_reader_input_t *inp;
 
     entity_start(h, e);
-    inp = xml_reader_input_new(h, e->location);
-    strbuf_set_input(inp->buf, e->rplc, e->rplclen);
-    inp->entity = e;
-    inp->inc_in_literal = inc_in_literal;
-    inp->complete = entity_end;
-    inp->complete_arg = e;
+    if (xml_loader_info_isset(&e->loader_info)) {
+        if (!xml_reader_invoke_loader(h, &e->loader_info, e, NULL)) {
+            // No input has been added - consider it end of this entity's parsing
+            entity_end(h, e);
+        }
+    }
+    else {
+        inp = xml_reader_input_new(h, e->location);
+        strbuf_set_input(inp->buf, e->rplc, e->rplclen);
+        inp->entity = e;
+        inp->inc_in_literal = inc_in_literal;
+        inp->complete = entity_end;
+        inp->complete_arg = e;
+    }
 }
 
 /**
@@ -2197,12 +2221,9 @@ reference_included(xml_reader_t *h, xml_reader_entity_t *e)
 static void
 reference_included_if_validating(xml_reader_t *h, xml_reader_entity_t *e)
 {
-    entity_start(h, e);
-
-    if (!xml_reader_invoke_loader(h, &e->loader_info, e, NULL)) {
-        // No input has been added - consider it end of this entity's parsing
-        entity_end(h, e);
-    }
+    // TBD check 'if validating' condition? Or have a separate flag, 'loading entities', that
+    // controls this function?
+    reference_included_common(h, e, false);
 }
 
 /**
@@ -2215,9 +2236,15 @@ reference_included_if_validating(xml_reader_t *h, xml_reader_entity_t *e)
 static void
 reference_included_as_pe(xml_reader_t *h, xml_reader_entity_t *e)
 {
-    entity_start(h, e);
-    // TBD - implement. May be external or internal entity, need to handle both
-    entity_end(h, e);
+    static ucs4_t rplc_space[] = { 0x20 /* ' ' in Unicode */ };
+    xml_reader_input_t *inp;
+
+    // Inputs are prepended, so adding them in backwards order
+    inp = xml_reader_input_new(h, NULL);
+    strbuf_set_input(inp->buf, rplc_space, sizeof(rplc_space));
+    reference_included_common(h, e, false);
+    inp = xml_reader_input_new(h, NULL);
+    strbuf_set_input(inp->buf, rplc_space, sizeof(rplc_space));
 }
 
 /**
@@ -2333,7 +2360,9 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         saved_relevant = h->relevant;
         h->relevant = NULL;
         if (xml_parse_reference(h, &reftype) != PR_OK) {
-            // no recovery - interpret anything after error as plain text
+            // This may or may not be error: PR_NOMATCH means that it just wasn't a PE
+            // reference despite having started with a percent sign.  If it is an error,
+            // no recovery - just interpret anything after error as plain text.
             reftype = XML_READER_REF__NONE;
             continue;
         }
@@ -3465,11 +3494,14 @@ xml_parse_EntityDecl(xml_reader_t *h)
     cbp.cbtype = XML_READER_CB_ENTITY_DEF_START;
     cbp.loc = h->lastreadloc;
 
+    h->flags |= R_AMBIGUOUS_PERCENT;
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
+        h->flags &= ~R_AMBIGUOUS_PERCENT;
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                 "Expect whitespace here");
         goto malformed;
     }
+    h->flags &= ~R_AMBIGUOUS_PERCENT;
 
     // If ['%' S] follows, it is a parameter entity
     if (ucs4_cheq(h->rejected, '%')) {
