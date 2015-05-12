@@ -86,6 +86,7 @@ bool
 nfc_check_nextchar(nfc_t *nfc, ucs4_t cp)
 {
     uint8_t ccc, new_last_ccc;
+    unsigned int nfc_qc;
     size_t fcd_len;
     const ucs4_t *fcd;
     ucs4_t new_cp;
@@ -116,7 +117,8 @@ nfc_check_nextchar(nfc_t *nfc, ucs4_t cp)
         goto denorm;
     }
 
-    switch (ucs4_get_nfc_qc(cp)) {
+    nfc_qc = ucs4_get_nfc_qc(cp);
+    switch (nfc_qc) {
     case UCS4_NFC_QC_Y:
         // This can happen with either starter character characters, or non-starters
         // that do not compose with anything (e.g. U+0305, "COMBINING OVERLINE").
@@ -138,7 +140,10 @@ nfc_check_nextchar(nfc_t *nfc, ucs4_t cp)
         }
         goto denorm;
 
-    case UCS4_NFC_QC_M:
+    default:
+        // The only value possible
+        OOPS_ASSERT(nfc_qc == UCS4_NFC_QC_M);
+
         // Current Unicode version (7.0) does not have any 'quick check -- maybe' characters
         // that decompose into multiple codepoints, thus the assertion. It may change in
         // the future - the handling of such characters would have to be rethought
@@ -198,12 +203,9 @@ nfc_check_nextchar(nfc_t *nfc, ucs4_t cp)
 
         // Good for now
         goto more;
-
-    default:
-        break;
     }
 
-    OOPS_UNREACHABLE;
+    OOPS_UNREACHABLE; // LCOV_EXCL_LINE
 
 more:
     // This character is accepted (or part of a previously reported sequence)

@@ -52,6 +52,7 @@ static xml_loader_opts_file_t file_loader_opts = {
 /// Input file name
 static const char *inputfile;
 
+/// Application options
 static const opt_t options[] = {
     {
         OPT_USAGE("Display events from reading an XML file."),
@@ -101,23 +102,47 @@ static const opt_t options[] = {
     OPT_END
 };
 
+/// Argument to callback
 struct cb_arg_s {
     int exitstatus;
     xml_reader_t *h;
 };
 
+/**
+    Provide a "stacktrace" of the current reader position in human-readable format.
+
+    @param arg Arbitrary argument (ignored)
+    @param loc Location information
+    @return Nothing
+*/
 static void
 stacktrace_human(void *arg, const xmlerr_loc_t *loc)
 {
     printf("\t... %s:%u:%u\n", loc->src, loc->line, loc->pos);
 }
 
+/**
+    Provide a "stacktrace" of the current reader position in format suitable
+    for code generation.
+
+    @param arg Arbitrary argument (ignored)
+    @param loc Location information
+    @return Nothing
+*/
 static void
 stacktrace_code(void *arg, const xmlerr_loc_t *loc)
 {
     printf("    // From %s:%u:%u\n", loc->src, loc->line, loc->pos);
 }
 
+/**
+    Event callback. Prints the events in either human-readable format,
+    or as a C code with event structures.
+
+    @param arg Callback argument
+    @param cbparam Event description
+    @return Nothing
+*/
 static void
 cb(void *arg, xml_reader_cbparam_t *cbparam)
 {
@@ -141,12 +166,21 @@ cb(void *arg, xml_reader_cbparam_t *cbparam)
     }
 }
 
+/**
+    Main program for the xmlreader application.
+
+    @param argc Number of arguments in @a argv
+    @param argv Arguments to the application
+    @return 0 on success, 1 on seeing error events in human readable mode,
+        EX_USAGE on error in option parsing.
+*/
 int
 main(int argc, char *argv[])
 {
     xml_reader_t *reader;
     struct cb_arg_s cb_arg;
 
+    // TBD add coverage testing for the applications
     opt_parse(options, argv);
 
     if (gencode) {
