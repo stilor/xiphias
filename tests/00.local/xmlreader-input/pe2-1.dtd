@@ -1,0 +1,3 @@
+<!ENTITY % qq1 "&#x22;">
+<!ENTITY % qq2 SYSTEM "pe2-2.dtd">
+<!ENTITY foo "test%qq1;test%qq2;test">

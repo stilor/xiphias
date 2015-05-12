@@ -235,6 +235,7 @@ typedef struct xml_reader_context_s {
 typedef struct {
     xml_reader_entity_t *entityref;     ///< Entity information, if loading a defined entity
     const xml_reader_context_t *ctx;    ///< Context associated with loaded entity, if any
+    bool inc_in_literal;                ///< Whether this entity is being loaded from a literal
 } xml_reader_hidden_loader_arg_t;
 
 /// XML reader structure
@@ -1140,23 +1141,27 @@ xml_reader_invoke_callback(xml_reader_t *h, xml_reader_cbparam_t *cbparam)
     @param loader_info Loader information for entity being loaded
     @param e Entity being added, or NULL if not loading an entity
     @param ctx Parser context associated with this external entity
+    @param inc_in_literal Entity is being included from a literal if true
     @return true if an entity was loaded, false otherwise
 */
 static bool
 xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
-        xml_reader_entity_t *e, const xml_reader_context_t *ctx)
+        xml_reader_entity_t *e, const xml_reader_context_t *ctx, bool inc_in_literal)
 {
     xml_reader_hidden_loader_arg_t ha;
     xml_reader_cbparam_t cbp;
 
     ha.entityref = e;
     ha.ctx = ctx;
+    ha.inc_in_literal = inc_in_literal;
 
     // Hidden arguments:
     // - if the loader decides to add an external input for this entity, we know
     // what entity it belongs to
     // - if an external input is added, we may need to save (and, on input's completion,
     // restore) the parser context
+    // - if an input is loaded from a literal (where quotes have special meaning), mark
+    // the input as such
     h->hidden_loader_arg = &ha;
     h->loader(h, h->loader_arg, loader_info);
     if (h->hidden_loader_arg) {
@@ -1171,6 +1176,7 @@ xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
             cbp.entity.type = e->type;
         }
         else {
+            OOPS_ASSERT(ctx); // For non-entity inputs, context must be provided.
             cbp.token.str = NULL;
             cbp.token.len = 0;
             cbp.entity.type = ctx->reftype;
@@ -2163,16 +2169,19 @@ reference_forbidden(xml_reader_t *h, xml_reader_entity_t *e)
     @param h Reader handle
     @param e Entity information
     @param inc_in_literal True if 'included in literal'
+    @param ctx Parser context for the new entity's input; only meaningful for external
+        entities. NULL if no context switch is needed.
     @return Nothing
 */
 static void
-reference_included_common(xml_reader_t *h, xml_reader_entity_t *e, bool inc_in_literal)
+reference_included_common(xml_reader_t *h, xml_reader_entity_t *e, bool inc_in_literal,
+        const xml_reader_context_t *ctx)
 {
     xml_reader_input_t *inp;
 
     entity_start(h, e);
     if (xml_loader_info_isset(&e->loader_info)) {
-        if (!xml_reader_invoke_loader(h, &e->loader_info, e, NULL)) {
+        if (!xml_reader_invoke_loader(h, &e->loader_info, e, ctx, inc_in_literal)) {
             // No input has been added - consider it end of this entity's parsing
             entity_end(h, e);
         }
@@ -2197,7 +2206,7 @@ reference_included_common(xml_reader_t *h, xml_reader_entity_t *e, bool inc_in_l
 static void
 reference_included_in_literal(xml_reader_t *h, xml_reader_entity_t *e)
 {
-    reference_included_common(h, e, true);
+    reference_included_common(h, e, true, NULL);
 }
 
 /**
@@ -2210,7 +2219,7 @@ reference_included_in_literal(xml_reader_t *h, xml_reader_entity_t *e)
 static void
 reference_included(xml_reader_t *h, xml_reader_entity_t *e)
 {
-    reference_included_common(h, e, false);
+    reference_included_common(h, e, false, NULL);
 }
 
 /**
@@ -2225,11 +2234,12 @@ reference_included_if_validating(xml_reader_t *h, xml_reader_entity_t *e)
 {
     // TBD check 'if validating' condition? Or have a separate flag, 'loading entities', that
     // controls this function?
-    reference_included_common(h, e, false);
+    reference_included_common(h, e, false, NULL);
 }
 
 /**
-    Entity handler: 'Included as PE (parameter entity)'
+    Entity handler: 'Included as PE (parameter entity)'. Replacement text is
+    augmented by spaces before and after.
 
     @param h Reader handle
     @param e Entity information
@@ -2241,10 +2251,11 @@ reference_included_as_pe(xml_reader_t *h, xml_reader_entity_t *e)
     static ucs4_t rplc_space[] = { 0x20 /* ' ' in Unicode */ };
     xml_reader_input_t *inp;
 
-    // Inputs are prepended, so adding them in backwards order
+    // Inputs are prepended, so adding them in backwards order. Not that it
+    // matters, though :)
     inp = xml_reader_input_new(h, NULL);
     strbuf_set_input(inp->buf, rplc_space, sizeof(rplc_space));
-    reference_included_common(h, e, false);
+    reference_included_common(h, e, false, &parser_external_subset);
     inp = xml_reader_input_new(h, NULL);
     strbuf_set_input(inp->buf, rplc_space, sizeof(rplc_space));
 }
@@ -3868,10 +3879,9 @@ xml_parse_dtd_end(xml_reader_t *h)
     cbp.token.str = NULL,
     cbp.token.len = 0;
 
-    // This is where the application will queue external subset for parsing
-    // if it wants to read it.
     if (xml_loader_info_isset(&h->dtd_loader_info)) {
-        xml_reader_invoke_loader(h, &h->dtd_loader_info, NULL, &parser_external_subset);
+        (void)xml_reader_invoke_loader(h, &h->dtd_loader_info,
+                NULL, &parser_external_subset, false);
     }
 
     // Signal the end of DTD parsing
@@ -4358,7 +4368,7 @@ external_entity_end(xml_reader_t *h, void *arg)
 
     // Clear the ops - this closes the old buffer's underlying resources
     // but retains the buffer structure
-    strbuf_setops(inp->buf, NULL, NULL);
+    strbuf_setops(ex->buf, NULL, NULL);
 
     // Call general entity handler if this was an included entity
     if (inp->entity) {
@@ -4416,6 +4426,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     inp->external = ex;
     inp->complete = external_entity_end;
     inp->complete_arg = inp;
+    inp->inc_in_literal = ha->inc_in_literal;
 
     if (transport_encoding) {
         if (!xml_reader_set_encoding(ex, transport_encoding)) {
@@ -4597,7 +4608,7 @@ xml_reader_load_document_entity(xml_reader_t *h, const char *pubid, const char *
     xml_loader_info_t info;
 
     xml_loader_info_init(&info, pubid, sysid);
-    if (xml_reader_invoke_loader(h, &info, NULL, &parser_document_entity)) {
+    if (xml_reader_invoke_loader(h, &info, NULL, &parser_document_entity, false)) {
         h->flags |= R_DOCUMENT_LOADED;
     }
     xml_loader_info_destroy(&info);

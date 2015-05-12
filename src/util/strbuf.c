@@ -81,9 +81,13 @@ strbuf_realloc(strbuf_t *buf, size_t newsz)
 {
     size_t shift;
 
-    OOPS_ASSERT((buf->flags & BUF_STATIC) == 0);
-    OOPS_ASSERT(newsz >= buf->memsz);
+    if (buf->flags & BUF_STATIC) {
+        // If it was static, there's no allocated memory in this buffer
+        buf->mem = NULL;
+        buf->memsz = 0;
+    }
 
+    OOPS_ASSERT(newsz >= buf->memsz);
     buf->mem = xrealloc(buf->mem, newsz);
 
     // If the old content wrapped around the end, move that chunk

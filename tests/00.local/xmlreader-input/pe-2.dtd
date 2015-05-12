@@ -1,0 +1,2 @@
+<!ENTITY % text1 "some text">
+<!ENTITY % text2 SYSTEM "pe-text.dtd">
