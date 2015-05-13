@@ -272,6 +272,7 @@ encoding_in(encoding_handle_t *hnd, const uint8_t *begin, const uint8_t *end,
     ucs4_t *out = *pout;
     size_t len;
 
+    // TBD instead of inserting U+FFFD on error, provide a callback notification
     len = hnd->enc->in(hnd->baton, begin, end, pout, end_out);
 
     /*

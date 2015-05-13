@@ -1,0 +1,3 @@
+<?xml version="1.0"?>\U000D\\U000A\\
+<!DOCTYPE\U0085\a\U2028\[<!ENTITY foo "<a&#xD;b='c'/>">]>\U000D\\U0085\\
+<a>&foo;</a>\U000D\\U000D\\

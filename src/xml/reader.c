@@ -125,6 +125,7 @@ typedef struct xml_reader_external_s {
     const char *enc_declared;       ///< Encoding declared in <?xml ... ?>
 
     bool aborted;                   ///< If true, entity was not fully parsed
+    bool saw_cr;                    ///< Saw U+000D, yet to see U+000A or U+0085.
     xml_reader_t *h;                ///< Reader handle (for error reporting)
     encoding_handle_t *enc;         ///< Encoding used to transcode input
     strbuf_t *buf;                  ///< Raw input buffer (in document's encoding)
@@ -357,7 +358,6 @@ xml_is_restricted(ucs4_t cp, enum xml_info_version_e xmlv)
 static bool
 xml_is_whitespace(ucs4_t cp)
 {
-    // COV: test for 0xD character requires parsing content and recognition of character refs
     return ucs4_cheq(cp, 0x20) || ucs4_cheq(cp, 0x9) || ucs4_cheq(cp, 0xA)
             || ucs4_cheq(cp, 0xD);
 }
@@ -1362,13 +1362,13 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
         uint32_t flags)
 {
     xml_reader_input_t *inp;
+    xml_reader_external_t *ex;
     const void *begin, *end;
     const ucs4_t *ptr;
     ucs4_t cp, cp0;
     size_t clen;
     utf8_t *bufptr;
     xru_t rv = XRU_CONTINUE;
-    bool saw_cr = false;
     bool saved_loc = false;
     bool norm_warned;
 
@@ -1379,8 +1379,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
     h->tokenlen = 0;
     flags |= h->flags;
 
-    // TBD change to do {} while (rv == XRU_CONTINUE)
-    while (rv == XRU_CONTINUE) { // First check the status from inner for-loop...
+    do {
         // ... and only if we're not terminating yet, try to get next read pointers
         rv = xml_reader_input_rptr(h, &begin, &end);
         inp = SLIST_FIRST(&h->active_input);
@@ -1391,38 +1390,45 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
         if (rv != XRU_CONTINUE) {
             break;
         }
+        ex = inp->external;
         for (ptr = begin;
                 rv == XRU_CONTINUE && ptr < (const ucs4_t *)end;
                 ptr++) {
 
             cp0 = *ptr; // codepoint before possible substitution by func
-            if (saw_cr && (cp0 == 0x0A || cp0 == 0x85)) {
-                // EOL normalization. This is "continuation" of a previous character - so
-                // is treated before positioning update.
-                /// @todo This also means these characters do not reach the normalization
-                /// checker... but they are never denormalizing (neither decomposanble, nor
-                /// do they appear in decompositions of other characters), so that's ok.
-                saw_cr = false;
-                continue;
-            }
+            if (ex) {
+                if (ex->saw_cr) {
+                    ex->saw_cr = false;
+                    if (cp0 == 0x0A || cp0 == 0x85) {
+                        // EOL normalization. This is "continuation" of a previous character - so
+                        // is treated before positioning update.
+                        /// @todo This also means these characters do not reach the normalization
+                        /// checker... but they are never denormalizing (neither decomposanble, nor
+                        /// do they appear in decompositions of other characters), so that's ok.
+                        continue;
+                    }
+                }
 
-            // XML processor MUST behave as if it normalized all line breaks
-            // in external parsed entities (including the document entity) on input,
-            // before parsing, by translating all of the following to a single #xA
-            // character:
-            // 1. the two-character sequence #xD #xA
-            // 2. the two-character sequence #xD #x85
-            // 3. the single character #x85
-            // 4. the single character #x2028
-            // 5. any #xD character that is not immediately followed by #xA or #x85.
-            // (we do slightly different but equivalent: translate #xD to #xA immediately
-            // and skipping the next character if it is #xA or #x85)
-            if (cp0 == 0x0D) {
-                saw_cr = true;
-                cp0 = 0x0A;
-            }
-            else if (cp0 == 0x85 || cp0 == 0x2028) {
-                cp0 = 0x0A;
+                // XML processor MUST behave as if it normalized all line breaks
+                // in external parsed entities (including the document entity) on input,
+                // before parsing, by translating all of the following to a single #xA
+                // character:
+                // 1. the two-character sequence #xD #xA
+                // 2. the two-character sequence #xD #x85
+                // 3. the single character #x85
+                // 4. the single character #x2028
+                // 5. any #xD character that is not immediately followed by #xA or #x85.
+                // (we do slightly different but equivalent: translate #xD to #xA immediately
+                // and skipping the next character if it is #xA or #x85)
+                if (cp0 == 0x0D) {
+                    // If 0x0D is not accepted, ex->saw_cr will be reset above when 0x0D is
+                    // processed again.
+                    ex->saw_cr = true;
+                    cp0 = 0x0A;
+                }
+                else if ((cp0 == 0x85 || cp0 == 0x2028) && !(flags & R_ASCII_ONLY)) {
+                    cp0 = 0x0A;
+                }
             }
 
             // Check if entity expansion is needed
@@ -1541,7 +1547,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
 
         // Consumed this block
         xml_reader_input_radvance(h, (const uint8_t *)ptr - (const uint8_t *)begin);
-    }
+    } while (rv == XRU_CONTINUE);
     return rv;
 }
 

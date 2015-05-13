@@ -59,7 +59,7 @@ string_escape_utf8(const utf8_t *s, size_t len)
         if (*sx >= 0x7F) {
             nlen += 4; // \xHH
         }
-        else if (*sx == '"' || *sx == '\\' || *sx == '\n' || *sx == '\t') {
+        else if (*sx == '"' || *sx == '\\' || *sx == '\n' || *sx == '\t' || *sx == '\r') {
             nlen += 2;
         }
         else {
@@ -77,6 +77,11 @@ string_escape_utf8(const utf8_t *s, size_t len)
         if (*sx == '\n') {
             *px++ = '\\';
             *px++ = 'n';
+            continue;
+        }
+        if (*sx == '\r') {
+            *px++ = '\\';
+            *px++ = 'r';
             continue;
         }
         if (*sx == '\t') {
