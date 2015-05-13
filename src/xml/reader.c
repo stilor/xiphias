@@ -2619,6 +2619,9 @@ xml_cb_literal_EntityValue(void *arg, ucs4_t cp)
     // Strictly speaking  we should also clear h->relevant when the closing quote is
     // seen, but none of the allowed quotes are composing, so it is going to pass
     // the check anyway, so why bother?
+    // TBD compile-time assertions on Unicode:
+    //   UCS4_ASSERT(does_not_compose_with_preceding, '"')
+    //   UCS4_ASSERT(does_not_compose_with_preceding, '\'')
     return xml_cb_literal(arg, cp);
 }
 
@@ -3318,13 +3321,13 @@ cb_matchpos_cdata(void *arg, size_t oldpos, size_t newpos)
         // Supply skipped characters to include checker
         if (h->norm_include) {
             for (i = 0; i < oldpos - newpos; i++) {
-                if (!nfc_check_nextchar(h->norm_include,
-                            ucs4_fromlocal(termstring_cdata.str[i]))) {
+                if (!nfc_check_nextchar(h->norm_include, ucs4_fromlocal(']'))) {
                     // TBD this never gets executed because the characters
                     // we may be handling, ']', do not compose with any character
                     // before or after - but this may not be the case in future
                     // Unicode specifications. Add some compile-time checks
                     // for Unicode predicates like this, and make this an OOPS?
+                    //   UCS4_ASSERT(does_not_compose, ']')
                     xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
                             "Input is not include-normalized");
                 }
