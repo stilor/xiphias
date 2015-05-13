@@ -1354,12 +1354,10 @@ static const strbuf_ops_t xml_reader_transcode_ops = {
     @param h Reader handle
     @param func Function to call to check for the condition
     @param arg Argument to @a func
-    @param flags Reader flags (temporarily or'ed into reader flags just for this call)
     @return Reason why the token parser returned
 */
 static inline xru_t
-xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
-        uint32_t flags)
+xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 {
     xml_reader_input_t *inp;
     xml_reader_external_t *ex;
@@ -1377,7 +1375,6 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
     bufptr = h->tokenbuf;
     h->rejected = UCS4_NOCHAR;
     h->tokenlen = 0;
-    flags |= h->flags;
 
     do {
         // ... and only if we're not terminating yet, try to get next read pointers
@@ -1426,14 +1423,15 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                     ex->saw_cr = true;
                     cp0 = 0x0A;
                 }
-                else if ((cp0 == 0x85 || cp0 == 0x2028) && !(flags & R_ASCII_ONLY)) {
+                else if ((cp0 == 0x85 || cp0 == 0x2028)
+                        && !(h->flags & R_ASCII_ONLY)) {
                     cp0 = 0x0A;
                 }
             }
 
             // Check if entity expansion is needed
-            if (((ucs4_cheq(cp0, '&') && (flags & R_RECOGNIZE_REF) != 0)
-                        || (ucs4_cheq(cp0, '%') && (flags & R_RECOGNIZE_PEREF) != 0))
+            if (((ucs4_cheq(cp0, '&') && (h->flags & R_RECOGNIZE_REF) != 0)
+                        || (ucs4_cheq(cp0, '%') && (h->flags & R_RECOGNIZE_PEREF) != 0))
                     && !inp->ignore_references) {
                 rv = XRU_REFERENCE;
                 h->rejected = cp0;
@@ -1455,9 +1453,8 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                         "NUL character encountered");
                 continue;
             }
-            else if (cp0 >= 0x7F && (flags & R_ASCII_ONLY) != 0) {
-                // Only complain once. Clean in the handle as well.
-                flags &= ~R_ASCII_ONLY;
+            else if (cp0 >= 0x7F && (h->flags & R_ASCII_ONLY) != 0) {
+                // Only complain once.
                 h->flags &= ~R_ASCII_ONLY;
                 OOPS_ASSERT(h->ctx->declinfo);
                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
@@ -1490,7 +1487,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                     norm_warned = true;
                 }
                 // Is this going to be a part of the document or will it be replaced?
-                if ((flags & R_NO_INC_NORM) == 0
+                if ((h->flags & R_NO_INC_NORM) == 0
                         && !nfc_check_nextchar(h->norm_include, cp0)
                         && !norm_warned) {
                     xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
@@ -1532,7 +1529,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
                 }
                 utf8_store(&bufptr, cp);
                 h->tokenlen += clen;
-                if (flags & R_SAVE_UCS4) {
+                if (h->flags & R_SAVE_UCS4) {
                     xml_ucs4_store(h, cp);
                 }
             }
@@ -1540,7 +1537,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg,
             // Character not rejected, update position. Note that we're checking
             // the original character - cp0 - not processed, so that we update position
             // based on actual input.
-            if (flags & R_LOCTRACK) {
+            if (h->flags & R_LOCTRACK) {
                 xml_reader_update_position(inp, cp0, h->tabsize);
             }
         }
@@ -1583,7 +1580,7 @@ xml_parse_whitespace(xml_reader_t *h)
     // Whitespace may cross entity boundaries; repeat until we get something other
     // than whitespace
     tlen = h->tokenlen;
-    while (xml_read_until(h, xml_cb_not_whitespace, &had_ws, 0) == XRU_INPUT_BOUNDARY) {
+    while (xml_read_until(h, xml_cb_not_whitespace, &had_ws) == XRU_INPUT_BOUNDARY) {
         // Keep reading
     }
     h->tokenlen = tlen;
@@ -1612,7 +1609,7 @@ xml_cb_lt(void *arg, ucs4_t cp)
 static prodres_t
 xml_read_until_lt(xml_reader_t *h)
 {
-    xml_read_until(h, xml_cb_lt, NULL, 0);
+    xml_read_until(h, xml_cb_lt, NULL);
     return PR_OK;
 }
 
@@ -1639,7 +1636,7 @@ xml_cb_gt(void *arg, ucs4_t cp)
 static prodres_t
 xml_read_until_gt(xml_reader_t *h)
 {
-    xml_read_until(h, xml_cb_gt, NULL, 0);
+    xml_read_until(h, xml_cb_gt, NULL);
     return PR_OK;
 }
 
@@ -1677,18 +1674,17 @@ xml_cb_not_name(void *arg, ucs4_t cp)
     Read a Name production.
 
     @param h Reader handle
-    @param flags Reading flags
     @return PR_OK if Name production has been read, PR_NOMATCH otherwise
 */
 static prodres_t
-xml_read_Name(xml_reader_t *h, uint32_t flags)
+xml_read_Name(xml_reader_t *h)
 {
     bool startchar = true;
 
     // May stop at either non-Name character, or input boundary. The first character
     // is also subject to composing character check if normalization check is active.
     h->relevant = "Name";
-    (void)xml_read_until(h, xml_cb_not_name, &startchar, flags);
+    (void)xml_read_until(h, xml_cb_not_name, &startchar);
     if (!h->tokenlen) {
         // No error: this is an auxillary function often used to differentiate between
         // Name or some alternative (e.g. entity vs char references)
@@ -1747,7 +1743,7 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
     state.cur = s;
     state.end = s + strlen(s);
     tlen = h->tokenlen;
-    if (xml_read_until(h, xml_cb_string, &state, 0) != XRU_STOP
+    if (xml_read_until(h, xml_cb_string, &state) != XRU_STOP
             || state.cur != state.end) {
         if (errinfo != XMLERR_NOERROR) {
             xml_reader_message_lastread(h, errinfo, "Expected string: '%s'", s);
@@ -1794,8 +1790,8 @@ typedef struct xml_cb_termstring_state_s {
     size_t pos;                     ///< Currently matched position
     void *arg;                      ///< Argument to mismatch callback
 
-    /// Function to call on mismatch
-    void (*func)(void *, size_t);
+    /// Function to call on change in match position
+    void (*func)(void *, size_t, size_t);
 } xml_cb_termstring_state_t;
 
 /**
@@ -1809,15 +1805,21 @@ static ucs4_t
 xml_cb_termstring(void *arg, ucs4_t cp)
 {
     xml_cb_termstring_state_t *st = arg;
+    size_t newpos;
 
     while (st->pos > 0 && ucs4_fromlocal(st->term.str[st->pos]) != cp) {
+        newpos = st->term.failtab[st->pos - 1];
         if (st->func) {
-            st->func(st->arg, st->pos);
+            st->func(st->arg, st->pos, newpos);
         }
-        st->pos = st->term.failtab[st->pos - 1];
+        st->pos = newpos;
     }
     if (ucs4_fromlocal(st->term.str[st->pos]) == cp) {
-        st->pos++;
+        newpos = st->pos + 1;
+        if (st->func) {
+            st->func(st->arg, st->pos, newpos);
+        }
+        st->pos = newpos;
     }
 
     // Strictly speaking, h->relevant flag should be handled specially here:
@@ -1837,23 +1839,19 @@ xml_cb_termstring(void *arg, ucs4_t cp)
 }
 
 /**
-    Read a string until a terminating string is seen. Terminating string itself
-    is not stored into the token buffer. Terminator string may not contain
-    newlines, tabs or combining characters (location update logic for backtracking
-    is very simple-minded).
+    Read a string until a terminating string is seen. ASCII only strings are
+    allowed.
 
     @param h Reader handle
     @param ts Terminator string info (string, length, failure function)
-    @param func Function to call in case of we need to backtrack (i.e., if a part
-        of the terminator string is seen, but then a mismatch is detected). The
-        function shall accept one argument, the number of characters matched before
-        a mismatch occurred. NULL if no notifications are requested.
+    @param func Function to call when matching position changes; NULL
+        if no notifications are requested.
     @param arg Argument to @a func callback
     @return PR_OK on success, PR_NOMATCH if terminator string was not found.
 */
 static prodres_t
 xml_read_termstring(xml_reader_t *h, const xml_termstring_desc_t *ts,
-        void (*func)(void *, size_t), void *arg)
+        void (*func)(void *, size_t, size_t), void *arg)
 {
     xml_cb_termstring_state_t st;
 
@@ -1861,7 +1859,7 @@ xml_read_termstring(xml_reader_t *h, const xml_termstring_desc_t *ts,
     st.pos = 0;
     st.func = func;
     st.arg = arg;
-    if (xml_read_until(h, xml_cb_termstring, &st, 0) != XRU_STOP) {
+    if (xml_read_until(h, xml_cb_termstring, &st) != XRU_STOP) {
         return PR_NOMATCH;
     }
     // Drop match terminator from token buffer
@@ -1991,7 +1989,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
         xml_read_string_assert(h, "&");
         xml_reader_input_lock(h);
         saveloc = h->lastreadloc;
-        if (xml_read_Name(h, 0) == PR_OK) {
+        if (xml_read_Name(h) == PR_OK) {
             // EntityRef
             *reftype = XML_READER_REF_GENERAL;
             goto read_content;
@@ -2005,11 +2003,11 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
             st.toobig = false;
             if (xml_read_string(h, "x", XMLERR_NOERROR) == PR_OK) {
                 // Using hexadecimal form
-                rv = xml_read_until(h, xml_cb_charref_hex, &st, 0);
+                rv = xml_read_until(h, xml_cb_charref_hex, &st);
             }
             else {
                 // Using decimal form
-                rv = xml_read_until(h, xml_cb_charref_dec, &st, 0);
+                rv = xml_read_until(h, xml_cb_charref_dec, &st);
             }
             if (rv != XRU_STOP || !st.hasdigits) {
                 goto malformed;
@@ -2032,7 +2030,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
         xml_reader_input_lock(h);
         saveloc = h->lastreadloc;
         *reftype = XML_READER_REF_PARAMETER;
-        if (xml_read_Name(h, 0) == PR_OK) {
+        if (xml_read_Name(h) == PR_OK) {
             goto read_content;
         }
         if (h->flags & R_AMBIGUOUS_PERCENT) {
@@ -2351,6 +2349,7 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
     xml_reader_entity_t *e;
     xml_reader_entity_t fakechar;
     const char *saved_relevant;
+    uint32_t saved_flags;
 
     /// @todo drop 4th arg and set all flags in h->flags?
     while (true) {
@@ -2363,7 +2362,10 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
                 // character..."
                 h->relevant = refops->relevant;
             }
-            stopstatus = xml_read_until(h, refops->condread, arg, refops->flags);
+            saved_flags = h->flags;
+            h->flags |= refops->flags;
+            stopstatus = xml_read_until(h, refops->condread, arg);
+            h->flags = saved_flags;
             if (refops->textblock) {
                 refops->textblock(arg);
             }
@@ -2615,8 +2617,8 @@ xml_cb_literal_EntityValue(void *arg, ucs4_t cp)
     }
 
     // Strictly speaking  we should also clear h->relevant when the closing quote is
-    // seen, but it is going to pass the check for composing character anyway, so why
-    // bother?
+    // seen, but none of the allowed quotes are composing, so it is going to pass
+    // the check anyway, so why bother?
     return xml_cb_literal(arg, cp);
 }
 
@@ -2965,7 +2967,7 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
         }
         // We may have no whitespace before final ?>, but must get some before
         // pseudo-attributes.
-        if (!had_ws || xml_read_Name(h, 0) != PR_OK) {
+        if (!had_ws || xml_read_Name(h) != PR_OK) {
             goto malformed;
         }
 
@@ -3130,20 +3132,23 @@ typedef struct {
 } comment_backtrack_handler_t;
 
 /**
-    If comment parser backtracks after 2 characters (--), it is an error.
+    If comment parser backtracks after 2 characters (--), it is an error:
     For compatibility, the string "--" (double-hyphen) MUST NOT occur within
-    comments.
+    comments. This function is called whenever the match position advances
+    or retracts.
 
     @param arg State structure
-    @param nch Number of characters matched before backtracking
+    @param oldpos Old position in the matched template
+    @param newpos New position in the matched template
     @return Nothing
 */
 static void
-comment_backtrack_handler(void *arg, size_t nch)
+cb_matchpos_comment(void *arg, size_t oldpos, size_t newpos)
 {
     comment_backtrack_handler_t *cbh = arg;
 
-    if (nch == 2 && !cbh->warned) {
+    if (oldpos == 2 && newpos < oldpos && !cbh->warned) {
+        // Backtracking after having matched double hyphen
         xml_reader_message_current(cbh->h, XMLERR(ERROR, XML, P_Comment),
                 "Double hyphen must not occur within comments");
         cbh->warned = true;
@@ -3180,7 +3185,7 @@ xml_parse_Comment(xml_reader_t *h)
 
     cbh.h = h;
     cbh.warned = false;
-    if (xml_read_termstring(h, &termstring_comment, comment_backtrack_handler, &cbh) != PR_OK) {
+    if (xml_read_termstring(h, &termstring_comment, cb_matchpos_comment, &cbh) != PR_OK) {
         // no need to recover (EOF)
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_Comment),
                 "Unterminated comment");
@@ -3229,7 +3234,7 @@ xml_parse_PI(xml_reader_t *h)
     xml_reader_input_lock(h);
     cbp.cbtype = XML_READER_CB_PI_TARGET;
     cbp.loc = h->lastreadloc;
-    if (xml_read_Name(h, 0) != PR_OK) {
+    if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                 "Expected PI target here");
         xml_read_until_gt(h);
@@ -3287,6 +3292,48 @@ static const xml_termstring_desc_t termstring_cdata = {
 };
 
 /**
+    Turn off normalization check when matching the closing markup for CDSect
+    and turn it back on when backtracking.
+
+    @param arg Reader handle, cast to void pointer
+    @param oldpos Old position in the matched template
+    @param newpos New position in the matched template
+    @return Nothing
+*/
+static void
+cb_matchpos_cdata(void *arg, size_t oldpos, size_t newpos)
+{
+    xml_reader_t *h = arg;
+    size_t i;
+
+    if (newpos && !oldpos) {
+        // Starting matching the closing markup
+        h->flags |= R_NO_INC_NORM;
+    }
+    else if (newpos < oldpos) {
+        // Backtracking
+        if (!newpos) {
+            h->flags &= ~R_NO_INC_NORM; // Back to parsing regular content
+        }
+        // Supply skipped characters to include checker
+        if (h->norm_include) {
+            for (i = 0; i < oldpos - newpos; i++) {
+                if (!nfc_check_nextchar(h->norm_include,
+                            ucs4_fromlocal(termstring_cdata.str[i]))) {
+                    // TBD this never gets executed because the characters
+                    // we may be handling, ']', do not compose with any character
+                    // before or after - but this may not be the case in future
+                    // Unicode specifications. Add some compile-time checks
+                    // for Unicode predicates like this, and make this an OOPS?
+                    xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
+                            "Input is not include-normalized");
+                }
+            }
+        }
+    }
+}
+
+/**
     Read and process a CDATA section.
 
     For purposes of checking of ignorable whitespace, CDATA is never considered
@@ -3310,22 +3357,29 @@ xml_parse_CDSect(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
 
+    // CDSect is considered an escape mechanism; the markup before and after
+    // is not subject to include normalization check.
+    h->flags |= R_NO_INC_NORM;
     xml_read_string_assert(h, "<![CDATA[");
+    h->flags &= ~R_NO_INC_NORM;
+
     xml_reader_input_lock(h);
     cbp.cbtype = XML_READER_CB_CDSECT;
     cbp.loc = h->lastreadloc;
 
     // Starting CData - which is relevant construct
     h->relevant = "CData";
-    if (xml_read_termstring(h, &termstring_cdata, NULL, NULL) != PR_OK) {
+    if (xml_read_termstring(h, &termstring_cdata, cb_matchpos_cdata, h) != PR_OK) {
         // no need to recover (EOF)
         /// @todo Test unterminated comments/PIs/CDATA in entities - is PR_STOP proper here?
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_CDSect),
                 "Unterminated CDATA section");
         xml_reader_input_unlock_assert(h);
+        h->flags &= ~R_NO_INC_NORM; // Set in callback when parsing closing markup
         h->relevant = NULL;
         return PR_STOP;
     }
+    h->flags &= ~R_NO_INC_NORM; // Set in callback when parsing closing markup
     h->relevant = NULL;
     cbp.token.str = h->tokenbuf;
     cbp.token.len = h->tokenlen;
@@ -3445,7 +3499,7 @@ static prodres_t
 xml_parse_elementdecl(xml_reader_t *h)
 {
     /// @todo Implement
-    xml_read_until(h, xml_cb_gt, NULL, 0);
+    xml_read_until(h, xml_cb_gt, NULL);
     return PR_OK;
 }
 
@@ -3472,7 +3526,7 @@ static prodres_t
 xml_parse_AttlistDecl(xml_reader_t *h)
 {
     /// @todo Implement
-    xml_read_until(h, xml_cb_gt, NULL, 0);
+    xml_read_until(h, xml_cb_gt, NULL);
     return PR_OK;
 }
 
@@ -3507,6 +3561,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     size_t i, j;
     const char *s;
     ucs4_t *rplc;
+    prodres_t rv;
 
     // TBD use lock/unlock and check unlock's retval for proper nesting
     // ['<!ENTITY' S]
@@ -3535,22 +3590,25 @@ xml_parse_EntityDecl(xml_reader_t *h)
         }
     }
 
+    // General or parameter, it is followed by [Name S].
     // Parameter entities do not have 'bypassed' behavior in any context, for which
     // we'd need the name
     h->ucs4len = 0;
     if (!parameter) {
         xml_ucs4_store(h, ucs4_fromlocal('&'));
+        h->flags |= R_SAVE_UCS4;
+        rv = xml_read_Name(h);
+        h->flags &= ~R_SAVE_UCS4;
+        xml_ucs4_store(h, ucs4_fromlocal(';'));
+    }
+    else {
+        rv = xml_read_Name(h);
     }
 
-    // General or parameter, it is followed by [Name S]
-    if (xml_read_Name(h, parameter ? 0 : R_SAVE_UCS4) != PR_OK) {
+    if (rv != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                 "Expect entity name here");
         goto malformed;
-    }
-
-    if (!parameter) {
-        xml_ucs4_store(h, ucs4_fromlocal(';'));
     }
 
     // If the same entity is declared more than once, the first declaration encountered
@@ -3620,7 +3678,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
                             "Expect whitespace here");
                     goto malformed;
                 }
-                if (xml_read_Name(h, 0) != PR_OK) {
+                if (xml_read_Name(h) != PR_OK) {
                     xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                             "Expect notation name here");
                     goto malformed;
@@ -3752,7 +3810,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
                 "Expect whitespace here");
         goto malformed;
     }
-    if (xml_read_Name(h, 0) != PR_OK) {
+    if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                 "Expect notation name here");
         goto malformed;
@@ -4045,7 +4103,7 @@ xml_parse_doctypedecl(xml_reader_t *h)
                 "Expect whitespace here");
         return PR_FAIL;
     }
-    if (xml_read_Name(h, 0) != PR_OK) {
+    if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_doctypedecl),
                 "Expect root element type here");
         return PR_FAIL;
@@ -4120,7 +4178,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
         }
     }
 
-    if (xml_read_Name(h, 0) != PR_OK) {
+    if (xml_read_Name(h) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_STag),
                 "Expected element type");
@@ -4149,7 +4207,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
             h->ctx = &parser_content; // No longer at top level
             break;
         }
-        else if (had_ws && xml_read_Name(h, 0) == PR_OK) {
+        else if (had_ws && xml_read_Name(h) == PR_OK) {
             // Attribute, if any, must be preceded by S (whitespace).
             cbp.cbtype = XML_READER_CB_ATTR;
             cbp.loc = h->lastreadloc;
@@ -4215,7 +4273,7 @@ xml_parse_ETag(xml_reader_t *h)
     // Locked by STag
     cbp.cbtype = XML_READER_CB_ETAG;
     cbp.loc = h->lastreadloc;
-    if (xml_read_Name(h, 0) != PR_OK) {
+    if (xml_read_Name(h) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_ETag),
                 "Expected element type");

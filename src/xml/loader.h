@@ -3,6 +3,7 @@
 
 /** @file
     Interface for entity loaders.
+    @todo URL loader, catalog-based resolver.
 */
 
 #ifndef __xml_loader_h_
@@ -63,6 +64,5 @@ typedef struct {
 void xml_loader_file(struct xml_reader_s *h, void *arg,
         const xml_loader_info_t *loader_info);
 
-// TBD: URL loader, catalog-based resolver
 
 #endif
