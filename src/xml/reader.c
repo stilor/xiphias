@@ -209,14 +209,6 @@ typedef struct {
     .func = f, \
 }
 
-/// End of lookahead patterns
-#define LOOKAHEAD_STOP \
-{ \
-    .pattern = "", \
-    .patlen = 0, \
-    .func = NULL, \
-}
-
 /// Maximum number of lookahead pairs
 #define MAX_LA_PAIRS    9
 
@@ -3949,7 +3941,6 @@ static const xml_reader_context_t parser_internal_subset = {
         LOOKAHEAD("<!--", xml_parse_Comment),
         LOOKAHEAD("]", xml_end_internal_subset),
         LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
-        LOOKAHEAD_STOP,
     },
     .declinfo = NULL,                   // Not used for reading any external entity
     .reftype = XML_READER_REF__NONE,    // Not an external entity
@@ -3994,7 +3985,6 @@ static const xml_reader_context_t parser_external_subset = {
         LOOKAHEAD("<?", xml_parse_PI),
         LOOKAHEAD("<!--", xml_parse_Comment),
         LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
-        LOOKAHEAD_STOP,
     },
     .declinfo = &declinfo_textdecl,
     .reftype = XML_READER_REF_EXT_SUBSET, // If not parameter entity, this is external DTD
@@ -4314,7 +4304,6 @@ static const xml_reader_context_t parser_content = {
         LOOKAHEAD("</", xml_parse_ETag),
         LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
         LOOKAHEAD("", xml_parse_CharData),
-        LOOKAHEAD_STOP,
     },
     .declinfo = &declinfo_textdecl,
     .reftype = XML_READER_REF__NONE, // Can only be loaded via entity
@@ -4351,7 +4340,6 @@ static const xml_reader_context_t parser_document_entity = {
         LOOKAHEAD("</", xml_parse_ETag),
         LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
         LOOKAHEAD("", xml_parse_whitespace_or_recover),
-        LOOKAHEAD_STOP,
     },
     .declinfo = &declinfo_xmldecl,
     .reftype = XML_READER_REF_DOCUMENT, // Document entity
@@ -4698,8 +4686,12 @@ xml_reader_process(xml_reader_t *h)
         }
         else {
             rv = PR_NOMATCH;
-            for (pat = h->ctx->lookahead; pat->func; pat++) {
-                if (pat->patlen <= len && !memcmp(labuf, pat->pattern, pat->patlen)) {
+            for (pat = h->ctx->lookahead;; pat++) {
+                // Last pattern must accept the input
+                OOPS_ASSERT(pat < h->ctx->lookahead + MAX_LA_PAIRS);
+                OOPS_ASSERT(pat->func);
+                if (!pat->patlen ||
+                        (pat->patlen <= len && !memcmp(labuf, pat->pattern, pat->patlen))) {
                     rv = pat->func(h);
                     break;
                 }
