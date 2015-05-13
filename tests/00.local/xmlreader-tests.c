@@ -1,6 +1,238 @@
 /* vi: set ts=4 sw=4 et : */
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
+struct cb_check_stacktrace_s {
+    unsigned int idx;
+    const xmlerr_loc_t *ptr;
+    const xmlerr_loc_t *end;
+    bool failed;
+};
+
+static void
+cb_check_stacktrace(void *arg, const xmlerr_loc_t *loc)
+{
+    struct cb_check_stacktrace_s *cba = arg;
+
+    printf("  [%02u] %s:%u:%u", cba->idx, loc->src, loc->line, loc->pos);
+    if (cba->ptr >= cba->end) {
+        printf(" [UNEXPECTED]\n");
+        cba->failed = true;
+    }
+    else {
+        if (strcmp(cba->ptr->src, loc->src)
+                || cba->ptr->line != loc->line
+                || cba->ptr->pos != loc->pos) {
+            printf(" [EXPECTED %s:%u:%u]\n", cba->ptr->src, cba->ptr->line, cba->ptr->pos);
+            cba->failed = true;
+        }
+        else {
+            printf("\n");
+        }
+        cba->ptr++;
+    }
+    cba->idx++;
+}
+
+static result_t
+check_stacktrace(xml_reader_t *h, xml_reader_cbparam_t *e, const void *arg)
+{
+    static const xmlerr_loc_t expected_stack[] = {
+        { "entity(e1)", 1, 5 },
+        { "entity(e2)", 1, 8 },
+        { "entity(e3)", 1, 8 },
+        { "stack-test.xml", 6, 8 },
+    };
+    struct cb_check_stacktrace_s cba;
+
+    if (e->cbtype != XML_READER_CB_STAG_END
+            || !e->stag_end.is_empty) {
+        // Only interested in the innermost event, which is the only empty tag
+        return PASS;
+    }
+    cba.idx = 0;
+    cba.ptr = expected_stack;
+    cba.end = expected_stack + sizeofarray(expected_stack);
+    cba.failed = false;
+    printf("Stack trace:\n");
+    xml_reader_stack(h, cb_check_stacktrace, &cba);
+    return cba.failed ? FAIL : PASS;
+}
+
+static const testcase_t testcases_api[] = {
+    {
+        TC("Stack trace of parser state"),
+        .input = "stack-test.xml",
+        .checkevt = check_stacktrace,
+        .events = (const xml_reader_cbparam_t[]){
+            E(DTD_BEGIN,
+                LOC("stack-test.xml", 1, 1),
+                TOK("a"),
+            ),
+            E(DTD_INTERNAL,
+                LOC("stack-test.xml", 1, 1),
+                NOTOK,
+            ),
+            E(ENTITY_DEF_START,
+                LOC("stack-test.xml", 2, 1),
+                TOK("e1"),
+                .parameter = false,
+            ),
+            E(APPEND,
+                LOC("stack-test.xml", 2, 13),
+                TOK("<d/>"),
+                .ws = false,
+            ),
+            E(ENTITY_DEF_END,
+                LOC("stack-test.xml", 2, 19),
+                NOTOK,
+            ),
+            E(ENTITY_DEF_START,
+                LOC("stack-test.xml", 3, 1),
+                TOK("e2"),
+                .parameter = false,
+            ),
+            E(APPEND,
+                LOC("stack-test.xml", 3, 13),
+                TOK("<c>"),
+                .ws = false,
+            ),
+            E(APPEND,
+                LOC("entity(e1)", 1, 1),
+                TOK("&e1;"),
+                .ws = false,
+            ),
+            E(APPEND,
+                LOC("stack-test.xml", 3, 21),
+                TOK("</c>"),
+                .ws = false,
+            ),
+            E(ENTITY_DEF_END,
+                LOC("stack-test.xml", 3, 26),
+                NOTOK,
+            ),
+            E(ENTITY_DEF_START,
+                LOC("stack-test.xml", 4, 1),
+                TOK("e3"),
+                .parameter = false,
+            ),
+            E(APPEND,
+                LOC("stack-test.xml", 4, 13),
+                TOK("<b>"),
+                .ws = false,
+            ),
+            E(APPEND,
+                LOC("entity(e2)", 1, 1),
+                TOK("&e2;"),
+                .ws = false,
+            ),
+            E(APPEND,
+                LOC("stack-test.xml", 4, 21),
+                TOK("</b>"),
+                .ws = false,
+            ),
+            E(ENTITY_DEF_END,
+                LOC("stack-test.xml", 4, 26),
+                NOTOK,
+            ),
+            E(DTD_END,
+                LOC("stack-test.xml", 5, 3),
+                NOTOK,
+            ),
+            E(STAG,
+                LOC("stack-test.xml", 6, 1),
+                TOK("a"),
+            ),
+            E(STAG_END,
+                LOC("stack-test.xml", 6, 3),
+                NOTOK,
+                .is_empty = false,
+            ),
+            E(ENTITY_START,
+                LOC("stack-test.xml", 6, 4),
+                TOK("e3"),
+                .type = XML_READER_REF_INTERNAL,
+                .system_id = NULL,
+                .public_id = NULL,
+            ),
+            E(STAG,
+                LOC("entity(e3)", 1, 1),
+                TOK("b"),
+            ),
+            E(STAG_END,
+                LOC("entity(e3)", 1, 3),
+                NOTOK,
+                .is_empty = false,
+            ),
+            E(ENTITY_START,
+                LOC("entity(e3)", 1, 4),
+                TOK("e2"),
+                .type = XML_READER_REF_INTERNAL,
+                .system_id = NULL,
+                .public_id = NULL,
+            ),
+            E(STAG,
+                LOC("entity(e2)", 1, 1),
+                TOK("c"),
+            ),
+            E(STAG_END,
+                LOC("entity(e2)", 1, 3),
+                NOTOK,
+                .is_empty = false,
+            ),
+            E(ENTITY_START,
+                LOC("entity(e2)", 1, 4),
+                TOK("e1"),
+                .type = XML_READER_REF_INTERNAL,
+                .system_id = NULL,
+                .public_id = NULL,
+            ),
+            E(STAG,
+                LOC("entity(e1)", 1, 1),
+                TOK("d"),
+            ),
+            E(STAG_END,
+                LOC("entity(e1)", 1, 3),
+                NOTOK,
+                .is_empty = true,
+            ),
+            E(ENTITY_END,
+                LOC("entity(e2)", 1, 4),
+                TOK("e1"),
+                .type = XML_READER_REF_INTERNAL,
+                .system_id = NULL,
+                .public_id = NULL,
+            ),
+            E(ETAG,
+                LOC("entity(e2)", 1, 8),
+                TOK("c"),
+            ),
+            E(ENTITY_END,
+                LOC("entity(e3)", 1, 4),
+                TOK("e2"),
+                .type = XML_READER_REF_INTERNAL,
+                .system_id = NULL,
+                .public_id = NULL,
+            ),
+            E(ETAG,
+                LOC("entity(e3)", 1, 8),
+                TOK("b"),
+            ),
+            E(ENTITY_END,
+                LOC("stack-test.xml", 6, 4),
+                TOK("e3"),
+                .type = XML_READER_REF_INTERNAL,
+                .system_id = NULL,
+                .public_id = NULL,
+            ),
+            E(ETAG,
+                LOC("stack-test.xml", 6, 8),
+                TOK("a"),
+            ),
+            END,
+        },
+    },
+};
+
 /**
     Tests for XMLDecl conditions all use dummy \<a/> element as document
     content.
@@ -4706,6 +4938,7 @@ static const testcase_t testcases_structure[] = {
 };
 
 static const testset_t testsets[] = {
+    TEST_SET(run_testcase, "Tests for misc APIs", testcases_api),
     TEST_SET(run_testcase, "Encoding tests", testcases_encoding),
     TEST_SET(run_testcase, "XML/Text declaration tests", testcases_xmldecl),
     TEST_SET(run_testcase, "XML structures", testcases_structure),
