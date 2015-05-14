@@ -227,9 +227,8 @@ typedef struct xml_reader_context_s {
     const struct xml_reference_ops_s *entity_value_parser;
 
     xmlerr_info_t errcode;          ///< Error code when breaking the lock
-    const char *production;         ///< Production this must match
-    bool document_entity;           ///< Context for the document entity
-    enum xml_reader_reference_e reftype;
+    const char *production;         ///< Production this context must match
+    enum xml_reader_reference_e reftype;    ///< If not a named entity, reference type for events
 } xml_reader_context_t;
 
 /// Hidden argument passed through the loader
@@ -3935,6 +3934,8 @@ xml_parse_dtd_end(xml_reader_t *h)
     cbp.token.len = 0;
 
     if (xml_loader_info_isset(&h->dtd_loader_info)) {
+        // TBD should have a ENTITY_START message here or in invoke_loader for DTD/main doc.
+        // TBD and ENTITY_END at the end (since we emit ENTITY_NOT_LOADED, why not these?)
         (void)xml_reader_invoke_loader(h, &h->dtd_loader_info,
                 NULL, &parser_external_subset, false);
     }
@@ -3996,7 +3997,6 @@ static const xml_reader_context_t parser_internal_subset = {
     .entity_value_parser = &reference_ops_EntityValue_internal,
     .errcode = XMLERR(ERROR, XML, P_intSubset),
     .production = "intSubset",
-    .document_entity = false,
 };
 
 /**
@@ -4040,7 +4040,6 @@ static const xml_reader_context_t parser_external_subset = {
     .entity_value_parser = &reference_ops_EntityValue_external,
     .errcode = XMLERR(ERROR, XML, P_extSubset),
     .production = "extSubset",
-    .document_entity = false,
 };
 
 /**
@@ -4283,16 +4282,19 @@ xml_parse_ETag(xml_reader_t *h)
         return xml_read_until_gt(h);
     }
 
+    if (!xml_reader_input_unlock(h)) {
+        // Error, no recovery needed
+        xml_reader_message(h, &cbp.loc, XMLERR(ERROR, XML, P_content),
+                "%s must match '%s' production",
+                h->ctx->reftype == XML_READER_REF_DOCUMENT ?
+                        "Document" : "Replacement text for entity",
+                h->ctx->production);
+    }
     // Do not decrement nest level if already at the root level. This document
     // is already malformed, so an error message should already be raised.
     if (h->nestlvl && --h->nestlvl == 0) {
         // Returned to top level
         h->ctx = &parser_document_entity;
-    }
-    if (!xml_reader_input_unlock(h)) {
-        // Error, no recovery needed
-        xml_reader_message(h, &cbp.loc, XMLERR(ERROR, XML, P_content),
-                "Replacement text for entity must match content production");
     }
     return PR_OK;
 }
@@ -4359,7 +4361,6 @@ static const xml_reader_context_t parser_content = {
     .entity_value_parser = NULL, // DTD not recognized
     .errcode = XMLERR(ERROR, XML, P_content),
     .production = "content",
-    .document_entity = false,
 };
 
 /**
@@ -4395,7 +4396,6 @@ static const xml_reader_context_t parser_document_entity = {
     .entity_value_parser = &reference_ops_EntityValue_internal,
     .errcode = XMLERR(ERROR, XML, P_document),
     .production = "document",
-    .document_entity = true,
 };
 
 /**
@@ -4458,6 +4458,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     size_t bom_len, adsz;
     const encoding_t *enc;
     enum encoding_endian_e endian;
+    prodres_t decl_rv;
     bool rv;
 
     ex = xmalloc(sizeof(xml_reader_external_t));
@@ -4542,7 +4543,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     /// @todo Declaration seems to be forbidden in external subset; do not even try for that
     /// context
     h->flags |= R_ASCII_ONLY;
-    switch (xml_parse_XMLDecl_TextDecl(h)) {
+    switch ((decl_rv = xml_parse_XMLDecl_TextDecl(h))) {
     case PR_OK:
         // Consumed declaration from the raw buffer; advance before setting
         // permanent transcoding operations
@@ -4551,14 +4552,12 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     case PR_NOMATCH:
         // Nothing to do - just a document without declaration
         break;
-    case PR_FAIL:
+    default:
         // Entity failed to parse in the declaration. Parsing the declaration
         // shouldn't have created any new inputs or loaded new external entities.
         // Keep the entity on the list of inputs which have been parsed.
+        OOPS_ASSERT(decl_rv == PR_FAIL);
         goto failed;
-    default:
-        OOPS_UNREACHABLE;
-        break;
     }
     h->flags &= ~R_ASCII_ONLY;
 
@@ -4580,7 +4579,8 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // entity's declaration affects all the entities subsequently loaded: per XML 1.1
     // specification, "However, in such a case [...loading 1.0 entities from 1.1 document...]
     // the rules of XML 1.1 are applied to the entire document."
-    if (h->normalization == XML_READER_NORM_DEFAULT && h->ctx->document_entity) {
+    // TBD if preloading a DTD, need to avoid triggering this (or preload DTD after this check?)
+    if (h->normalization == XML_READER_NORM_DEFAULT) {
         h->normalization = (ex->version == XML_INFO_VERSION_1_0) ?
                 XML_READER_NORM_OFF : XML_READER_NORM_ON;
     }
@@ -4596,9 +4596,9 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     if (h->normalization == XML_READER_NORM_ON) {
         // Normalization requested. Allocate this external entity's handle (for Unicode
         // normalization check) and, for document entity, global handle (for include
-        // normalization check.
+        // normalization check).
         ex->norm_unicode = nfc_create();
-        if (h->ctx->document_entity) {
+        if (!h->norm_include) {
             h->norm_include = nfc_create();
         }
     }

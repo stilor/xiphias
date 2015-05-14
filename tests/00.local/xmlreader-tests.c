@@ -233,6 +233,64 @@ static const testcase_t testcases_api[] = {
     },
 };
 
+// Set an encoding that cannot be autodetected. Dummy loader that always provides
+// a simple <a/> file.
+
+#define XORKEY  0xA5
+
+static size_t
+in_XOR(void *baton, const uint8_t *begin, const uint8_t *end,
+                ucs4_t **pout, ucs4_t *end_out)
+{
+    const uint8_t *ptr = begin;
+    ucs4_t *out = *pout;
+
+    while (ptr < end && out < end_out) {
+        *out = ucs4_fromlocal(*ptr ^ XORKEY);
+        out++;
+        ptr++;
+    }
+    *pout = out;
+    return ptr - begin;
+}
+
+static const encoding_t enc_XOR = {
+    .name = "XOR_ENCODING",
+    .form = ENCODING_FORM_UTF8,
+    .endian = ENCODING_E_ANY,
+    .baton_sz = 0,
+    .sigs = NULL,
+    .nsigs = 0,
+    .in = in_XOR,
+    .in_clean = NULL,
+};
+ENCODING_REGISTER(enc_XOR);
+
+static void
+loader_XORENC(xml_reader_t *h, void *arg, const xml_loader_info_t *loader_info)
+{
+    static const char * const doc = "<a/>";
+    size_t len = strlen(doc);
+    const char *s;
+    void *begin, *end;
+    uint8_t *ptr, *pend;
+    strbuf_t *buf;
+
+    buf = strbuf_new(len);
+    strbuf_wptr(buf, &begin, &end);
+    for (ptr = begin, pend = end, s = doc; ptr < pend; ptr++, s++) {
+        *ptr = *(const unsigned char *)s ^ XORKEY;
+    }
+    strbuf_wadvance(buf, len);
+    xml_reader_add_parsed_entity(h, buf, loader_info->system_id, "XOR_ENCODING");
+}
+
+static void
+set_loader_XORENC(xml_reader_t *h)
+{
+    xml_reader_set_loader(h, loader_XORENC, NULL);
+}
+
 /**
     Tests for XMLDecl conditions all use dummy \<a/> element as document
     content.
@@ -520,6 +578,15 @@ static const testcase_t testcases_encoding[] = {
             ),
             E(COMMENT, LOC("invalid-chars-top-level.xml", 2, 1),
                     TOK(" Comment ")),
+            END,
+        },
+    },
+    {
+        TC("Encoding cannot be automatically detected but supplied by loader"),
+        .input = "fakefile.xml",
+        .setup = set_loader_XORENC,
+        .events = (const xml_reader_cbparam_t[]){
+            E_EMPTY_A("fakefile.xml", 1, 1),
             END,
         },
     },
@@ -1650,6 +1717,66 @@ static const testcase_t testcases_structure[] = {
         },
     },
     {
+        TC("Malformed start tags"),
+        .input = "stag-malformed.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            E(STAG,
+                LOC("stag-malformed.xml", 1, 1),
+                TOK("a"),
+            ),
+            E(STAG_END,
+                LOC("stag-malformed.xml", 1, 3),
+                NOTOK,
+                .is_empty = false,
+            ),
+            E(APPEND,
+                LOC("stag-malformed.xml", 1, 4),
+                TOK("\n "),
+                .ws = true,
+            ),
+            E(STAG,
+                LOC("stag-malformed.xml", 2, 2),
+                TOK("x"),
+            ),
+            E(MESSAGE,
+                LOC("stag-malformed.xml", 2, 4),
+                NOTOK,
+                .info = XMLERR(ERROR, XML, P_STag),
+                .msg = "Expected string: '/>'",
+            ),
+            E(APPEND,
+                LOC("stag-malformed.xml", 2, 7),
+                TOK("\n "),
+                .ws = true,
+            ),
+            E(STAG,
+                LOC("stag-malformed.xml", 3, 2),
+                TOK("y"),
+            ),
+            E(ATTR,
+                LOC("stag-malformed.xml", 3, 5),
+                TOK("z"),
+                .attrnorm = XML_READER_ATTRNORM_CDATA,
+            ),
+            E(MESSAGE,
+                LOC("stag-malformed.xml", 3, 6),
+                NOTOK,
+                .info = XMLERR(ERROR, XML, P_Attribute),
+                .msg = "Expected string: '='",
+            ),
+            E(APPEND,
+                LOC("stag-malformed.xml", 3, 8),
+                TOK("\n"),
+                .ws = true,
+            ),
+            E(ETAG,
+                LOC("stag-malformed.xml", 4, 1),
+                TOK("a"),
+            ),
+            END,
+        },
+    },
+    {
         TC("No name in end tag"),
         .input = "etag-noname.xml",
         .events = (const xml_reader_cbparam_t[]){
@@ -1730,6 +1857,36 @@ static const testcase_t testcases_structure[] = {
                     NOTOK,
                     .info = XMLERR(ERROR, XML, P_ETag),
                     .msg = "Expected string: '>'",
+            ),
+            END,
+        },
+    },
+    {
+        TC("Extra (unmatched) end tag"),
+        .input = "etag-unpaired.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            E(STAG,
+                LOC("etag-unpaired.xml", 1, 1),
+                TOK("a"),
+            ),
+            E(STAG_END,
+                LOC("etag-unpaired.xml", 1, 3),
+                NOTOK,
+                .is_empty = false,
+            ),
+            E(ETAG,
+                LOC("etag-unpaired.xml", 1, 4),
+                TOK("a"),
+            ),
+            E(ETAG,
+                LOC("etag-unpaired.xml", 1, 8),
+                TOK("a"),
+            ),
+            E(MESSAGE,
+                LOC("etag-unpaired.xml", 1, 8),
+                NOTOK,
+                .info = XMLERR(ERROR, XML, P_content),
+                .msg = "Document must match 'document' production",
             ),
             END,
         },
@@ -3178,7 +3335,7 @@ static const testcase_t testcases_structure[] = {
                 LOC("entity(x)", 1, 15),
                 NOTOK,
                 .info = XMLERR(ERROR, XML, P_content),
-                .msg = "Replacement text for entity must match content production",
+                .msg = "Replacement text for entity must match 'content' production",
             ),
             E(ENTITY_END,
                 LOC("entities06.xml", 4, 11),
@@ -3948,7 +4105,89 @@ static const testcase_t testcases_structure[] = {
                 .is_empty = true,
             ),
             END,
-        }
+        },
+    },
+    {
+        TC("Including 1.0 entity into 1.1 document checks include normalization"),
+        .input = "denorm07.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            E(XMLDECL,
+                LOC("denorm07.xml", 1, 1),
+                NOTOK,
+                .encoding = NULL,
+                .standalone = XML_INFO_STANDALONE_NO_VALUE,
+                .version = XML_INFO_VERSION_1_1,
+            ),
+            E(DTD_BEGIN,
+                LOC("denorm07.xml", 2, 1),
+                TOK("a"),
+            ),
+            E(DTD_INTERNAL,
+                LOC("denorm07.xml", 2, 1),
+                NOTOK,
+            ),
+            E(ENTITY_DEF_START,
+                LOC("denorm07.xml", 2, 14),
+                TOK("foo"),
+                .parameter = false,
+            ),
+            E(SYSID,
+                LOC("denorm07.xml", 2, 34),
+                TOK("denorm07-2.xml"),
+            ),
+            E(ENTITY_DEF_END,
+                LOC("denorm07.xml", 2, 50),
+                NOTOK,
+            ),
+            E(DTD_END,
+                LOC("denorm07.xml", 2, 53),
+                NOTOK,
+            ),
+            E(STAG,
+                LOC("denorm07.xml", 3, 1),
+                TOK("a"),
+            ),
+            E(STAG_END,
+                LOC("denorm07.xml", 3, 3),
+                NOTOK,
+                .is_empty = false,
+            ),
+            E(ENTITY_START,
+                LOC("denorm07.xml", 3, 4),
+                TOK("foo"),
+                .type = XML_READER_REF_EXTERNAL,
+                .system_id = "denorm07-2.xml",
+                .public_id = NULL,
+            ),
+            E(APPEND,
+                LOC("denorm07-2.xml", 1, 1),
+                TOK("A"),
+                .ws = false,
+            ),
+            E(ENTITY_END,
+                LOC("denorm07.xml", 3, 4),
+                TOK("foo"),
+                .type = XML_READER_REF_EXTERNAL,
+                .system_id = "denorm07-2.xml",
+                .public_id = NULL,
+            ),
+            E(MESSAGE,
+                LOC("denorm07.xml", 3, 9),
+                NOTOK,
+                .info = XMLERR(WARN, XML, NORMALIZATION),
+                .msg = "Input is not include-normalized",
+            ),
+            E(APPEND,
+                LOC("denorm07.xml", 3, 9),
+                TOK("\xCC\x80"),
+                .ws = false,
+            ),
+            E(ETAG,
+                LOC("denorm07.xml", 3, 9),
+                TOK("a"),
+            ),
+            END,
+        },
     },
     {
         TC("Examples from W3C Character Model for WWW1.0: Normalization (3.3.2)"),

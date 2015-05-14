@@ -25,6 +25,12 @@ typedef struct testcase_s {
     const char *encoding;                   ///< Transcode the file to this encoding
     const char *transport_encoding;         ///< Encoding from transport layer
 
+    /// Test set up
+    void (*setup)(xml_reader_t *);
+
+    /// Test tear down
+    void (*teardown)(xml_reader_t *);
+
     /// Extra checks in the test event callback
     result_t (*checkevt)(xml_reader_t *h, xml_reader_cbparam_t *e, const void *arg);
     const void *checkevt_arg;               ///< Argument to checkevt function
@@ -149,8 +155,17 @@ run_testcase(const void *arg)
 
     xml_reader_set_callback(reader, test_cb, &cbarg);
     xml_reader_set_loader(reader, xml_loader_file, &file_loader_opts);
+
+    if (tc->setup) {
+        tc->setup(reader);
+    }
+
     xml_reader_load_document_entity(reader, NULL, tc->input);
     xml_reader_process(reader); // Emits the events
+
+    if (tc->teardown) {
+        tc->teardown(reader);
+    }
 
     while (cbarg.expect->cbtype != XML_READER_CB_NONE) {
         printf("  (not seen) FAIL: ");
