@@ -60,9 +60,12 @@ list(const testsuite_t *suite)
     for (i = 0; i < suite->nsets; i++) {
         fprintf(stderr, "  Set %4zu", i + 1);
         if (suite->sets[i].ncases > 1) {
-            fprintf(stderr, ": 1..%zu", suite->sets[i].ncases);
+            fprintf(stderr, ": 1..%3zu", suite->sets[i].ncases);
         }
-        fprintf(stderr, "\n");
+        else {
+            fprintf(stderr, "        ");
+        }
+        fprintf(stderr, "  %s\n", suite->sets[i].desc);
     }
     fprintf(stderr, "\n");
 }
@@ -123,9 +126,9 @@ run_case(test_stats_t *stats, trec_t *trec)
     const void *case_input;
 
     case_input = set->cases ? (const uint8_t *)set->cases + set->size * (trec->ci - 1) : NULL;
-    printf("== RUNNING TESTCASE %zu.%zu\n", trec->si, trec->ci);
+    printf("== RUNNING TESTCASE '%s' %zu.%zu\n", set->desc, trec->si, trec->ci);
     trec->rv = set->func(case_input);
-    printf("== TESTCASE %zu.%zu: ", trec->si, trec->ci);
+    printf("== TESTCASE '%s' %zu.%zu: ", set->desc, trec->si, trec->ci);
     switch (trec->rv) {
     case PASS:
         printf("PASS\n");

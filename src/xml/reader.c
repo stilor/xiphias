@@ -412,34 +412,22 @@ xml_is_NameChar(ucs4_t cp)
     Replace encoding translator in a handle.
 
     @param ex External parsed entity
-    @param encname Encoding to be set, NULL to clear current encoding processor
+    @param enc Encoding to be set, NULL to clear current encoding processor
     @return true if successful, false otherwise
 */
 static bool
-xml_reader_set_encoding(xml_reader_external_t *ex, const char *encname)
+xml_reader_set_encoding(xml_reader_external_t *ex, const encoding_t *enc)
 {
     encoding_handle_t *hndnew;
 
-    if (encname != NULL) {
-        if ((hndnew = encoding_open(encname)) == NULL) {
-            // XMLDecl location passed via h->lastreadloc
-            xml_reader_message_lastread(ex->h, XMLERR(ERROR, XML, ENCODING_ERROR),
-                    "Unsupported encoding '%s'", encname);
-            return false;
-        }
+    if (enc != NULL) {
+        hndnew = encoding_open(enc);
         if (!ex->enc) {
             ex->enc = hndnew;
-            return true;
         }
-        if (!encoding_switch(&ex->enc, hndnew)) {
-            // Replacing with an incompatible encoding is not possible;
-            // the data that has been read previously cannot be trusted.
-            xml_reader_message_lastread(ex->h, XMLERR(ERROR, XML, ENCODING_ERROR),
-                    "Incompatible encodings: '%s' and '%s'",
-                    encoding_name(ex->enc), encname);
+        else if (!encoding_switch(&ex->enc, hndnew)) {
             return false;
         }
-        return true;
     }
     else if (ex->enc) {
         encoding_close(ex->enc);
@@ -4468,7 +4456,8 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     xml_reader_initial_xcode_t xc;
     utf8_t adbuf[4];       // 4 bytes for encoding detection, per XML spec suggestion
     size_t bom_len, adsz;
-    const char *encname;
+    const encoding_t *enc;
+    enum encoding_endian_e endian;
     bool rv;
 
     ex = xmalloc(sizeof(xml_reader_external_t));
@@ -4495,36 +4484,49 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     inp->complete_arg = inp;
     inp->inc_in_literal = ha->inc_in_literal;
 
+    // Try to get the encoding from stream and check for BOM
+    memset(adbuf, 0, sizeof(adbuf));
+    adsz = strbuf_lookahead(buf, adbuf, sizeof(adbuf));
+    if ((enc = encoding_detect(adbuf, adsz, &bom_len)) != NULL) {
+        rv = xml_reader_set_encoding(ex, enc);
+        OOPS_ASSERT(rv); // This external has no encoding yet, so it cannot fail to switch
+        ex->enc_detected = xstrdup(enc->name);
+        if (bom_len) {
+            strbuf_radvance(buf, bom_len);
+        }
+    }
+
+    // Transport encoding must follow autodetection: if transport encoding
+    // does not specify endianness, we must rely on BOM to get the right handle.
     if (transport_encoding) {
-        if (!xml_reader_set_encoding(ex, transport_encoding)) {
+        endian = ex->enc ? encoding_get(ex->enc)->endian : ENCODING_E_ANY;
+        if ((enc = encoding_search(transport_encoding, endian)) == NULL) {
+            xml_reader_message_current(ex->h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                    "Unsupported transport encoding '%s'", transport_encoding);
+            goto failed;
+        }
+        if (!xml_reader_set_encoding(ex, enc)) {
+            // Replacing with an incompatible encoding is not possible;
+            // the data that has been read previously cannot be trusted.
+            xml_reader_message_current(ex->h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                    "Transport encoding '%s' incompatible with auto-detected '%s'",
+                    transport_encoding, encoding_get(ex->enc)->name);
             goto failed;
         }
         ex->enc_transport = xstrdup(transport_encoding);
     }
 
-    // Try to get the encoding from stream and check for BOM
-    memset(adbuf, 0, sizeof(adbuf));
-    adsz = strbuf_lookahead(buf, adbuf, sizeof(adbuf));
-    if ((encname = encoding_detect(adbuf, adsz, &bom_len)) != NULL) {
-        if (!xml_reader_set_encoding(ex, encname)) {
-            xml_reader_message_current(h, XMLERR_NOTE, "(autodetected from %s)",
-                    bom_len ? "Byte-order Mark" : "content");
-            goto failed;
-        }
-        ex->enc_detected = xstrdup(encname);
-    }
-
-    // If byte order mark (BOM) was detected, consume it
-    if (bom_len) {
-        strbuf_radvance(buf, bom_len);
-    }
-
     // If no encoding passed from the transport layer, and autodetect didn't help,
     // try UTF-8. UTF-8 is built-in, so it should always work.
     if (!ex->enc) {
-        rv = xml_reader_set_encoding(ex, "UTF-8");
+        enc = encoding_search("UTF-8", ENCODING_E_ANY);
+        OOPS_ASSERT(enc);
+        rv = xml_reader_set_encoding(ex, enc);
         OOPS_ASSERT(rv);
     }
+
+    // When we get here, ex->enc has some encoding (autodetect, transport or fallback)
+    OOPS_ASSERT(ex->enc);
 
     // Temporary reader state
     xc.ex = ex;
@@ -4602,11 +4604,17 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     }
 
     if (ex->enc_declared) {
-        // Encoding should be in clean state - if not, need to fix encoding to not consume
-        // excess data. If this fails, the error is already reported - try to recover by
-        // keeping the old encoding.
-        if (!xml_reader_set_encoding(ex, ex->enc_declared)) {
-            xml_reader_message_lastread(h, XMLERR_NOTE, "(encoding from XML declaration)");
+        if ((enc = encoding_search(ex->enc_declared, encoding_get(ex->enc)->endian)) == NULL) {
+            xml_reader_message_current(ex->h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                    "Unsupported declared encoding '%s'", ex->enc_declared);
+            // Recover by keeping whatever we used so far
+        }
+        else if (!xml_reader_set_encoding(ex, enc)) {
+            // Encoding should be in clean state - if not, need to fix encoding to not consume
+            // excess data.
+            xml_reader_message_current(ex->h, XMLERR(ERROR, XML, ENCODING_ERROR),
+                    "Declared encoding '%s' incompatible with current encoding '%s'",
+                    ex->enc_declared, encoding_get(ex->enc)->name);
         }
     }
 
@@ -4639,13 +4647,14 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // Errata: The terms "UTF-8" and "UTF-16" in this specification do not apply to
     // related character encodings, including but not limited to UTF-16BE, UTF-16LE,
     // or CESU-8.
+    enc = encoding_get(ex->enc);
     if (!ex->enc_declared && !ex->enc_transport
-            && strcmp(encoding_name(ex->enc), "UTF-16")
-            && strcmp(encoding_name(ex->enc), "UTF-8")) {
+            && strcmp(enc->name, "UTF-16")
+            && strcmp(enc->name, "UTF-8")) {
         // Non-fatal: recover by using whatever encoding we detected
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "No external encoding information, no encoding in %s, content in %s encoding",
-                h->ctx->declinfo->name, encoding_name(ex->enc));
+                h->ctx->declinfo->name, enc->name);
     }
 
     h->hidden_loader_arg = NULL; // Loaded successfully

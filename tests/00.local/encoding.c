@@ -103,41 +103,25 @@ run_tc_api(void)
 
     printf("Opening non-existent encoding\n");
     {
-        encoding_handle_t *eh;
+        const encoding_t *e;
 
-        if ((eh = encoding_open("BAD_ENCODING_NAME")) != NULL) {
+        if ((e = encoding_search("BAD_ENCODING_NAME", ENCODING_E_ANY)) != NULL) {
             printf("... unexpectedly succeeded\n");
             rc = FAIL;
-            encoding_close(eh);
-        }
-    }
-
-    printf("Checking the name of the UTF-8 encoding\n");
-    {
-        encoding_handle_t *eh;
-
-        if ((eh = encoding_open("UTF-8")) == NULL) {
-            printf("... failed to open UTF-8\n");
-            rc = FAIL;
-        }
-        else {
-            if (strcmp(encoding_name(eh), "UTF-8")) {
-                printf("... but has different name reported!\n");
-                rc = FAIL;
-            }
-            encoding_close(eh);
         }
     }
 
     printf("Reading via string buffer\n");
     {
+        const encoding_t *e;
         encoding_handle_t *eh;
         strbuf_t *sbuf;
         ucs4_t outbuf[4], *ptr;
 
         sbuf = strbuf_new(0);
         strbuf_set_input(sbuf, "ABCDEFG", 7);
-        eh = encoding_open("UTF-8");
+        e = encoding_search("UTF-8", ENCODING_E_ANY);
+        eh = encoding_open(e);
         ptr = outbuf;
         if (4 != encoding_in_from_strbuf(eh, sbuf,
                     &ptr, outbuf + sizeofarray(outbuf))
@@ -166,14 +150,16 @@ run_tc_api(void)
     printf("Checking non-advancing encoding implementation is caught\n");
     {
         static const uint8_t ibuf[4] = "abcd";
+        const encoding_t *e;
         encoding_handle_t *eh;
         ucs4_t obuf[4], *ptr;
 
-        if ((eh = encoding_open("NOADVANCE")) == NULL) {
+        if ((e = encoding_search("NOADVANCE", ENCODING_E_ANY)) == NULL) {
             printf("Cannot open test encoding\n");
             rc = FAIL;
         }
         else {
+            eh = encoding_open(e);
             OOPS_EXPECT_BEGIN();
             ptr = obuf;
             (void)encoding_in(eh, ibuf, ibuf + sizeofarray(ibuf),
@@ -199,7 +185,7 @@ destroy_update_ctr(void *arg)
 
 static const encoding_t enc_XENC1 = {
     .name = "XENC1",
-    .enctype = ENCODING_T_UNKNOWN,
+    .form = ENCODING_FORM_UNKNOWN,
     .endian = ENCODING_E_ANY,
     .in = in_consumeall,
 };
@@ -207,7 +193,7 @@ ENCODING_REGISTER(enc_XENC1);
 
 static const encoding_t enc_XENC2 = {
     .name = "XENC2",
-    .enctype = ENCODING_T_UTF16,
+    .form = ENCODING_FORM_UTF16,
     .endian = ENCODING_E_BE,
     .in = in_consumeall,
     .destroy = destroy_update_ctr,
@@ -226,6 +212,7 @@ static result_t
 run_tc_switch(const void *arg)
 {
     const testcase_switch_t *tc = arg;
+    const encoding_t *ef, *et;
     encoding_handle_t *ehf, *eht;
     ucs4_t out, *ptr;
     bool switched;
@@ -234,16 +221,17 @@ run_tc_switch(const void *arg)
 
     // Also implicitly tests closing
     printf("Testing switching from %s to %s\n", tc->from, tc->to);
-    if ((ehf = encoding_open(tc->from)) == NULL) {
+    if ((ef = encoding_search(tc->from, ENCODING_E_ANY)) == NULL) {
         printf("Failed to open %s\n", tc->from);
         rc = FAIL;
     }
-    else if ((eht = encoding_open(tc->to)) == NULL) {
+    else if ((et = encoding_search(tc->to, ENCODING_E_ANY)) == NULL) {
         printf("Failed to open %s\n", tc->to);
-        encoding_close(ehf);
         rc = FAIL;
     }
     else {
+        ehf = encoding_open(ef);
+        eht = encoding_open(et);
         if (tc->input) {
             ptr = &out;
             (void)encoding_in(ehf, &tc->input, &tc->input + 1,
@@ -287,6 +275,7 @@ typedef struct testcase_detect_s {
     size_t inputsz;
     size_t bom;
     const char *encoding;
+    enum encoding_endian_e endian;
 } testcase_detect_t;
 
 static result_t
@@ -294,7 +283,7 @@ run_tc_detect(const void *arg)
 {
     const testcase_detect_t *tc = arg;
     size_t bom;
-    const char *detected;
+    const encoding_t *detected;
     result_t rc = PASS;
 
     printf("Trying signature for %s\n",
@@ -304,28 +293,36 @@ run_tc_detect(const void *arg)
         printf("Unknown encoding, not detected\n");
     }
     else if (!tc->encoding) {
-        printf("Unknown encoding but detected '%s'\n", detected);
+        printf("Unknown encoding but detected '%s'\n", detected->name);
         rc = FAIL;
     }
     else if (!detected) {
         printf("Encoding '%s' not detected\n", tc->encoding);
         rc = FAIL;
     }
-    else if (strcmp(detected, tc->encoding)) {
-        printf("Encoding '%s' detected as '%s'\n", tc->encoding, detected);
+    else if (strcmp(detected->name, tc->encoding)) {
+        printf("Encoding '%s' detected as '%s'\n", tc->encoding, detected->name);
+        rc = FAIL;
+    }
+    else if (detected->endian != tc->endian) {
+        printf("Endianness %u detected as %u\n", tc->endian, detected->endian);
         rc = FAIL;
     }
     else if (bom != tc->bom) {
         printf("BOM length mismatch %zu != %zu\n", tc->bom, bom);
         rc = FAIL;
     }
+    else {
+        printf("Detected successfully.\n");
+    }
 
     return rc;
 }
 
-#define TC_DETECT(e, b, ...) \
+#define TC_DETECT(e, end, b, ...) \
 { \
     .encoding = (e), \
+    .endian = ENCODING_E_##end, \
     .bom = (b), \
     .input = (const uint8_t []){ __VA_ARGS__ }, \
     .inputsz = sizeof((const uint8_t []){ __VA_ARGS__ }), \
@@ -333,26 +330,26 @@ run_tc_detect(const void *arg)
 
 static const testcase_detect_t testcase_detect[] = {
     // Test cases from XML 1.1, App. E, "Autodetection of Character Encodings"
-    TC_DETECT("UTF-32BE", 4, 0x00, 0x00, 0xFE, 0xFF),
-    TC_DETECT("UTF-32LE", 4, 0xFF, 0xFE, 0x00, 0x00),
-    TC_DETECT("UTF-32-2143", 4, 0x00, 0x00, 0xFF, 0xFE),
-    TC_DETECT("UTF-32-3412", 4, 0xFE, 0xFF, 0x00, 0x00),
-    TC_DETECT("UTF-16BE", 2, 0xFE, 0xFF),
-    TC_DETECT("UTF-16LE", 2, 0xFF, 0xFE),
-    TC_DETECT("UTF-8", 3, 0xEF, 0xBB, 0xBF),
-    TC_DETECT("UTF-32BE", 0, 0x00, 0x00, 0x00, 0x3C),
-    TC_DETECT("UTF-32LE", 0, 0x3C, 0x00, 0x00, 0x00),
-    TC_DETECT("UTF-32-2143", 0, 0x00, 0x00, 0x3C, 0x00),
-    TC_DETECT("UTF-32-3412", 0, 0x00, 0x3C, 0x00, 0x00),
-    TC_DETECT("UTF-16BE", 0, 0x00, 0x3C, 0x00, 0x3F),
-    TC_DETECT("UTF-16LE", 0, 0x3C, 0x00, 0x3F, 0x00),
-    TC_DETECT("UTF-8", 0, 0x3C, 0x3F, 0x78, 0x6D),
-    TC_DETECT("IBM500", 0, 0x4C, 0x6F, 0xA7, 0x94),
+    TC_DETECT("UTF-32",     BE,     4, 0x00, 0x00, 0xFE, 0xFF),
+    TC_DETECT("UTF-32",     LE,     4, 0xFF, 0xFE, 0x00, 0x00),
+    TC_DETECT("UTF-32",     2143,   4, 0x00, 0x00, 0xFF, 0xFE),
+    TC_DETECT("UTF-32",     3412,   4, 0xFE, 0xFF, 0x00, 0x00),
+    TC_DETECT("UTF-16",     BE,     2, 0xFE, 0xFF),
+    TC_DETECT("UTF-16",     LE,     2, 0xFF, 0xFE),
+    TC_DETECT("UTF-8",      ANY,    3, 0xEF, 0xBB, 0xBF),
+    TC_DETECT("UTF-32BE",   BE,     0, 0x00, 0x00, 0x00, 0x3C),
+    TC_DETECT("UTF-32LE",   LE,     0, 0x3C, 0x00, 0x00, 0x00),
+    TC_DETECT("UTF-32-2143",2143,   0, 0x00, 0x00, 0x3C, 0x00),
+    TC_DETECT("UTF-32-3412",3412,   0, 0x00, 0x3C, 0x00, 0x00),
+    TC_DETECT("UTF-16BE",   BE,     0, 0x00, 0x3C, 0x00, 0x3F),
+    TC_DETECT("UTF-16LE",   LE,     0, 0x3C, 0x00, 0x3F, 0x00),
+    TC_DETECT("UTF-8",      ANY,    0, 0x3C, 0x3F, 0x78, 0x6D),
+    TC_DETECT("IBM500",     ANY,    0, 0x4C, 0x6F, 0xA7, 0x94),
 
     // Invalid and corner cases
-    TC_DETECT("UTF-32BE", 0, 0x00, 0x00, 0x00),
-    TC_DETECT("UTF-32BE", 4, 0x00, 0x00, 0xFE),
-    TC_DETECT(NULL, 0, 0x03, 0x03, 0xFF, 0x03),
+    TC_DETECT("UTF-32BE",   BE,     0, 0x00, 0x00, 0x00),
+    TC_DETECT("UTF-32",     BE,     4, 0x00, 0x00, 0xFE),
+    TC_DETECT(NULL,         ANY,    0, 0x03, 0x03, 0xFF, 0x03),
 };
 
 
@@ -476,6 +473,7 @@ static result_t
 run_tc_input(const void *arg)
 {
     const testcase_input_t *tc = arg;
+    const encoding_t *e;
     encoding_handle_t *eh;
     size_t lastbrk, nextbrk, sz, i;
     ucs4_t *out, *ptr, *end, *old;
@@ -494,7 +492,8 @@ run_tc_input(const void *arg)
     ptr = out;
     end = out + tc->noutputs;
 
-    eh = encoding_open(tc->encoding);
+    e = encoding_search(tc->encoding, ENCODING_E_ANY);
+    eh = encoding_open(e);
     for (i = 0, lastbrk = 0; i <= tc->nbreaks; i++, lastbrk = nextbrk) {
         nextbrk = i == tc->nbreaks ? tc->inputsz : tc->breaks[i];
         printf("  Decoding block [%zu..%zu]\n", lastbrk, nextbrk - 1);

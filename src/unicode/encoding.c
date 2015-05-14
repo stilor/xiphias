@@ -33,20 +33,33 @@ struct encoding_handle_s {
     Search for a registered encoding by name.
 
     @param name Encoding name
+    @param endian Desired endianness, or ENCODING_E_ANY if not known or not applicable
+        (UTR#17 prescribes to use big-endian in this case if applicable)
     @return Encoding pointer, or NULL if not found
 */
-static const encoding_t *
-encoding_search(const char *name)
+const encoding_t *
+encoding_search(const char *name, enum encoding_endian_e endian)
 {
     const encoding_link_t *lnk;
+    const encoding_t *best = NULL;
 
     STAILQ_FOREACH(lnk, &encodings, link) {
         // "XML processors SHOULD match character encoding names in a case-insensitive way"
-        if (!strcasecmp(name, lnk->enc->name)) {
+        if (strcasecmp(name, lnk->enc->name)) {
+            continue;
+        }
+        if (endian == lnk->enc->endian) { // Exact match in endianness
             return lnk->enc;
         }
+        if (endian != ENCODING_E_ANY) { // Requested specific endianness
+            continue;
+        }
+        if (lnk->enc->endian == ENCODING_E_BE) { // Best default if no specific endianness requested
+            return lnk->enc;
+        }
+        best = lnk->enc; // If we don't find anything better
     }
-    return NULL;
+    return best;
 }
 
 /**
@@ -64,13 +77,12 @@ encoding__register(encoding_link_t *lnk)
     const encoding_sig_t *sig, *sigx;
 
     enc = lnk->enc;
-    if (encoding_search(enc->name)) {
+    if (encoding_search(enc->name, enc->endian)) {
         OOPS; // Already registered
     }
 
-    // Meta-encodings (those without transcoding method) cannot have
-    // signature strings; real encodings may present the signatures
-    OOPS_ASSERT(enc->in || !enc->sigs);
+    // No purpose in encoding that cannot transcode
+    OOPS_ASSERT(enc->in);
 
     // Non-zero size must be accompanied by non-NULL buffer
     OOPS_ASSERT(!enc->nsigs || enc->sigs);
@@ -90,8 +102,8 @@ encoding__register(encoding_link_t *lnk)
 }
 
 /**
-    Byte order detection, loosely based on XML1.1 App.E ("Autodetection
-    of Character Encodings"; non-normative).
+    Character encoding form detection, loosely based on XML1.1 App.E
+    ("Autodetection of Character Encodings"; non-normative).
 
     Check for byte order (via either byte order mark presence, or how
     the characters from a known start string are arranged). Assumes
@@ -107,9 +119,9 @@ encoding__register(encoding_link_t *lnk)
     @param bufsz Size of the data in @a buf
     @param bom_len If encoding detected successfully, length of the BOM
         is returned here
-    @return Encoding name; or NULL if cannot be detected
+    @return Encoding detected; or NULL if cannot be detected
 */
-const char *
+const encoding_t *
 encoding_detect(const uint8_t *buf, size_t bufsz, size_t *bom_len)
 {
     encoding_link_t *lnk;
@@ -126,7 +138,7 @@ encoding_detect(const uint8_t *buf, size_t bufsz, size_t *bom_len)
                 // Check for exact match first
                 if (chklen == sig->len && !memcmp(buf, sig->sig, chklen)) {
                     *bom_len = sig->bom ? sig->len : 0;
-                    return enc->name;
+                    return enc;
                 }
                 // On the first cycle, also check all signatures at least as
                 // long as the autodetect buffer. Pick the first.
@@ -140,7 +152,7 @@ encoding_detect(const uint8_t *buf, size_t bufsz, size_t *bom_len)
             }
         }
         if (best) {
-            return best->name; // Longest available string was only a part of a signature
+            return best; // Longest available string was only a part of a signature
         }
     }
     *bom_len = 0;
@@ -152,18 +164,14 @@ encoding_detect(const uint8_t *buf, size_t bufsz, size_t *bom_len)
 /**
     Prepare for transcoding from a particular encoding.
 
-    @param name Name of the input encoding
+    @param enc Input encoding
     @return Transcoder handle, or NULL if the encoding is not found
 */
 encoding_handle_t *
-encoding_open(const char *name)
+encoding_open(const encoding_t *enc)
 {
-    const encoding_t *enc;
     encoding_handle_t *hnd;
 
-    if ((enc = encoding_search(name)) == NULL) {
-        return NULL;
-    }
     hnd = xmalloc(sizeof(encoding_handle_t));
     hnd->enc = enc;
     hnd->baton = NULL;
@@ -176,15 +184,15 @@ encoding_open(const char *name)
 }
 
 /**
-    Return a name of the encoding from a handle.
+    Return an encoding from a handle.
 
     @param hnd Transcoder handle
-    @return Nmae of the encoding
+    @return Encoding information
 */
-const char *
-encoding_name(encoding_handle_t *hnd)
+const encoding_t *
+encoding_get(encoding_handle_t *hnd)
 {
-    return hnd->enc->name;
+    return hnd->enc;
 }
 
 /**
@@ -208,23 +216,17 @@ encoding_switch(encoding_handle_t **phnd, encoding_handle_t *hndnew)
         encoding_close(hndnew);
         return true;
     }
-    if (hndnew->enc->enctype == ENCODING_T_UNKNOWN
-            || hnd->enc->enctype == ENCODING_T_UNKNOWN
-            || hndnew->enc->enctype != hnd->enc->enctype) {
+    if (hndnew->enc->form == ENCODING_FORM_UNKNOWN
+            || hnd->enc->form == ENCODING_FORM_UNKNOWN
+            || hndnew->enc->form != hnd->enc->form) {
         encoding_close(hndnew);
-        return false; // Incompatible character order or size
+        return false; // Incompatible character encoding form
     }
     if (hndnew->enc->endian != ENCODING_E_ANY
             && hnd->enc->endian != ENCODING_E_ANY
             && hndnew->enc->endian != hnd->enc->endian) {
         encoding_close(hndnew);
         return false; // Incompatible endianness
-    }
-    if (!hndnew->enc->in) {
-        // New encoding is a compatible meta-encoding (does not provide
-        // the actual transcoding method). Keep the old one, return success.
-        encoding_close(hndnew);
-        return true;
     }
     if (!encoding_clean(hnd)) {
         // Not a good time: we're in a middle of a character
@@ -549,7 +551,7 @@ static const encoding_sig_t sig_UTF8[] = {
 
 static const encoding_t enc_UTF8 = {
     .name = "UTF-8",
-    .enctype = ENCODING_T_UTF8,
+    .form = ENCODING_FORM_UTF8,
     .baton_sz = sizeof(baton_utf8_t),
     .sigs = sig_UTF8,
     .nsigs = sizeofarray(sig_UTF8),
@@ -702,8 +704,27 @@ in_UTF16LE(void *baton, const uint8_t *begin, const uint8_t *end,
     return common_UTF16(baton, begin, end, pout, end_out, le16tohost);
 }
 
+/*
+    From Unicode Technical Report #17 (UTR#17):
+
+    5 Character Encoding Scheme (CES)
+
+    ...
+    1. A simple CES uses a mapping of each code unit of a CEF into a unique
+    serialized byte sequence in order.
+    2. A compound CES uses two or more simple CESs, plus a mechanism to shift
+    between them.
+    ...
+    * UTF-8, UTF-16BE, UTF-16LE, UTF-32BE and UTF32-LE are simple CESs.
+    * UTF-16 and UTF-32 are compound CESs, consisting of an single, optional
+    byte order mark at the start of the data followed by a simple CES.
+
+    It follows that if we see a byte-order mark (BOM), the encoding scheme
+    is to be reported as UTF-16, not UTF-16BE or UTF-16LE. Otherwise,
+    these encodings are the same.
+*/
+
 static const encoding_sig_t sig_UTF16LE[] = {
-    ENCODING_SIG(true,  0xFF, 0xFE), // BOM
     ENCODING_SIG(false, 0x3C, 0x00), // <
     ENCODING_SIG(false, 0x09, 0x00), // Tab
     ENCODING_SIG(false, 0x0A, 0x00), // LF
@@ -713,7 +734,7 @@ static const encoding_sig_t sig_UTF16LE[] = {
 
 static const encoding_t enc_UTF16LE = {
     .name = "UTF-16LE",
-    .enctype = ENCODING_T_UTF16,
+    .form = ENCODING_FORM_UTF16,
     .endian = ENCODING_E_LE,
     .baton_sz = sizeof(baton_utf16_t),
     .sigs = sig_UTF16LE,
@@ -722,6 +743,21 @@ static const encoding_t enc_UTF16LE = {
     .in_clean = clean_UTF16,
 };
 ENCODING_REGISTER(enc_UTF16LE);
+
+static const encoding_sig_t sig_UTF16__LE[] = {
+    ENCODING_SIG(true,  0xFF, 0xFE), // BOM
+};
+static const encoding_t enc_UTF16__LE = {
+    .name = "UTF-16", // UTF-16 in little-endian order
+    .form = ENCODING_FORM_UTF16,
+    .endian = ENCODING_E_LE,
+    .baton_sz = sizeof(baton_utf16_t),
+    .sigs = sig_UTF16__LE,
+    .nsigs = sizeofarray(sig_UTF16__LE),
+    .in = in_UTF16LE,
+    .in_clean = clean_UTF16,
+};
+ENCODING_REGISTER(enc_UTF16__LE);
 
 
 /**
@@ -744,8 +780,9 @@ in_UTF16BE(void *baton, const uint8_t *begin, const uint8_t *end,
     return common_UTF16(baton, begin, end, pout, end_out, be16tohost);
 }
 
+// See above for the difference between UTF-16 and UTF-16BE
+
 static const encoding_sig_t sig_UTF16BE[] = {
-    ENCODING_SIG(true,  0xFE, 0xFF), // BOM
     ENCODING_SIG(false, 0x00, 0x3C), // <
     ENCODING_SIG(false, 0x00, 0x09), // Tab
     ENCODING_SIG(false, 0x00, 0x0A), // LF
@@ -755,7 +792,7 @@ static const encoding_sig_t sig_UTF16BE[] = {
 
 static const encoding_t enc_UTF16BE = {
     .name = "UTF-16BE",
-    .enctype = ENCODING_T_UTF16,
+    .form = ENCODING_FORM_UTF16,
     .endian = ENCODING_E_BE,
     .baton_sz = sizeof(baton_utf16_t),
     .sigs = sig_UTF16BE,
@@ -765,13 +802,21 @@ static const encoding_t enc_UTF16BE = {
 };
 ENCODING_REGISTER(enc_UTF16BE);
 
-/// Meta-encoding: UTF-16 with any endianness, as detected
-static const encoding_t enc_UTF16 = {
-    .name = "UTF-16",
-    .enctype = ENCODING_T_UTF16,
-    .endian = ENCODING_E_ANY,
+static const encoding_sig_t sig_UTF16__BE[] = {
+    ENCODING_SIG(true,  0xFE, 0xFF), // BOM
 };
-ENCODING_REGISTER(enc_UTF16);
+static const encoding_t enc_UTF16__BE = {
+    .name = "UTF-16", // UTF-16 in big-endian order
+    .form = ENCODING_FORM_UTF16,
+    .endian = ENCODING_E_BE,
+    .baton_sz = sizeof(baton_utf16_t),
+    .sigs = sig_UTF16__BE,
+    .nsigs = sizeofarray(sig_UTF16__BE),
+    .in = in_UTF16BE,
+    .in_clean = clean_UTF16,
+};
+ENCODING_REGISTER(enc_UTF16__BE);
+
 
 
 /// Runtime data for UTF-32 encoding
@@ -881,8 +926,9 @@ in_UTF32LE(void *baton, const uint8_t *begin, const uint8_t *end,
     return common_UTF32(baton, begin, end, pout, end_out, le32tohost);
 }
 
+// See above for difference in UTF-32 and UTF-32LE
+
 static const encoding_sig_t sig_UTF32LE[] = {
-    ENCODING_SIG(true,  0xFF, 0xFE, 0x00, 0x00), // BOM
     ENCODING_SIG(false, 0x3C, 0x00, 0x00, 0x00), // <
     ENCODING_SIG(false, 0x09, 0x00, 0x00, 0x00), // Tab
     ENCODING_SIG(false, 0x0A, 0x00, 0x00, 0x00), // LF
@@ -891,7 +937,7 @@ static const encoding_sig_t sig_UTF32LE[] = {
 };
 static const encoding_t enc_UTF32LE = {
     .name = "UTF-32LE",
-    .enctype = ENCODING_T_UTF32,
+    .form = ENCODING_FORM_UTF32,
     .endian = ENCODING_E_LE,
     .baton_sz = sizeof(baton_utf32_t),
     .sigs = sig_UTF32LE,
@@ -900,6 +946,21 @@ static const encoding_t enc_UTF32LE = {
     .in_clean = clean_UTF32,
 };
 ENCODING_REGISTER(enc_UTF32LE);
+
+static const encoding_sig_t sig_UTF32__LE[] = {
+    ENCODING_SIG(true,  0xFF, 0xFE, 0x00, 0x00), // BOM
+};
+static const encoding_t enc_UTF32__LE = {
+    .name = "UTF-32", // UTF-32 in little-endian order
+    .form = ENCODING_FORM_UTF32,
+    .endian = ENCODING_E_LE,
+    .baton_sz = sizeof(baton_utf32_t),
+    .sigs = sig_UTF32__LE,
+    .nsigs = sizeofarray(sig_UTF32__LE),
+    .in = in_UTF32LE,
+    .in_clean = clean_UTF32,
+};
+ENCODING_REGISTER(enc_UTF32__LE);
 
 /**
     Translate next 4 bytes to 32-bit value; big-endian way.
@@ -921,8 +982,9 @@ in_UTF32BE(void *baton, const uint8_t *begin, const uint8_t *end,
     return common_UTF32(baton, begin, end, pout, end_out, be32tohost);
 }
 
+// See above for difference in UTF-32 and UTF-32BE
+
 static const encoding_sig_t sig_UTF32BE[] = {
-    ENCODING_SIG(true,  0x00, 0x00, 0xFE, 0xFF), // BOM
     ENCODING_SIG(false, 0x00, 0x00, 0x00, 0x3C), // <
     ENCODING_SIG(false, 0x00, 0x00, 0x00, 0x09), // Tab
     ENCODING_SIG(false, 0x00, 0x00, 0x00, 0x0A), // LF
@@ -931,7 +993,7 @@ static const encoding_sig_t sig_UTF32BE[] = {
 };
 static const encoding_t enc_UTF32BE = {
     .name = "UTF-32BE",
-    .enctype = ENCODING_T_UTF32,
+    .form = ENCODING_FORM_UTF32,
     .endian = ENCODING_E_BE,
     .baton_sz = sizeof(baton_utf32_t),
     .sigs = sig_UTF32BE,
@@ -940,6 +1002,21 @@ static const encoding_t enc_UTF32BE = {
     .in_clean = clean_UTF32,
 };
 ENCODING_REGISTER(enc_UTF32BE);
+
+static const encoding_sig_t sig_UTF32__BE[] = {
+    ENCODING_SIG(true,  0x00, 0x00, 0xFE, 0xFF), // BOM
+};
+static const encoding_t enc_UTF32__BE = {
+    .name = "UTF-32", // UTF-32 in big-endian order
+    .form = ENCODING_FORM_UTF32,
+    .endian = ENCODING_E_BE,
+    .baton_sz = sizeof(baton_utf32_t),
+    .sigs = sig_UTF32__BE,
+    .nsigs = sizeofarray(sig_UTF32__BE),
+    .in = in_UTF32BE,
+    .in_clean = clean_UTF32,
+};
+ENCODING_REGISTER(enc_UTF32__BE);
 
 /**
     Translate next 4 bytes to 32-bit value; 2143-endian way.
@@ -961,8 +1038,9 @@ in_UTF32_2143(void *baton, const uint8_t *begin, const uint8_t *end,
     return common_UTF32(baton, begin, end, pout, end_out, x2143_32tohost);
 }
 
+// See above for difference in UTF-32 and UTF-32-2143
+
 static const encoding_sig_t sig_UTF32_2143[] = {
-    ENCODING_SIG(true,  0x00, 0x00, 0xFF, 0xFE), // BOM
     ENCODING_SIG(false, 0x00, 0x00, 0x3C, 0x00), // <
     ENCODING_SIG(false, 0x00, 0x00, 0x09, 0x00), // Tab
     ENCODING_SIG(false, 0x00, 0x00, 0x0A, 0x00), // LF
@@ -971,7 +1049,7 @@ static const encoding_sig_t sig_UTF32_2143[] = {
 };
 static const encoding_t enc_UTF32_2143 = {
     .name = "UTF-32-2143",
-    .enctype = ENCODING_T_UTF32,
+    .form = ENCODING_FORM_UTF32,
     .endian = ENCODING_E_2143,
     .baton_sz = sizeof(baton_utf32_t),
     .sigs = sig_UTF32_2143,
@@ -980,6 +1058,21 @@ static const encoding_t enc_UTF32_2143 = {
     .in_clean = clean_UTF32,
 };
 ENCODING_REGISTER(enc_UTF32_2143);
+
+static const encoding_sig_t sig_UTF32__2143[] = {
+    ENCODING_SIG(true,  0x00, 0x00, 0xFF, 0xFE), // BOM
+};
+static const encoding_t enc_UTF32__2143 = {
+    .name = "UTF-32", // UTF-32 in 2143 byte order
+    .form = ENCODING_FORM_UTF32,
+    .endian = ENCODING_E_2143,
+    .baton_sz = sizeof(baton_utf32_t),
+    .sigs = sig_UTF32__2143,
+    .nsigs = sizeofarray(sig_UTF32__2143),
+    .in = in_UTF32_2143,
+    .in_clean = clean_UTF32,
+};
+ENCODING_REGISTER(enc_UTF32__2143);
 
 /**
     Translate next 4 bytes to 32-bit value; 3412-endian way.
@@ -1001,8 +1094,9 @@ in_UTF32_3412(void *baton, const uint8_t *begin, const uint8_t *end,
     return common_UTF32(baton, begin, end, pout, end_out, x3412_32tohost);
 }
 
+// See above for difference in UTF-32 and UTF-32-3412
+
 static const encoding_sig_t sig_UTF32_3412[] = {
-    ENCODING_SIG(true,  0xFE, 0xFF, 0x00, 0x00), // BOM
     ENCODING_SIG(false, 0x00, 0x3C, 0x00, 0x00), // <
     ENCODING_SIG(false, 0x00, 0x09, 0x00, 0x00), // Tab
     ENCODING_SIG(false, 0x00, 0x0A, 0x00, 0x00), // LF
@@ -1011,7 +1105,7 @@ static const encoding_sig_t sig_UTF32_3412[] = {
 };
 static const encoding_t enc_UTF32_3412 = {
     .name = "UTF-32-3412",
-    .enctype = ENCODING_T_UTF32,
+    .form = ENCODING_FORM_UTF32,
     .endian = ENCODING_E_3412,
     .baton_sz = sizeof(baton_utf32_t),
     .sigs = sig_UTF32_3412,
@@ -1021,9 +1115,17 @@ static const encoding_t enc_UTF32_3412 = {
 };
 ENCODING_REGISTER(enc_UTF32_3412);
 
-static const encoding_t enc_UTF32 = {
-    .name = "UTF-32",
-    .enctype = ENCODING_T_UTF32,
-    .endian = ENCODING_E_ANY,
+static const encoding_sig_t sig_UTF32__3412[] = {
+    ENCODING_SIG(true,  0xFE, 0xFF, 0x00, 0x00), // BOM
 };
-ENCODING_REGISTER(enc_UTF32);
+static const encoding_t enc_UTF32__3412 = {
+    .name = "UTF-32", // UTF-32 in 3412 byte order
+    .form = ENCODING_FORM_UTF32,
+    .endian = ENCODING_E_3412,
+    .baton_sz = sizeof(baton_utf32_t),
+    .sigs = sig_UTF32__3412,
+    .nsigs = sizeofarray(sig_UTF32__3412),
+    .in = in_UTF32_3412,
+    .in_clean = clean_UTF32,
+};
+ENCODING_REGISTER(enc_UTF32__3412);

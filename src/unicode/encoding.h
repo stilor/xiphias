@@ -14,17 +14,17 @@
 #include "unicode/unicode.h"
 
 /// Types of encoding compatibility
-enum encoding_compat_e {
-    ENCODING_T_UNKNOWN,             ///< Unknown compatibility (always incompatible)
-    ENCODING_T_UTF8,                ///< UTF-8 or other byte encoding with ASCII for 00..7e chars
-    ENCODING_T_EBCDIC,              ///< Byte encodings compatible with EBCDIC
-    ENCODING_T_UTF16,               ///< UTF-16
-    ENCODING_T_UTF32,               ///< UTF-32
+enum encoding_form_e {
+    ENCODING_FORM_UNKNOWN,          ///< Unknown compatibility (always incompatible)
+    ENCODING_FORM_UTF8,             ///< UTF-8 or other byte encoding with ASCII for 00..7e chars
+    ENCODING_FORM_UTF16,            ///< UTF-16
+    ENCODING_FORM_UTF32,            ///< UTF-32
+    ENCODING_FORM_EBCDIC,           ///< Byte encodings compatible with EBCDIC
 };
 
-/// Endianness of the encoding
+/// Endianness of the encoding scheme
 enum encoding_endian_e {
-    ENCODING_E_ANY,                 ///< Don't care (or describing any flavor, for meta-encodings)
+    ENCODING_E_ANY,                 ///< Don't care or not applicable
     ENCODING_E_LE,                  ///< Little-endian
     ENCODING_E_BE,                  ///< Big-endian
     ENCODING_E_2143,                ///< Unusual byte order (2143)
@@ -49,7 +49,7 @@ typedef struct encoding_sig_s {
 /// Encoding structure
 typedef struct encoding_s {
     const char *name;               ///< Encoding name
-    enum encoding_compat_e enctype; ///< Encoding type
+    enum encoding_form_e form;      ///< Character encoding form
     enum encoding_endian_e endian;  ///< Endianness
     const void *data;               ///< Encoding-specific data (e.g. equivalence chart)
     size_t baton_sz;                ///< Size of the baton data
@@ -122,11 +122,12 @@ typedef struct encoding_handle_s encoding_handle_t;
 
 // General encoding database functions
 void encoding__register(encoding_link_t *lnk);
-const char *encoding_detect(const uint8_t *buf, size_t bufsz, size_t *pbom_len);
+const encoding_t *encoding_search(const char *name, enum encoding_endian_e endian);
+const encoding_t *encoding_detect(const uint8_t *buf, size_t bufsz, size_t *pbom_len);
 
 // Handling transcoding
-encoding_handle_t *encoding_open(const char *name);
-const char *encoding_name(encoding_handle_t *hnd);
+encoding_handle_t *encoding_open(const encoding_t *);
+const encoding_t *encoding_get(encoding_handle_t *hnd);
 bool encoding_switch(encoding_handle_t **hndcur, encoding_handle_t *hndnew);
 void encoding_close(encoding_handle_t *hnd);
 size_t encoding_in(encoding_handle_t *hnd, const uint8_t *begin, const uint8_t *end,
