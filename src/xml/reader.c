@@ -1601,6 +1601,34 @@ xml_read_until_lt(xml_reader_t *h)
 }
 
 /**
+    Read condition: until < (left angle bracket) or ] (right square bracket)
+
+    @param arg Argument (unused)
+    @param cp Codepoint
+    @return UCS4_STOPCHAR if @a cp is left angle bracket, @a cp otherwise
+*/
+static ucs4_t
+xml_cb_lt_or_rbracket(void *arg, ucs4_t cp)
+{
+    return (ucs4_cheq(cp, '<') || ucs4_cheq(cp, ']')) ? UCS4_STOPCHAR : UCS4_NOCHAR;
+}
+
+/**
+    Similar recovery function for internal subset: consume input until
+    the left angle bracket (i.e. next DTD instruction) or right square bracket
+    (i.e. end of internal subset).
+
+    @param h Reader handle
+    @return Always PR_OK (either finds the left bracket or reaches EOF)
+*/
+static prodres_t
+xml_read_until_lt_or_rbracket(xml_reader_t *h)
+{
+    xml_read_until(h, xml_cb_lt_or_rbracket, NULL);
+    return PR_OK;
+}
+
+/**
     Read condition: until > (right angle bracket); consume the bracket as well.
 
     @param arg Argument (unused)
@@ -2378,7 +2406,17 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         h->relevant = saved_relevant;
 
         switch (reftype) {
-        case XML_READER_REF__CHAR:
+        case XML_READER_REF_GENERAL:
+            // Clarify the type
+            e = strhash_get(h->entities_gen, h->tokenbuf, h->tokenlen);
+            break;
+
+        case XML_READER_REF_PARAMETER:
+            e = strhash_get(h->entities_param, h->tokenbuf, h->tokenlen);
+            break;
+
+        default:
+            OOPS_ASSERT(reftype == XML_READER_REF__CHAR);
             /* Parse the character referenced */
             if (h->charrefval == UCS4_NOCHAR) {
                 // Did not evaluate to a character; recover by skipping.
@@ -2402,18 +2440,6 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
             fakechar.rplclen = sizeof(h->charrefval);
             e = &fakechar;
             break;
-
-        case XML_READER_REF_GENERAL:
-            // Clarify the type
-            e = strhash_get(h->entities_gen, h->tokenbuf, h->tokenlen);
-            break;
-
-        case XML_READER_REF_PARAMETER:
-            e = strhash_get(h->entities_param, h->tokenbuf, h->tokenlen);
-            break;
-
-        default:
-            OOPS;
         }
 
         if (!e) {
@@ -2431,12 +2457,10 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
             xml_reader_message_lastread(h, XMLERR(ERROR, XML, WFC_NO_RECURSION),
                     "Parsed entity may not contain a recursive reference to itself");
         }
-        else if (refops->hnd[e->type]) {
-            refops->hnd[e->type](h, e);
-        }
         else {
             // Flags setting in refops should've prevented us from recognizing this reference
-            OOPS;
+            OOPS_ASSERT(refops->hnd[e->type]);
+            refops->hnd[e->type](h, e);
         }
     }
 }
@@ -3903,7 +3927,7 @@ xml_parse_whitespace_peref_or_recover(xml_reader_t *h)
     if (ucs4_cheq(h->rejected, '<')) {
         xml_read_until_gt(h);
     }
-    return xml_read_until_lt(h);
+    return xml_read_until_lt_or_rbracket(h);
 }
 
 /**
@@ -4769,14 +4793,17 @@ xml_reader_process(xml_reader_t *h)
         }
     } while (rv == PR_OK);
 
-    // The only other ways to exit is PR_FAIL (meaning some parser failed and did not recover)
-    // or PR_NOMATCH (meaning some text was not handled by any parser).
-    OOPS_ASSERT(rv == PR_STOP);
+    // In each context, the last parser must catch all and recover
+    OOPS_ASSERT(rv != PR_NOMATCH);
 
-    // If document entity was aborted/not loaded, no need to spam: already complained
-    if ((h->flags & (R_DOCUMENT_LOADED | R_HAS_ROOT)) == R_DOCUMENT_LOADED) {
-        xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
-                "No root element");
+    // The only other ways to exit is PR_FAIL (meaning some parser failed and did not recover),
+    // in that case, it does not make sense to check anything - parsing was aborted.
+    if (rv == PR_STOP) {
+        // If document entity was aborted/not loaded, no need to spam: already complained
+        if ((h->flags & (R_DOCUMENT_LOADED | R_HAS_ROOT)) == R_DOCUMENT_LOADED) {
+            xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
+                    "No root element");
+        }
     }
 }
 
