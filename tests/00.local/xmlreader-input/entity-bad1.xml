@@ -1,0 +1,24 @@
+<!DOCTYPE a [
+<!ENTITY first "aaa">
+<!ENTITY first.ext SYSTEM "foo.xml">
+<!ENTITY % first.param SYSTEM "xxx.xml">
+<!ENTITY>
+<!ENTITY %foo>
+<!ENTITY ###>
+<!ENTITY first "bbb">
+<!ENTITY amp "&#38;#38;">
+<!ENTITY amp "&#38;#38;">
+<!ENTITY nows>
+<!ENTITY gt SYSTEM "gt.xml">
+<!ENTITY note SYSTEM "note.bin" NDA...OOPS>
+<!ENTITY ndt SYSTEM "ndt.bin" NDATA>
+<!ENTITY ndt SYSTEM "ndt.bin" NDATA $>
+<!ENTITY ndt SYSTEM "ndt.bin" NDATA ndt>
+<!ENTITY first.ext SYSTEM "bar.xml">
+<!ENTITY % first.param SYSTEM "yyy.xml">
+<!ENTITY noliteral @>
+<!ENTITY lt "lieutenant">
+<!ENTITY xxx SYSTEM>
+<!ENTITY yyy "yyy" @@@@>
+]>
+<a>&first;</a>

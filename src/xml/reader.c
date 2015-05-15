@@ -2456,6 +2456,8 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         else if (e->being_parsed) {
             xml_reader_message_lastread(h, XMLERR(ERROR, XML, WFC_NO_RECURSION),
                     "Parsed entity may not contain a recursive reference to itself");
+            xml_reader_message(h, &e->included, XMLERR_NOTE,
+                    "This is the location of previous inclusion");
         }
         else {
             // Flags setting in refops should've prevented us from recognizing this reference
@@ -3636,16 +3638,19 @@ xml_parse_EntityDecl(xml_reader_t *h)
         // of the replacement text later; predefined entities may be re-declared once
         // by the document without warning. 
         if ((predef = eold->predef) == NULL || eold->declared.src) {
+            /// @todo Would be nice to have entity name in the message. Or convert this
+            /// to a non-message event and pass in UTF-8?
             xml_reader_message(h, &cbp.loc, XMLERR(WARN, XML, ENTITY_REDECLARED),
                     "Redefinition of an entity");
             xml_reader_message(h, &eold->declared, XMLERR_NOTE,
-                    "This is the location of a previous definition");
+                    "This is the location of the previous definition");
         }
         e = NULL; // Will not create a new definition
     }
     else {
         predef = NULL;
         e = xml_entity_new(ehash, h->tokenbuf, h->tokenlen);
+        e->declared = cbp.loc;
     }
     cbp.token.str = h->tokenbuf;
     cbp.token.len = h->tokenlen;
@@ -3653,12 +3658,11 @@ xml_parse_EntityDecl(xml_reader_t *h)
     xml_reader_invoke_callback(h, &cbp);
 
     if (e) {
-        // TBD ucs4buf only saved for general entities - does this copy a stale replacement?
         e->parameter = parameter;
-        e->refrplclen = h->ucs4len * sizeof(ucs4_t);
-        rplc = xmalloc(e->refrplclen);
-        memcpy(rplc, h->ucs4buf, e->refrplclen);
-        e->refrplc = rplc;
+        if (!parameter) {
+            e->refrplclen = h->ucs4len * sizeof(ucs4_t);
+            e->refrplc = memcpy(xmalloc(e->refrplclen), h->ucs4buf, e->refrplclen);
+        }
     }
 
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
@@ -3669,10 +3673,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
 
     // This may be followed by either [ExternalID], [ExternalID NDataDecl]
     // (only for general entities) or [EntityValue]
-    switch (xml_parse_ExternalID(h, false, e ? &e->loader_info : NULL)) {
-    case PR_FAIL:
-        goto malformed;
-
+    switch ((rv = xml_parse_ExternalID(h, false, e ? &e->loader_info : NULL))) {
     case PR_OK:
         // Predefined entities cannot be declared as external entities:
         // "If the entities [...] are declared, they MUST be declared as internal entities..."
@@ -3772,8 +3773,8 @@ compatible:
         break;
 
     default:
-        OOPS_UNREACHABLE;
-        break;
+        OOPS_ASSERT(rv = PR_FAIL);
+        goto malformed;
     }
 
     // Optional whitespace and closing angle bracket
