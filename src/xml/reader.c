@@ -4307,7 +4307,7 @@ xml_parse_ETag(xml_reader_t *h)
 
     if (!xml_reader_input_unlock(h)) {
         // Error, no recovery needed
-        xml_reader_message(h, &cbp.loc, XMLERR(ERROR, XML, P_content),
+        xml_reader_message(h, &cbp.loc, h->ctx->errcode,
                 "%s must match '%s' production",
                 h->ctx->reftype == XML_READER_REF_DOCUMENT ?
                         "Document" : "Replacement text for entity",

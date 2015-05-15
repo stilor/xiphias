@@ -1885,7 +1885,7 @@ static const testcase_t testcases_structure[] = {
             E(MESSAGE,
                 LOC("etag-unpaired.xml", 1, 8),
                 NOTOK,
-                .info = XMLERR(ERROR, XML, P_content),
+                .info = XMLERR(ERROR, XML, P_document),
                 .msg = "Document must match 'document' production",
             ),
             END,
