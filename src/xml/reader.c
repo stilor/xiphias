@@ -3813,6 +3813,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
     xml_reader_notation_t *n = NULL;
+    prodres_t rv;
 
     // TBD use lock/unlock and check unlock's retval for proper nesting
     xml_read_string_assert(h, "<!NOTATION");
@@ -3845,10 +3846,9 @@ xml_parse_NotationDecl(xml_reader_t *h)
         goto malformed;
     }
 
-    switch (xml_parse_ExternalID(h, true, &n->loader_info)) {
-    case PR_FAIL:
-        // Error already provided
-        goto malformed;
+    switch ((rv = xml_parse_ExternalID(h, true, &n->loader_info))) {
+    case PR_OK:
+        break;
 
     case PR_NOMATCH:
         // For notations, system and/or public IDs are mandatory
@@ -3856,11 +3856,10 @@ xml_parse_NotationDecl(xml_reader_t *h)
                 "Expect ExternalID or PublicID here");
         goto malformed;
 
-    case PR_OK:
-        break;
-
     default:
-        OOPS_UNREACHABLE;
+        // Error already provided
+        OOPS_ASSERT(rv = PR_FAIL);
+        goto malformed;
     }
 
     // Optional whitespace and closing angle bracket

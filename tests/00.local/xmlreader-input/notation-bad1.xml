@@ -1,0 +1,11 @@
+<!DOCTYPE a [
+<!NOTATION first SYSTEM "x.exe">
+<!NOTATIONx>
+<!NOTATION `>
+<!NOTATION first SYSTEM "y.exe">
+<!NOTATION nows>
+<!NOTATION noid >
+<!NOTATION noid2 PUBLIC >
+<!NOTATION extra SYSTEM "z.exe" % >
+]>
+<a/>
