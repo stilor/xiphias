@@ -1234,7 +1234,8 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
     xml_reader_external_t *ex = xc->ex;
     ucs4_t *cptr, *bptr;
 
-    OOPS_ASSERT(sz >= 4 && (sz & 3) == 0); // Reading in 32-bit blocks
+    OOPS_ASSERT(sz != 0);
+    OOPS_ASSERT((sz & 3) == 0); // Reading in 32-bit blocks
     bptr = cptr = begin;
     do {
         if (xc->la_offs == xc->la_avail) {
@@ -1968,7 +1969,8 @@ xml_entity_type_info(enum xml_reader_reference_e type)
         [XML_READER_REF_UNKNOWN] = { "unknown", XMLERR_XML_P_Reference },
     };
 
-    return &refinfo[type < sizeofarray(refinfo) ? type : XML_READER_REF__MAX];
+    OOPS_ASSERT(type < sizeofarray(refinfo));
+    return &refinfo[type];
 }
 
 /**
@@ -2443,6 +2445,8 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         }
 
         if (!e) {
+            // TBD: in EntityValue, "general-entity references MUST be left as-is (unexpanded)".
+            // TBD: which means, even if the entity is not known at the time. Have a handler for XML_READER_REF_GENERAL?
             // Entity was not known. This may or may not be error; let the callback decide
             cbp.cbtype = XML_READER_CB_ENTITY_UNKNOWN;
             cbp.loc = h->lastreadloc;
