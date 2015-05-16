@@ -113,6 +113,47 @@ utf8_store(utf8_t **pp, ucs4_t cp)
 }
 
 /**
+    Helper function: load a UCS-4 code point from its UTF-8 representation.
+    Assumes the character is fully available in the buffer and is valid representation.
+
+    @param pp Pointer to pointer where the codepoint is loaded from
+    @return Loaded codepoint
+*/
+static inline ucs4_t
+utf8_load(const utf8_t **pp)
+{
+    const utf8_t *p = *pp;
+    ucs4_t rv;
+
+    if (*p < 0x80) {
+        rv = *p++;
+    }
+    else if (*p < 0xC0) {
+        OOPS;
+    }
+    else if (*p < 0xE0) {
+        rv = (*p++ & 0x1F) << 6;
+        rv |= (*p++ & 0x3F);
+    }
+    else if (*p < 0xF0) {
+        rv = (*p++ & 0xF) << 12;
+        rv |= (*p++ & 0x3F) << 6;
+        rv |= (*p++ & 0x3F);
+    }
+    else if (*p < 0xF5) {
+        rv = (*p++ & 0x7) << 18;
+        rv |= (*p++ & 0x3F) << 12;
+        rv |= (*p++ & 0x3F) << 6;
+        rv |= (*p++ & 0x3F);
+    }
+    else {
+        OOPS;
+    }
+    *pp = p;
+    return rv;
+}
+
+/**
     Compare a UTF-8 string to a local-encoded string.
 
     @param us Unicode string

@@ -1,7 +1,7 @@
 <!DOCTYPE a SYSTEM "pe-1.dtd" [
 <!ENTITY % external1 SYSTEM "pe-2.dtd">
 %external1;
-<!ENTITY element2 "<z>%text1;</z>">
+<!ENTITY element2 "<z>%text1;</z> ">
 ]>
 <a>
  &element;

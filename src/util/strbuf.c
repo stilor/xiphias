@@ -80,15 +80,19 @@ void
 strbuf_realloc(strbuf_t *buf, size_t newsz)
 {
     size_t shift;
+    void *mem = buf->mem;
+
+    OOPS_ASSERT(newsz >= buf->memsz);
 
     if (buf->flags & BUF_STATIC) {
         // If it was static, there's no allocated memory in this buffer
-        buf->mem = NULL;
-        buf->memsz = 0;
+        buf->mem = xmalloc(newsz);
+        memcpy(buf->mem, mem, buf->memsz);
+        buf->flags &= ~BUF_STATIC;
     }
-
-    OOPS_ASSERT(newsz >= buf->memsz);
-    buf->mem = xrealloc(buf->mem, newsz);
+    else {
+        buf->mem = xrealloc(buf->mem, newsz);
+    }
 
     // If the old content wrapped around the end, move that chunk
     if (buf->roffs + buf->rsize > buf->memsz) {

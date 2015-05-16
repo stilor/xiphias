@@ -1,1 +1,1 @@
-<!ENTITY element "<b>%text1;</b><c>%text2;</c>">
+<!ENTITY element "<b>%text1;</b><c>%text2;</c>%element2;&element2;">

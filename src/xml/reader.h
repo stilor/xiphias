@@ -110,19 +110,21 @@ enum xml_reader_cbtype_e {
 /// Types of references
 enum xml_reader_reference_e {
     // Up to _MAX: references for which rules are defined in XML spec
-    XML_READER_REF_PARAMETER,      ///< Parameter entity reference
-    XML_READER_REF_INTERNAL,       ///< Internal parsed entity reference
-    XML_READER_REF_EXTERNAL,       ///< External parsed entity reference
-    XML_READER_REF_UNPARSED,       ///< Unparsed entity reference
-    XML_READER_REF__CHAR,          ///< Internal value: not an entity, character reference
-    XML_READER_REF__MAX,           ///< Internal value: array size for per-type handlers
+    // (some of them may be split in subgroups below)
+    XML_READER_REF_PE,             ///< Any parameter entity reference (internal/external)
+    XML_READER_REF_PE_INTERNAL,    ///< Internal parameter entity reference
+    XML_READER_REF_PE_EXTERNAL,    ///< External parameter entity reference
+    XML_READER_REF_GENERAL,        ///< Any general entity reference (internal/external/unparsed)
+    XML_READER_REF_INTERNAL,       ///< General internal parsed entity reference
+    XML_READER_REF_EXTERNAL,       ///< General external parsed entity reference
+    XML_READER_REF_UNPARSED,       ///< General unparsed entity reference
+    XML_READER_REF_CHARACTER,      ///< Character reference
+    XML_READER_REF__MAX,           ///< Array size for per-type handlers
 
     // Internal values
-    XML_READER_REF_UNKNOWN,        ///< Malformed entity reference
-    XML_READER_REF_GENERAL,        ///< Any general entity reference (internal/external/unparsed)
     XML_READER_REF_DOCUMENT,       ///< Document entity reference
     XML_READER_REF_EXT_SUBSET,     ///< External subset
-    XML_READER_REF__NONE,          ///< To indicate unset reference type
+    XML_READER_REF_NONE,           ///< To indicate unset reference type
 };
 
 /// Normalization type for an attribute
