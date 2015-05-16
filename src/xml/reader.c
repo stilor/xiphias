@@ -553,7 +553,7 @@ xml_reader_input_complete_notify(xml_reader_t *h)
 {
     xml_reader_input_t *inp;
 
-    if ((inp = STAILQ_FIRST(&h->completed_input)) != NULL) {
+    while ((inp = STAILQ_FIRST(&h->completed_input)) != NULL) {
         STAILQ_REMOVE_HEAD(&h->completed_input, link);
         h->lastreadloc = inp->curloc;
         inp->complete(h, inp->complete_arg);
