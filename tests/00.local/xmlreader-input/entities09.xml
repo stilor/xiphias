@@ -1,0 +1,10 @@
+<!DOCTYPE a [
+<!NOTATION bar SYSTEM "http://bar.org/def.xml">
+<!ENTITY b "&foo;">
+<!ENTITY foo "xxx">
+<!ENTITY c "&bar;">
+<!ENTITY bar SYSTEM "bar.exe" NDATA bar>
+<!ENTITY d "&bar;">
+<!ENTITY e "&baz;">
+]>
+<a><x>&b;</x><x>&c;</x><x>&d;</x><x>&e;</x></a>

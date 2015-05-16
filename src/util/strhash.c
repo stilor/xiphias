@@ -50,7 +50,7 @@ strhash_create(unsigned int order, strhash_payload_destroy_cb_t payload_destroy)
     uint32_t i;
 
     // 0 does not make much sense; 32 is the max number of bits in hash value
-    OOPS_ASSERT(order > 0 && order < 32);
+    OOPS_ASSERT(order < 32);
     i = 1 << order;
     hash = xmalloc(sizeof(strhash_t) + i * sizeof(bucket_t));
     hash->payload_destroy = payload_destroy;
@@ -165,4 +165,25 @@ strhash_get(strhash_t *hash, const void *key, size_t len)
         }
     }
     return NULL; // Not found in the hash
+}
+
+/**
+    Iterator over all items in hash.
+
+    @param hash String-keyed hash
+    @param cb Callback for each element
+    @param arg Argument to callback
+    @return Nothing
+*/
+void
+strhash_foreach(strhash_t *hash, strhash_foreach_cb_t cb, void *arg)
+{
+    item_t *item, *temp;
+    uint32_t i;
+
+    for (i = 0; i <= hash->bucket_mask; i++) {
+        SLIST_FOREACH_SAFE(item, &hash->buckets[i], link, temp) {
+            cb(arg, item->key, item->len, item->payload);
+        }
+    }
 }

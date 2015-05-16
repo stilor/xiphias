@@ -236,7 +236,7 @@ void xml_reader_delete(xml_reader_t *h);
 void xml_reader_set_callback(xml_reader_t *h, xml_reader_cb_t func, void *arg);
 void xml_reader_set_loader(xml_reader_t *h, xml_loader_t func, void *arg);
 
-void xml_reader_message(xml_reader_t *h, xmlerr_loc_t *loc, xmlerr_info_t info,
+void xml_reader_message(xml_reader_t *h, const xmlerr_loc_t *loc, xmlerr_info_t info,
         const char *fmt, ...) __printflike(4,5);
 
 void xml_reader_load_document_entity(xml_reader_t *h, const char *pubid, const char *sysid);
