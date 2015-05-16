@@ -674,7 +674,9 @@ xml_reader_input_unlock(xml_reader_t *h)
         otherwise, signal an error and unlock the closest input (since execution
         will not go back to the same production).
     */
-    if ((inp = STAILQ_FIRST(&h->active_input)) != NULL && inp->locked) {
+    inp = STAILQ_FIRST(&h->active_input);
+    OOPS_ASSERT(inp);
+    if (inp->locked) {
         // Normal case
         inp->locked--;
         return true;
@@ -720,7 +722,8 @@ xml_reader_input_radvance(xml_reader_t *h, size_t sz)
     xml_reader_input_t *inp;
 
     inp = STAILQ_FIRST(&h->active_input);
-    OOPS_ASSERT(inp && inp->buf);
+    OOPS_ASSERT(inp);
+    OOPS_ASSERT(inp->buf);
     strbuf_radvance(inp->buf, sz);
 }
 

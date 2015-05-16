@@ -1,0 +1,9 @@
+<!DOCTYPE a [
+<!NOTATION N SYSTEM "foo">
+<!ENTITY gt "">
+<!ENTITY amp "&#x26;x">
+<!ENTITY unp SYSTEM "bar" NDATA N>
+<!ENTITY unp SYSTEM "baz" NDATA N>
+<!ENTITY xxx SYSTEM "zzz" >
+]>
+<a/>

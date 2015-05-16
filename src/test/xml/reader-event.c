@@ -501,10 +501,16 @@ xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam)
     char *s;
 
     printf(INDENT "E(%s,\n", enum2id(cbparam->cbtype, &enum_cbtype, "XML_READER_CB_"));
-    s = string_escape(cbparam->loc.src);
-    printf(INDENT INDENT "LOC(\"%s\", %u, %u),\n",
-            s, cbparam->loc.line, cbparam->loc.pos);
-    xfree(s);
+    if (cbparam->loc.src) {
+        s = string_escape(cbparam->loc.src);
+        printf(INDENT INDENT "LOC(\"%s\", %u, %u),\n",
+                s, cbparam->loc.line, cbparam->loc.pos);
+        xfree(s);
+    }
+    else {
+        printf(INDENT INDENT "LOC(NULL, %u, %u),\n",
+                cbparam->loc.line, cbparam->loc.pos);
+    }
     if (cbparam->token.str) {
         s = string_escape_utf8(cbparam->token.str, cbparam->token.len);
         printf(INDENT INDENT "TOK(\"%s\"),\n", s);
