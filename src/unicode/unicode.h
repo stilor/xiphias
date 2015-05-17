@@ -270,6 +270,21 @@ utf8_strfreelocal(const char *ls)
     // No-op
 }
 
+#if defined(OOPS_COVERAGE)
+void ucs4_assert_does_not_compose(ucs4_t cp);
+void ucs4_assert_does_not_compose_with_preceding(ucs4_t cp);
+
+#define UCS4_ASSERT(a, ...) \
+    static void __constructor \
+    concat(ucs4_assert__, __LINE__)(void) \
+    { \
+        ucs4_assert_##a(__VA_ARGS__); \
+    }
+
+#else
+#define UCS4_ASSERT(...)
+#endif
+
 #include "ucs4data.h"
 
 #endif

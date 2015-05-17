@@ -270,5 +270,7 @@ if __name__ == '__main__':
                 (c.cat, c.ccc, c.decomp_idx, c.decomp_len, c.comp_idx, c.comp_len, c.nfc_qc))
 	f.write(" // U+%06X: %s\n" % (c.code, c.name))
     f.write("};\n")
+    f.write("\n");
+    f.write("const ucs4_t *ucs4_composes_with_end = endofarray(ucs4_composes_with);\n");
     f.close()
     #print("Done!")

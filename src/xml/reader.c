@@ -2725,14 +2725,15 @@ xml_cb_literal_EntityValue(void *arg, ucs4_t cp)
         st->h->relevant = "parsed entity value";
     }
 
-    // Strictly speaking  we should also clear h->relevant when the closing quote is
+    // Strictly speaking we should also clear h->relevant when the closing quote is
     // seen, but none of the allowed quotes are composing, so it is going to pass
     // the check anyway, so why bother?
-    // TBD compile-time assertions on Unicode:
-    //   UCS4_ASSERT(does_not_compose_with_preceding, '"')
-    //   UCS4_ASSERT(does_not_compose_with_preceding, '\'')
     return xml_cb_literal(arg, cp);
 }
+
+// Assumptions relied upon by xml_cb_literal_EntityValue
+UCS4_ASSERT(does_not_compose_with_preceding, ucs4_fromlocal('"'))
+UCS4_ASSERT(does_not_compose_with_preceding, ucs4_fromlocal('\''))
 
 /// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
 static const xml_reference_ops_t reference_ops_pseudo = {
@@ -3424,6 +3425,7 @@ static void
 cb_matchpos_cdata(void *arg, size_t oldpos, size_t newpos)
 {
     xml_reader_t *h = arg;
+    bool rv;
     size_t i;
 
     if (newpos && !oldpos) {
@@ -3438,20 +3440,15 @@ cb_matchpos_cdata(void *arg, size_t oldpos, size_t newpos)
         // Supply skipped characters to include checker
         if (h->norm_include) {
             for (i = 0; i < oldpos - newpos; i++) {
-                if (!nfc_check_nextchar(h->norm_include, ucs4_fromlocal(']'))) {
-                    // TBD this never gets executed because the characters
-                    // we may be handling, ']', do not compose with any character
-                    // before or after - but this may not be the case in future
-                    // Unicode specifications. Add some compile-time checks
-                    // for Unicode predicates like this, and make this an OOPS?
-                    //   UCS4_ASSERT(does_not_compose, ']')
-                    xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
-                            "Input is not include-normalized");
-                }
+                rv = nfc_check_nextchar(h->norm_include, ucs4_fromlocal(']'));
+                OOPS_ASSERT(rv);
             }
         }
     }
 }
+
+// Assumption from the above character
+UCS4_ASSERT(does_not_compose, ucs4_fromlocal(']'));
 
 /**
     Read and process a CDATA section.

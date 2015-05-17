@@ -85,6 +85,9 @@ extern const ucs4_t ucs4_full_decomp[];
 */
 extern const ucs4_t ucs4_composes_with[];
 
+/// End of the array of the compositions
+extern const ucs4_t *ucs4_composes_with_end;
+
 /**
     Per-character properties list.
 */

@@ -17,6 +17,10 @@
 /// Produce a pointer right past the end of the array
 #define endofarray(a) (&(a)[sizeofarray(a)])
 
+/// Concatenate after replacing macros in arguments
+#define concat(a,b) __concat(a,b)
+#define __concat(a,b)   a##b
+
 /// Strip 'const' qualifier from a pointer.
 #define DECONST(v)  ((void *)(uintptr_t)(v))
 
