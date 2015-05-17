@@ -1,0 +1,11 @@
+<!DOCTYPE a [
+<!ENTITY a1 STRING "foo">
+<!ENTITY a2 POST "foo" "bar">
+<!ENTITY a3 PUBLIC "111" "222">
+<!ENTITY a3 PUBLIC "333" "444">
+<!ENTITY a4 SYSTEM ***>
+<!NOTATION x1 PUBLIC 'bar'>
+<!NOTATION x2 PUBLIC NONE>
+<!NOTATION x3 PUBLIC 'zoot' @@>
+<!NOTATION x4 PUBLIC 'zoot' 'zhab'>
+]>
