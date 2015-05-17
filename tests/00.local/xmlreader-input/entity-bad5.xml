@@ -1,0 +1,5 @@
+<!DOCTYPE a [
+%-;
+<!ENTITY x SYSTEM "entity-bad5-2.xml">
+]>
+<a>&x;</a>

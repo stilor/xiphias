@@ -2104,6 +2104,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     if (h->flags & R_AMBIGUOUS_PERCENT) {
         goto literal_percent;
     }
+    *reftype = XML_READER_REF_PE;
     goto malformed;
 
 read_content:

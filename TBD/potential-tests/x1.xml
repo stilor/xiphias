@@ -1,0 +1,5 @@
+<!DOCTYPE a [
+<!ENTITY x2 SYSTEM "x2.xml">
+]>
+<!-- Second space is reported with whitespace=false -->
+<a> &x2; </a>
