@@ -2595,13 +2595,10 @@ static prodres_t
 xml_parse_whitespace_peref(xml_reader_t *h)
 {
     bool had_ws = false;
-    size_t tlen;
 
     // Whitespace may cross entity boundaries; repeat until we get something other
     // than whitespace
-    tlen = h->tokenlen;
     (void)xml_read_until_parseref(h, &reference_ops_PEReference, &had_ws);
-    h->tokenlen = tlen;
     return had_ws ? PR_OK : PR_NOMATCH;
 }
 
