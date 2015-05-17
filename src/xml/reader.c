@@ -3527,7 +3527,6 @@ xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
         xml_loader_info_t *loader_info)
 {
     xml_reader_cbparam_t cbp;
-    bool has_system_id = false;
     bool has_public_id = false;
 
     // 'SYSTEM' ... or 'PUBLIC' ...
@@ -3535,13 +3534,11 @@ xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
         if (xml_read_string(h, "SYSTEM", XMLERR(ERROR, XML, P_ExternalID)) != PR_OK) {
             return PR_FAIL;
         }
-        has_system_id = true;
     }
     else if (ucs4_cheq(h->rejected, 'P')) {
         if (xml_read_string(h, "PUBLIC", XMLERR(ERROR, XML, P_ExternalID)) != PR_OK) {
             return PR_FAIL;
         }
-        has_system_id = true;
         has_public_id = true;
     }
     else {
@@ -3568,34 +3565,36 @@ xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
         cbp.token.len = h->tokenlen;
         xml_reader_invoke_callback(h, &cbp);
     }
-    if (has_system_id) {
-        // Had any external ID, or (if allowed) PublicID
-        if (allowed_PublicID) {
-            if (xml_parse_whitespace_conditional(h) != PR_OK
-                    || !(ucs4_cheq(h->rejected, '"') || ucs4_cheq(h->rejected, '\''))) {
-                return PR_OK; // Missing second (system) literal, but it's ok
-            }
+
+    // System ID is always allowed (though may not be always present, i.e. in notation declaration)
+    if (allowed_PublicID && has_public_id) {
+        // May be missing second (system) literal, but it's ok
+        if (xml_parse_whitespace_conditional(h) != PR_OK) {
+            return PR_OK;
         }
-        else {
-            if (xml_parse_whitespace_conditional(h) != PR_OK) {
-                xml_reader_message_current(h, XMLERR(ERROR, XML, P_ExternalID),
-                        "Expect whitespace here");
-                return PR_FAIL;
-            }
+        if (!ucs4_cheq(h->rejected, '"') && !ucs4_cheq(h->rejected, '\'')) {
+            return PR_OK;
         }
-        if (xml_parse_literal(h, &reference_ops_SystemLiteral) != PR_OK) {
+    }
+    else {
+        if (xml_parse_whitespace_conditional(h) != PR_OK) {
+            xml_reader_message_current(h, XMLERR(ERROR, XML, P_ExternalID),
+                    "Expect whitespace here");
             return PR_FAIL;
         }
-        if (loader_info) {
-            xml_loader_info_set_system_id(loader_info,
-                    h->tokenbuf, h->tokenlen);
-        }
-        cbp.cbtype = XML_READER_CB_SYSID;
-        cbp.loc = h->lastreadloc;
-        cbp.token.str = h->tokenbuf;
-        cbp.token.len = h->tokenlen;
-        xml_reader_invoke_callback(h, &cbp);
     }
+    if (xml_parse_literal(h, &reference_ops_SystemLiteral) != PR_OK) {
+        return PR_FAIL;
+    }
+    if (loader_info) {
+        xml_loader_info_set_system_id(loader_info,
+                h->tokenbuf, h->tokenlen);
+    }
+    cbp.cbtype = XML_READER_CB_SYSID;
+    cbp.loc = h->lastreadloc;
+    cbp.token.str = h->tokenbuf;
+    cbp.token.len = h->tokenlen;
+    xml_reader_invoke_callback(h, &cbp);
     return PR_OK;
 }
 
