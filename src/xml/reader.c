@@ -1776,7 +1776,9 @@ xml_cb_string(void *arg, ucs4_t cp)
     xml_cb_string_state_t *st = arg;
     ucs4_t tmp;
 
-    if ((tmp = ucs4_fromlocal(*st->cur)) >= 0x7F || tmp != cp) {
+    tmp = ucs4_fromlocal(*st->cur);
+    OOPS_ASSERT(tmp < 0x7F); // Only ASCII in markup
+    if (tmp != cp) {
         return UCS4_STOPCHAR;
     }
     // Advance; no need to save into token buffer
