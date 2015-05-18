@@ -39,6 +39,7 @@ enum {
     R_HAS_ROOT          = 0x0040,       ///< Root element seen
     R_HAS_DTD           = 0x0080,       ///< Document declaration seen
     R_AMBIGUOUS_PERCENT = 0x0100,       ///< '%' may either start PE reference or have literal meaning
+    R_NO_TOKEN_RESET    = 0x0200,       ///< Do not clear the token when starting the read
 };
 
 /// Notation information
@@ -1399,6 +1400,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
     xml_reader_external_t *ex;
     const void *begin, *end;
     const ucs4_t *ptr;
+    ptrdiff_t offs;
     ucs4_t cp, cp0;
     size_t clen;
     utf8_t *bufptr;
@@ -1408,9 +1410,14 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 
     xml_reader_input_complete_notify(h); // Process any outstanding notifications
 
-    bufptr = h->tokenbuf;
+    if (h->flags & R_NO_TOKEN_RESET) {
+        bufptr = h->tokenbuf + h->tokenlen;
+    }
+    else {
+        bufptr = h->tokenbuf;
+        h->tokenlen = 0;
+    }
     h->rejected = UCS4_NOCHAR; // Avoid stale data if we exit without looking at next char
-    h->tokenlen = 0;
 
     do {
         // ... and only if we're not terminating yet, try to get next read pointers
@@ -1560,8 +1567,9 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
                 clen = utf8_clen(cp);
                 if (bufptr + clen > h->tokenbuf_end) {
                     // Double token storage
+                    offs = bufptr - h->tokenbuf;
                     xml_tokenbuf_realloc(h);
-                    bufptr = h->tokenbuf + h->tokenlen;
+                    bufptr = h->tokenbuf + offs;
                 }
                 utf8_store(&bufptr, cp);
                 h->tokenlen += clen;
@@ -1613,7 +1621,7 @@ xml_parse_whitespace(xml_reader_t *h)
     bool had_ws = false;
     size_t tlen;
 
-    tlen = h->tokenlen;
+    tlen = h->tokenlen; // TBD remove? xml_read_until does not save characters with this callback
     (void)xml_read_until(h, xml_cb_not_whitespace, &had_ws);
     h->tokenlen = tlen;
     return had_ws ? PR_OK : PR_NOMATCH;
@@ -1722,12 +1730,17 @@ static ucs4_t
 xml_cb_not_name(void *arg, ucs4_t cp)
 {
     bool *isstartchar = arg;
-    ucs4_t rv;
 
-    rv = (*isstartchar ? xml_is_NameStartChar(cp) : xml_is_NameChar(cp)) ?
-            cp : UCS4_STOPCHAR;
-    *isstartchar = false;
-    return rv;
+    if (*isstartchar) {
+        if (xml_is_NameStartChar(cp)) {
+            *isstartchar = false;
+            return cp;
+        }
+    }
+    else if (xml_is_NameChar(cp)) {
+        return cp;
+    }
+    return UCS4_STOPCHAR;
 }
 
 /**
@@ -1745,7 +1758,7 @@ xml_read_Name(xml_reader_t *h)
     // is also subject to composing character check if normalization check is active.
     h->relevant = "Name";
     (void)xml_read_until(h, xml_cb_not_name, &startchar);
-    if (!h->tokenlen) {
+    if (startchar) {
         // No error: this is an auxillary function often used to differentiate between
         // Name or some alternative (e.g. entity vs char references)
         h->relevant = NULL;
@@ -1804,7 +1817,7 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
 
     state.cur = s;
     state.end = s + strlen(s);
-    tlen = h->tokenlen;
+    tlen = h->tokenlen; // TBD remove? this callback does not save characters
     if (xml_read_until(h, xml_cb_string, &state) != XRU_STOP
             || state.cur != state.end) {
         if (errinfo != XMLERR_NOERROR) {
@@ -2420,9 +2433,6 @@ reference_included_charref(xml_reader_t *h, xml_reader_entity_t *e)
 {
     xml_reader_input_t *inp;
 
-    /// @todo with h->tokenlen/tokenbuf check from the handler - perhaps, avoid
-    /// setting a new input and just append the character directly? That will forgo
-    /// any normalization if it is performed by the xml_read_until, however.
     inp = xml_reader_input_new(h, e->location);
     strbuf_set_input(inp->buf, e->rplc, e->rplclen);
 
@@ -2458,6 +2468,14 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
     xml_reader_entity_t fakeent;
     const char *saved_relevant;
     uint32_t saved_flags;
+    const uint8_t *lasttoken;
+    size_t lastlen, saved_len;
+    bool loc_saved = false; // TBD should be gone after all token-buf changes
+    xmlerr_loc_t lastreadloc; // TBD should be gone
+
+    // We'll accumulate text over multiple calls to xml_read_until
+    h->tokenlen = 0;
+    h->flags |= R_NO_TOKEN_RESET;
 
     saved_flags = h->flags;
     while (true) {
@@ -2473,13 +2491,19 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
             h->flags |= refops->flags;
             stopstatus = xml_read_until(h, refops->condread, arg);
             h->flags = saved_flags;
-            if (refops->textblock) {
-                refops->textblock(arg);
+            if (!loc_saved) {
+                loc_saved = true;
+                lastreadloc = h->lastreadloc;
             }
         } while (stopstatus == XRU_INPUT_BOUNDARY);
 
         if (stopstatus != XRU_REFERENCE) {
             h->relevant = NULL;
+            h->flags &= ~R_NO_TOKEN_RESET;
+            if (refops->textblock) {
+                h->lastreadloc = lastreadloc;
+                refops->textblock(arg);
+            }
             return stopstatus; // Saw the terminating condition or EOF
         }
 
@@ -2487,27 +2511,36 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         // itself is not a relevant construct (although Name production inside it,
         // if it is an entity reference, is).
         saved_relevant = h->relevant;
+        saved_len = h->tokenlen;
         h->relevant = NULL;
         if (xml_parse_reference(h, &reftype) != PR_OK) {
             // This may or may not be error: PR_NOMATCH may mean that it just wasn't a PE
             // reference despite having started with a percent sign.  If it is an error,
             // no recovery - just interpret anything after error as plain text.
             // No need to restore h->relevant, will be reset anyway in the above loop
+            h->tokenlen = saved_len;
             continue;
         }
         h->relevant = saved_relevant;
 
+        // Save current token (entity name) into lasttoken/lastlen and restore buffer
+        // to the state before parsing the reference.
+        lasttoken = h->tokenbuf + saved_len;
+        lastlen = h->tokenlen - saved_len;
+        h->tokenlen = saved_len;
+
+        e = NULL;
         switch (reftype) {
         case XML_READER_REF_GENERAL:
             // Clarify the type
-            if ((e = strhash_get(h->entities_gen, h->tokenbuf, h->tokenlen)) == NULL) {
+            if ((e = strhash_get(h->entities_gen, lasttoken, lastlen)) == NULL) {
                 goto unknown_entity;
             }
             reftype = e->type;
             break;
 
         case XML_READER_REF_PE:
-            if ((e = strhash_get(h->entities_param, h->tokenbuf, h->tokenlen)) == NULL) {
+            if ((e = strhash_get(h->entities_param, lasttoken, lastlen)) == NULL) {
                 goto unknown_entity;
             }
             reftype = e->type;
@@ -2516,8 +2549,8 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         unknown_entity:
             /* Create a fake entity record */
             memset(&fakeent, 0, sizeof(fakeent));
-            fakeent.name = h->tokenbuf;
-            fakeent.namelen = h->tokenlen;
+            fakeent.name = lasttoken;
+            fakeent.namelen = lastlen;
             fakeent.type = reftype;
             e = &fakeent;
             break;
@@ -2656,6 +2689,8 @@ typedef struct xml_cb_literal_state_s {
     ucs4_t quote;
     /// Reader handle (need to check the state of the current input
     xml_reader_t *h;
+    /// Deferred setting of 'relevant construct'
+    bool starting;
 } xml_cb_literal_state_t;
 
 /**
@@ -2719,16 +2754,23 @@ static ucs4_t
 xml_cb_literal_EntityValue(void *arg, ucs4_t cp)
 {
     xml_cb_literal_state_t *st = arg;
+    ucs4_t oquote, rv;
 
-    if (st->quote != UCS4_NOCHAR
-            && st->h->tokenlen == 0) {
-        st->h->relevant = "parsed entity value";
+    oquote = st->quote;
+    rv = xml_cb_literal(arg, cp);
+    if (oquote == UCS4_NOCHAR && st->quote != UCS4_NOCHAR) {
+        // the *next* character starts a relevant construct, unless it is a closing quote
+        st->starting = true;
     }
-
-    // Strictly speaking we should also clear h->relevant when the closing quote is
-    // seen, but none of the allowed quotes are composing, so it is going to pass
-    // the check anyway, so why bother?
-    return xml_cb_literal(arg, cp);
+    else if (oquote != UCS4_NOCHAR && st->quote == UCS4_STOPCHAR) {
+        // If literal was empty, no it is not subject to 'relevant construct' check
+        st->h->relevant = NULL;
+    }
+    else if (st->starting) {
+        st->h->relevant = "parsed entity value";
+        st->starting = false;
+    }
+    return rv;
 }
 
 // Assumptions relied upon by xml_cb_literal_EntityValue
@@ -2839,6 +2881,7 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     // xml_read_until() may return 0 (empty literal), which is valid
     st.quote = UCS4_NOCHAR;
     st.h = h;
+    st.starting = false;
     if (xml_read_until_parseref(h, refops, &st) != XRU_STOP
             || st.quote != UCS4_STOPCHAR) {
         if (st.quote == UCS4_NOCHAR) {
@@ -4086,6 +4129,7 @@ xml_parse_dtd_end(xml_reader_t *h)
     // We know there's input in the queue, we've just read from it
     h->lastreadloc = STAILQ_FIRST(&h->active_input)->curloc;
 
+    // TBD move this message to xml_dtd_on_complete
     cbp.cbtype = XML_READER_CB_DTD_END;
     cbp.loc = h->lastreadloc;
     cbp.token.str = NULL,

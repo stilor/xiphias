@@ -98,6 +98,57 @@ string_escape_utf8(const utf8_t *s, size_t len)
     return p;
 }
 
+static char *
+string_escape_unicode_control(const utf8_t *s, size_t len)
+{
+    /// @todo Assumes 1-to-1 correspondence between UTF-8 and local charset
+    const utf8_t *sx;
+    size_t lenx, nlen;
+    char *p, *px;
+
+    nlen = 0;
+    for (sx = s, lenx = len; lenx; lenx--, sx++) {
+        if (*sx < 0x20 || *sx == 0x7F) {
+            nlen += 3; // U+24xx, 'Control Pictures' - 3 bytes
+        }
+        else if (lenx >= 2 && sx[0] == 0xC2 && sx[1] == 0x85) {
+            nlen += 3; // U+24xx, 'Control Pictures' - 3 bytes
+            sx++; // swallow one extra byte
+        }
+        // TBD U+2028 - there doesn't seem to be a good 'control picture'
+        else {
+            nlen += 1;
+        }
+    }
+
+    p = px = xmalloc(nlen + 1);
+    for (sx = s, lenx = len; lenx; lenx--, sx++) {
+        if (*sx < 0x20) {
+            // E2 90 xx (where xx is '80h + yy') is UTF-8 representation of U+24yy
+            *px++ = '\xE2';
+            *px++ = '\x90';
+            *px++ = '\x80' + *sx;
+            continue;
+        }
+        if (*sx == 0x7F) { // U+2421
+            *px++ = '\xE2';
+            *px++ = '\x90';
+            *px++ = '\xA1';
+            continue;
+        }
+        if (lenx >= 2 && sx[0] == 0xC2 && sx[1] == 0x85) { // U+2422
+            sx++; // swallow one extra byte
+            *px++ = '\xE2';
+            *px++ = '\x90';
+            *px++ = '\xA2';
+            continue;
+        }
+        *px++ = *sx;
+    }
+    *px = '\0';
+    return p;
+}
+
 #define INDENT                  "    "
 
 #define FIELD_FMT(f, fmt)       INDENT INDENT "." #f " = " fmt ",\n"
@@ -449,14 +500,16 @@ static const event_t events[] = {
 void
 xmlreader_event_print(const xml_reader_cbparam_t *cbparam)
 {
+    char *s;
+
     printf("[%s:%u:%u]", cbparam->loc.src ? cbparam->loc.src : "<undef>",
             cbparam->loc.line, cbparam->loc.pos);
     printf(" %s: ", enum2str(cbparam->cbtype, &enum_cbtype));
     if (cbparam->token.str) {
         // TBD: mixes UTF-8/local encodings
-        printf("'%.*s' [%zu] ",
-                (int)cbparam->token.len, cbparam->token.str,
-                cbparam->token.len);
+        s = string_escape_unicode_control(cbparam->token.str, cbparam->token.len);
+        printf("'%s' [%zu] ", s, cbparam->token.len);
+        xfree(s);
     }
     if (cbparam->cbtype < sizeofarray(events) && events[cbparam->cbtype].print) {
         events[cbparam->cbtype].print(cbparam);
