@@ -1198,9 +1198,6 @@ xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
     h->hidden_loader_arg = &ha;
     h->loader(h, h->loader_arg, loader_info);
     if (h->hidden_loader_arg) {
-        if (on_complete) {
-            on_complete(h, false);
-        }
         // Loader didn't create an input
         h->hidden_loader_arg = NULL;
         // Notify the app
@@ -1220,6 +1217,9 @@ xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
         cbp.entity.system_id = loader_info->system_id;
         cbp.entity.public_id = loader_info->public_id;
         xml_reader_invoke_callback(h, &cbp);
+        if (on_complete) {
+            on_complete(h, false);
+        }
         return false;
     }
     return true;
@@ -4104,7 +4104,17 @@ xml_unknown_entity(void *arg, const void *key, size_t keylen, const void *payloa
 static void
 xml_dtd_on_complete(xml_reader_t *h, bool loaded)
 {
+    xml_reader_cbparam_t cbp;
+
     strhash_foreach(h->entities_unknown, xml_unknown_entity, h);
+
+    cbp.cbtype = XML_READER_CB_DTD_END;
+    cbp.loc = STAILQ_FIRST(&h->active_input)->curloc;
+    cbp.token.str = NULL,
+    cbp.token.len = 0;
+
+    // Signal the end of DTD parsing
+    xml_reader_invoke_callback(h, &cbp);
 }
 
 /**
@@ -4117,8 +4127,6 @@ xml_dtd_on_complete(xml_reader_t *h, bool loaded)
 static prodres_t
 xml_parse_dtd_end(xml_reader_t *h)
 {
-    xml_reader_cbparam_t cbp;
-
     (void)xml_parse_whitespace(h); // Only appears in internal subset
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
         // The only case we're attempting recovery in doctypedecl. Restore
@@ -4128,12 +4136,6 @@ xml_parse_dtd_end(xml_reader_t *h)
 
     // We know there's input in the queue, we've just read from it
     h->lastreadloc = STAILQ_FIRST(&h->active_input)->curloc;
-
-    // TBD move this message to xml_dtd_on_complete
-    cbp.cbtype = XML_READER_CB_DTD_END;
-    cbp.loc = h->lastreadloc;
-    cbp.token.str = NULL,
-    cbp.token.len = 0;
 
     if (xml_loader_info_isset(&h->dtd_loader_info)) {
         // TBD should have a ENTITY_START message here or in invoke_loader for DTD/main doc.
@@ -4145,9 +4147,6 @@ xml_parse_dtd_end(xml_reader_t *h)
         // No external subset - run the final checks.
         xml_dtd_on_complete(h, false);
     }
-
-    // Signal the end of DTD parsing
-    xml_reader_invoke_callback(h, &cbp);
     return PR_OK;
 }
 
