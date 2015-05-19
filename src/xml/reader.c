@@ -1619,11 +1619,8 @@ static prodres_t
 xml_parse_whitespace(xml_reader_t *h)
 {
     bool had_ws = false;
-    size_t tlen;
 
-    tlen = h->tokenlen; // TBD remove? xml_read_until does not save characters with this callback
     (void)xml_read_until(h, xml_cb_not_whitespace, &had_ws);
-    h->tokenlen = tlen;
     return had_ws ? PR_OK : PR_NOMATCH;
 }
 
@@ -1813,20 +1810,16 @@ static prodres_t
 xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
 {
     xml_cb_string_state_t state;
-    size_t tlen;
 
     state.cur = s;
     state.end = s + strlen(s);
-    tlen = h->tokenlen; // TBD remove? this callback does not save characters
     if (xml_read_until(h, xml_cb_string, &state) != XRU_STOP
             || state.cur != state.end) {
         if (errinfo != XMLERR_NOERROR) {
             xml_reader_message_lastread(h, errinfo, "Expected string: '%s'", s);
         }
-        h->tokenlen = tlen;
         return PR_NOMATCH;
     }
-    h->tokenlen = tlen;
     return PR_OK;
 }
 
