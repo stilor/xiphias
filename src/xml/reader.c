@@ -1872,86 +1872,53 @@ xml_parse_whitespace(xml_reader_t *h)
     return had_ws ? PR_OK : PR_NOMATCH;
 }
 
-/**
-    Read condition: until < (left angle bracket)
-
-    @param arg Argument (unused)
-    @param cp Codepoint
-    @return UCS4_STOPCHAR if @a cp is left angle bracket, @a cp otherwise
-*/
-static ucs4_t
-xml_cb_lt(void *arg, ucs4_t cp)
-{
-    return ucs4_cheq(cp, '<') ? UCS4_STOPCHAR : UCS4_NOCHAR;
-}
+/// Recovery state
+typedef struct {
+    const char *stopchars;  ///< Stop characters
+    bool stopafter;         ///< Stop after seeing a stop character, if true
+    bool firstchar;         ///< First character in recovery sequence
+} xml_cb_recover_state_t;
 
 /**
-    Recovery function: read the next left angle bracket.
+    Read condition: recovery until the specified stop character.
 
-    @param h Reader handle
-    @return Always PR_OK (either finds the left bracket or reaches EOF)
-*/
-static prodres_t
-xml_read_until_lt(xml_reader_t *h)
-{
-    xml_read_until(h, xml_cb_lt, NULL);
-    return PR_OK;
-}
-
-/**
-    Read condition: until < (left angle bracket) or ] (right square bracket)
-
-    @param arg Argument (unused)
-    @param cp Codepoint
-    @return UCS4_STOPCHAR if @a cp is left angle bracket, @a cp otherwise
-*/
-static ucs4_t
-xml_cb_lt_or_rbracket(void *arg, ucs4_t cp)
-{
-    return (ucs4_cheq(cp, '<') || ucs4_cheq(cp, ']')) ? UCS4_STOPCHAR : UCS4_NOCHAR;
-}
-
-/**
-    Similar recovery function for internal subset: consume input until
-    the left angle bracket (i.e. next DTD instruction) or right square bracket
-    (i.e. end of internal subset).
-
-    @param h Reader handle
-    @return Always PR_OK (either finds the left bracket or reaches EOF)
-*/
-static prodres_t
-xml_read_until_lt_or_rbracket(xml_reader_t *h)
-{
-    xml_read_until(h, xml_cb_lt_or_rbracket, NULL);
-    return PR_OK;
-}
-
-/**
-    Read condition: until > (right angle bracket); consume the bracket as well.
-
-    @param arg Argument (unused)
+    @param arg Recovery state
     @param cp Codepoint
     @return UCS4_STOPCHAR if @a cp is next char after a right angle bracket,
         @a cp otherwise
 */
 static ucs4_t
-xml_cb_gt(void *arg, ucs4_t cp)
+xml_cb_recover(void *arg, ucs4_t cp)
 {
-    return ucs4_cheq(cp, '>') ? UCS4_NOCHAR | UCS4_LASTCHAR : UCS4_NOCHAR;
+    xml_cb_recover_state_t *st = arg;
+    const char *p;
+
+    for (p = st->stopchars; *p; p++) {
+        if (ucs4_cheq(cp, *p)) {
+            return st->stopafter ? (UCS4_NOCHAR | UCS4_LASTCHAR) : UCS4_STOPCHAR;
+        }
+    }
+    return UCS4_NOCHAR;
 }
 
 /**
-    Recovery function: read until (and including) the next right angle bracket.
+    Recovery function: read until (and including) the next stop character.
+    Ignore the first character (or the recovery may never advance).
 
     @param h Reader handle
-    @return Always PR_OK (either finds the right bracket or reaches EOF)
+    @param stopchars Markup characters that will stop this function
+    @param stopafter If true, stop after the stop 
+    @return Always PR_OK (either finds the stop character or reaches EOF)
 */
 static prodres_t
-xml_read_until_gt(xml_reader_t *h)
+xml_read_recover(xml_reader_t *h, const char *stopchars, bool stopafter)
 {
-    // TBD xml_read_until_recover(xml_reader_t *h, const char *stopchars, bool after)
-    // TBD if the first character matches stopchar, skip to the next one
-    xml_read_until(h, xml_cb_gt, NULL);
+    xml_cb_recover_state_t st;
+
+    st.stopchars = stopchars;
+    st.stopafter = stopafter;
+    st.firstchar = true;
+    xml_read_until(h, xml_cb_recover, &st);
     return PR_OK;
 }
 
@@ -3597,7 +3564,7 @@ xml_parse_PI(xml_reader_t *h)
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                 "Expected PI target here");
-        xml_read_until_gt(h);
+        xml_read_recover(h, ">", true);
         xml_reader_input_unlock_assert(h);
         return PR_OK;
     }
@@ -3620,7 +3587,7 @@ xml_parse_PI(xml_reader_t *h)
     }
     else if (xml_read_string(h, "?>", XMLERR(ERROR, XML, P_PI)) != PR_OK) {
         // Recover by skipping until closing angle bracket
-        xml_read_until_gt(h);
+        xml_read_recover(h, ">", true);
         xml_reader_input_unlock_assert(h);
         return PR_OK;
     }
@@ -3834,7 +3801,7 @@ static prodres_t
 xml_parse_elementdecl(xml_reader_t *h)
 {
     /// @todo Implement
-    xml_read_until(h, xml_cb_gt, NULL);
+    xml_read_recover(h, ">", true);
     return PR_OK;
 }
 
@@ -3861,7 +3828,7 @@ static prodres_t
 xml_parse_AttlistDecl(xml_reader_t *h)
 {
     /// @todo Implement
-    xml_read_until(h, xml_cb_gt, NULL);
+    xml_read_recover(h, ">", true);
     return PR_OK;
 }
 
@@ -4113,7 +4080,7 @@ malformed:
         // Remove the entity from the hash
         xml_entity_delete(h, e);
     }
-    return xml_read_until_gt(h);
+    return xml_read_recover(h, ">", true);
 }
 
 /**
@@ -4196,7 +4163,7 @@ malformed:
         // Remove the notation from the hash
         xml_notation_delete(h, n);
     }
-    return xml_read_until_gt(h);
+    return xml_read_recover(h, ">", true);
 }
 
 /**
@@ -4240,11 +4207,10 @@ xml_parse_whitespace_peref_or_recover(xml_reader_t *h)
     // Recover by skipping to the next angle bracket. If we are already at the
     // angle bracket, then skip to the next one (we didn't recognize the production
     // starting with that angle bracket)
-    // TBD after resolving TBD for unified recovery function, simplify this
     if (ucs4_cheq(h->rejected, '<')) {
-        xml_read_until_gt(h);
+        xml_read_recover(h, ">", true);
     }
-    return xml_read_until_lt_or_rbracket(h);
+    return xml_read_recover(h, "]<", false);
 }
 
 /**
@@ -4301,7 +4267,7 @@ xml_parse_dtd_end(xml_reader_t *h)
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
         // The only case we're attempting recovery in doctypedecl. Restore
         // context for future entities.
-        return xml_read_until_gt(h);
+        return xml_read_recover(h, ">", true);
     }
 
     // We know there's input in the queue, we've just read from it
@@ -4565,7 +4531,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 malformed:
     // Try to recover by reading till end of opening tag. Do not lock the input
     // (as we don't know how broken the markup was).
-    xml_read_until_gt(h);
+    xml_read_recover(h, ">", true);
     xml_reader_input_unlock_assert(h);
     return PR_OK;
 }
@@ -4758,7 +4724,7 @@ xml_parse_ETag(xml_reader_t *h)
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_ETag),
                 "Expected element type");
         xml_reader_input_unlock_assert(h);
-        return xml_read_until_gt(h);
+        return xml_read_recover(h, ">", true);
     }
     xml_tokenbuf_save(h, &h->svtk.name);
 
@@ -4767,7 +4733,7 @@ xml_parse_ETag(xml_reader_t *h)
         // Not terminated properly  - try to recover by skipping until closing bracket
         // TBD looks like it may OOPS here if the input is both unbalanced and malformed
         xml_reader_input_unlock_assert(h);
-        return xml_read_until_gt(h);
+        return xml_read_recover(h, ">", true);
     }
 
     xml_reader_callback_init(h, XML_READER_CB_ETAG, &cbp);
@@ -4797,7 +4763,7 @@ xml_parse_whitespace_or_recover(xml_reader_t *h)
     // Recover by skipping to the next angle bracket
     xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
             "Invalid content at root level");
-    return xml_read_until_lt(h);
+    return xml_read_recover(h, "<", false);
 }
 
 /**
