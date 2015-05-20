@@ -47,8 +47,7 @@ enum {
 /// Or store a pointer from a callback and pass back that pointer whenever that notation is used?
 /// (similar to what I planned for nested stack of elements)
 typedef struct xml_reader_notation_s {
-    const utf8_t *name;                     ///< Notation name
-    size_t namelen;                         ///< Notation name length in bytes
+    xml_reader_token_t name;                ///< Notation name/length
     xml_loader_info_t loader_info;          ///< Loader information for this notation
 } xml_reader_notation_t;
 
@@ -61,14 +60,13 @@ typedef struct {
 
 /// Entity information
 typedef struct xml_reader_entity_s {
-    const utf8_t *name;                     ///< Entity name
-    size_t namelen;                         ///< Entity name length in bytes
+    // TBD get name/length from the key in the hash using container_of() instead of storing it?
+    xml_reader_token_t name;                ///< Entity name/length
     enum xml_reader_reference_e type;       ///< Entity type
     xml_loader_info_t loader_info;          ///< Loader information for this entity
     const char *location;                   ///< How input from this entity will be reported
     xml_reader_notation_t *notation;        ///< Associated notation
     bool being_parsed;                      ///< Recursion detection: this entity is being parsed
-    bool parameter;                         ///< Parameter entity
     const ucs4_t *rplc;                     ///< Replacement text
     size_t rplclen;                         ///< Length of the replacement text in bytes
     xmlerr_loc_t declared;                  ///< Location of the declaration
@@ -251,6 +249,13 @@ typedef struct {
     xml_reader_external_completion_cb_t on_complete;
 } xml_reader_hidden_loader_arg_t;
 
+/// Saved token text
+typedef struct {
+    size_t offset;                  ///< Offset of this token into the token buffer
+    size_t len;                     ///< Size of this token
+    bool reserved;                  ///< True if this token was reserved in the buffer
+} xml_reader_saved_token_t;
+
 /// XML reader structure
 struct xml_reader_s {
     xml_reader_cb_t cb_func;        ///< Callback function
@@ -285,12 +290,22 @@ struct xml_reader_s {
 
     uint32_t nestlvl;               ///< Element nesting level
     uint32_t brokenlocks;           ///< Number of locked inputs forcibly unlocked
+    bool ws;                        ///< In some contexts, we need to know whether we saw whitespace
 
-    utf8_t *tokenbuf;               ///< Token buffer
+    utf8_t *tokenbuf_start;         ///< Start of the allocated token buffer
     utf8_t *tokenbuf_end;           ///< End of the token buffer
-    size_t tokenlen;                ///< Length of the token in the buffer
+    size_t tokenbuf_used;           ///< Length of saved data in token buffer
+    size_t tokenbuf_len;            ///< Length of the current (unsaved) token
 
-    xmlerr_loc_t lastreadloc;       ///< Reader's position at the beginning of last token
+    struct {
+        xml_reader_saved_token_t name;      ///< Object's name
+        xml_reader_saved_token_t value;     ///< Object's value
+        xml_reader_saved_token_t sysid;     ///< Object's system ID
+        xml_reader_saved_token_t pubid;     ///< Object's public ID
+        xml_reader_saved_token_t ndata;     ///< Object's notation data
+    } svtk;                         ///< Saved tokens
+
+    xmlerr_loc_t prodloc;           ///< Reader's position at the start of reportable production
     ucs4_t rejected;                ///< Next character (rejected by xml_read_until_*)
     ucs4_t charrefval;              ///< When parsing character reference: stored value
 
@@ -326,7 +341,7 @@ static const xml_reader_context_t parser_external_subset;
 
 /// Convenience macro: report an error at the start of the last token
 #define xml_reader_message_lastread(h, ...) \
-        xml_reader_message(h, &h->lastreadloc, __VA_ARGS__)
+        xml_reader_message(h, &h->prodloc, __VA_ARGS__)
 
 /// Convenience macro: report an error at current location (i.e. after a lookahead)
 #define xml_reader_message_current(h, ...) \
@@ -462,10 +477,110 @@ xml_reader_set_encoding(xml_reader_external_t *ex, const encoding_t *enc)
 static void
 xml_tokenbuf_realloc(xml_reader_t *h)
 {
-    size_t newsz = 2 * (h->tokenbuf_end - h->tokenbuf);
+    size_t newsz = 2 * (h->tokenbuf_end - h->tokenbuf_start);
 
-    h->tokenbuf = xrealloc(h->tokenbuf, newsz);
-    h->tokenbuf_end = h->tokenbuf + newsz;
+    h->tokenbuf_start = xrealloc(h->tokenbuf_start, newsz);
+    h->tokenbuf_end = h->tokenbuf_start + newsz;
+}
+
+/**
+    Unset a token.
+
+    @param tk Token
+    @return Nothing
+*/
+static inline void
+xml_reader_token_unset(xml_reader_token_t *tk)
+{
+    tk->str = NULL;
+    tk->len = 0;
+}
+
+// TBD: should be gone when loader uses utf8_t
+#define TOKEN_FROM_CHAR(tk, s) do { \
+    (tk)->str = (const unsigned char *)(s); \
+    (tk)->len = s ? strlen(s) : 0; \
+} while (0)
+
+/**
+    Save the current token (reserving that portion of the buffer).
+
+    @param h Reader handle
+    @param svtk Saved token structure to save into
+    @return Nothing
+*/
+static void
+xml_tokenbuf_save(xml_reader_t *h, xml_reader_saved_token_t *svtk)
+{
+    svtk->offset = h->tokenbuf_used;
+    svtk->len = h->tokenbuf_len;
+    svtk->reserved = true;
+    h->tokenbuf_used += h->tokenbuf_len; // TBD reset tokenbuf_used at each production start
+    h->tokenbuf_len = 0;
+}
+
+/**
+    Release a previously saved token (must be the last saved token).
+
+    @param h Reader handle
+    @param svtk Saved token structure. On input, contains the data stored by
+        xml_tokenbuf_save. On output, contains the data for the token being dropped
+        from the token buffer (it is valid until the next read operation).
+    @return Nothing
+*/
+static void
+xml_tokenbuf_release(xml_reader_t *h, xml_reader_saved_token_t *svtk)
+{
+    xml_reader_saved_token_t dropped;
+
+    OOPS_ASSERT(h->tokenbuf_used == svtk->offset + svtk->len); // Last saved?
+    OOPS_ASSERT(svtk->reserved);
+    dropped.reserved = true;
+    dropped.offset = h->tokenbuf_used;
+    dropped.len = h->tokenbuf_len;
+    h->tokenbuf_used = svtk->offset;
+    h->tokenbuf_len = svtk->len;
+    *svtk = dropped;
+}
+
+/**
+    Pass a saved token info to a callback.
+
+    @param h Reader handle
+    @param tk Callback token
+    @return Nothing
+*/
+static void
+xml_tokenbuf_setcbtoken(xml_reader_t *h, const xml_reader_saved_token_t *svtk,
+        xml_reader_token_t *tk)
+{
+    if (svtk->reserved) {
+        tk->str = h->tokenbuf_start + svtk->offset;
+        tk->len = svtk->len;
+    }
+    else {
+        xml_reader_token_unset(tk);
+    }
+}
+
+/**
+    Set loader info from saved tokens.
+
+    @param h Reader handle
+    @param loader_info Loader information to set
+    @return Nothing
+*/
+static void
+xml_tokenbuf_set_loader_info(xml_reader_t *h, xml_loader_info_t *loader_info)
+{
+    if (h->svtk.sysid.reserved) {
+        xml_loader_info_set_system_id(loader_info,
+                h->tokenbuf_start + h->svtk.sysid.offset, h->svtk.sysid.len);
+    }
+    if (h->svtk.pubid.reserved) {
+        xml_loader_info_set_public_id(loader_info,
+                h->tokenbuf_start + h->svtk.pubid.offset, h->svtk.pubid.len);
+    }
 }
 
 /**
@@ -516,7 +631,7 @@ xml_refrplc_store(xml_reader_t *h, ucs4_t cp)
 static xml_reader_input_t *
 xml_reader_input_new(xml_reader_t *h, const char *location)
 {
-    xml_reader_input_t *inp;
+    xml_reader_input_t *inp, *parent;
     strbuf_t *buf;
 
     if ((inp = STAILQ_FIRST(&h->free_input)) != NULL) {
@@ -535,10 +650,12 @@ xml_reader_input_new(xml_reader_t *h, const char *location)
         inp->curloc.src = location;
         inp->curloc.line = 1;
         inp->curloc.pos = 1;
-        h->lastreadloc = inp->curloc;
     }
     else {
-        inp->curloc = h->lastreadloc;
+        // TBD needed? If we save input in xml_reader_process, looks like this is redundant
+        parent = STAILQ_FIRST(&h->active_input);
+        OOPS_ASSERT(parent);
+        inp->curloc = parent->curloc;
     }
 
     STAILQ_INSERT_HEAD(&h->active_input, inp, link);
@@ -571,7 +688,6 @@ xml_reader_input_complete_notify(xml_reader_t *h)
 
     while ((inp = STAILQ_FIRST(&h->completed_input)) != NULL) {
         STAILQ_REMOVE_HEAD(&h->completed_input, link);
-        h->lastreadloc = inp->curloc;
         inp->complete(h, inp->complete_arg);
         STAILQ_INSERT_HEAD(&h->free_input, inp, link);
     }
@@ -787,7 +903,8 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz)
                 // Shouldn't be locking character references...
                 OOPS_ASSERT(inp->entity);
                 // TBD drop e->parameter, use e->type? Have entity type as a bitfield for easy check?
-                if (inp->entity->parameter) {
+                if (inp->entity->type == XML_READER_REF_PE_INTERNAL
+                        || inp->entity->type == XML_READER_REF_PE_EXTERNAL) {
                     xml_reader_message_current(h,
                             XMLERR(ERROR, XML, VC_PROPER_DECL_PE_NESTING),
                             "Fails to parse: parameter entities not properly nested");
@@ -815,24 +932,53 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz)
 }
 
 /**
-    Allocate a new notation.
+    Allocate a new notation in the handle. Use the saved name token as the notation name.
 
-    @param hash Hash with notations
-    @param name Notation name
-    @param namelen Notation name length
+    @param h Reader handle
     @return Newly allocated initialized notation
 */
 static xml_reader_notation_t *
-xml_notation_new(strhash_t *hash, const utf8_t *name, size_t namelen)
+xml_notation_new(xml_reader_t *h)
 {
+    const utf8_t *name = h->tokenbuf_start + h->svtk.name.offset;
+    size_t namelen = h->svtk.name.len;
     xml_reader_notation_t *n;
 
     n = xmalloc(sizeof(xml_reader_notation_t));
     memset(n, 0, sizeof(xml_reader_notation_t));
     xml_loader_info_init(&n->loader_info, NULL, NULL);
-    n->name = strhash_set(hash, name, namelen, n);
-    n->namelen = namelen;
+    n->name.str = strhash_set(h->notations, name, namelen, n);
+    n->name.len = namelen;
     return n;
+}
+
+/**
+    Get notation by the saved token.
+
+    @param h Reader handle
+    @param svtk Saved token with notation name
+    @return Previously defined notation, or NULL if none found.
+*/
+static xml_reader_notation_t *
+xml_notation_get(xml_reader_t *h, const xml_reader_saved_token_t *svtk)
+{
+    const utf8_t *name = h->tokenbuf_start + svtk->offset;
+    size_t namelen = svtk->len;
+
+    return strhash_get(h->notations, name, namelen);
+}
+
+/**
+    Delete a notation.
+
+    @param h Reader handle
+    @param n Notation being deleted
+    @return Nothing
+*/
+static void
+xml_notation_delete(xml_reader_t *h, xml_reader_notation_t *n)
+{
+    strhash_set(h->notations, n->name.str, n->name.len, NULL);
 }
 
 /**
@@ -853,26 +999,72 @@ xml_notation_destroy(void *arg)
 /**
     Allocate a new entity.
 
-    @param ehash Entity hash
-    @param name Entity name
-    @param namelen Entity name length
+    @param h Reader handle
+    @param parameter True if parameter entity is created
     @return Newly allocated initialized entity
 */
 static xml_reader_entity_t *
-xml_entity_new(strhash_t *ehash, const utf8_t *name, size_t namelen)
+xml_entity_new(xml_reader_t *h, bool parameter)
 {
+    strhash_t *ehash = parameter ? h->entities_param : h->entities_gen;
+    const utf8_t *name = h->tokenbuf_start + h->svtk.name.offset;
+    size_t namelen = h->svtk.name.len;
     xml_reader_entity_t *e;
     const char *s;
 
     e = xmalloc(sizeof(xml_reader_entity_t));
     memset(e, 0, sizeof(xml_reader_entity_t));
     xml_loader_info_init(&e->loader_info, NULL, NULL);
-    e->name = strhash_set(ehash, name, namelen, e);
-    e->namelen = namelen;
-    s = utf8_strtolocal(e->name);
+    e->name.str = strhash_set(ehash, name, namelen, e);
+    e->name.len = namelen;
+    s = utf8_strtolocal(e->name.str);
     e->location = xasprintf("entity(%s)", s);
+    e->type = parameter ? XML_READER_REF_PE : XML_READER_REF_GENERAL;
     utf8_strfreelocal(s);
     return e;
+}
+
+/**
+    Get entity by the saved token.
+
+    @param h Reader handle
+    @param svtk Saved token with entity name
+    @return Previously defined notation, or NULL if none found.
+*/
+static xml_reader_entity_t *
+xml_entity_get(xml_reader_t *h, const xml_reader_saved_token_t *svtk, bool parameter)
+{
+    strhash_t *ehash = parameter ? h->entities_param : h->entities_gen;
+    const utf8_t *name = h->tokenbuf_start + svtk->offset;
+    size_t namelen = svtk->len;
+
+    return strhash_get(ehash, name, namelen);
+}
+
+/**
+    Delete an entity.
+
+    @param h Reader handle
+    @param e Entity being deleted
+    @return Nothing
+*/
+static void
+xml_entity_delete(xml_reader_t *h, xml_reader_entity_t *e)
+{
+    strhash_t *ehash;
+   
+    switch (e->type) {
+    case XML_READER_REF_PE:
+    case XML_READER_REF_PE_INTERNAL:
+    case XML_READER_REF_PE_EXTERNAL:
+        ehash = h->entities_param;
+        break;
+    default:
+        ehash = h->entities_gen;
+        break;
+    }
+
+    strhash_set(ehash, e->name.str, e->name.len, NULL);
 }
 
 /**
@@ -890,6 +1082,39 @@ xml_entity_destroy(void *arg)
     xfree(e->rplc);
     xfree(e->location);
     xfree(e);
+}
+
+/**
+    Get unknown entity by the saved token.
+
+    @param h Reader handle
+    @param svtk Saved token with entity name
+    @return Previously defined notation, or NULL if none found.
+*/
+static xml_reader_unknown_entity_t *
+xml_unknown_entity_get(xml_reader_t *h, const xml_reader_saved_token_t *svtk)
+{
+    const utf8_t *name = h->tokenbuf_start + svtk->offset;
+    size_t namelen = svtk->len;
+
+    return strhash_get(h->entities_unknown, name, namelen);
+}
+
+/**
+    Delete an unknown entity record.
+
+    @param h Reader handle
+    @param svtk Saved token with entity name
+    @return Nothing
+*/
+static void
+xml_unknown_entity_delete(xml_reader_t *h, const xml_reader_saved_token_t *svtk)
+{
+    const utf8_t *name = h->tokenbuf_start + svtk->offset;
+    size_t namelen = svtk->len;
+
+    // TBD strhash_delete that doesn't have to lookup using container_of to find item
+    strhash_set(h->entities_unknown, name, namelen, NULL);
 }
 
 /**
@@ -938,11 +1163,11 @@ static const xml_predefined_entity_t predefined_entities[] = {
 /**
     Set the replacement text for pre-defined entities
 
-    @param ehash Entity hash
+    @param h Reader handle
     @return Nothing
 */
 static void
-xml_entity_populate(strhash_t *ehash)
+xml_entity_populate(xml_reader_t *h)
 {
     const xml_predefined_entity_t *predef;
     const char *s;
@@ -950,10 +1175,22 @@ xml_entity_populate(strhash_t *ehash)
     ucs4_t *rplc;
     size_t i, j, nchars;
 
+    // We'll use token buffer, make sure it's empty
+    OOPS_ASSERT(h->tokenbuf_used == 0);
+    OOPS_ASSERT(h->tokenbuf_len == 0);
     for (i = 0, predef = predefined_entities; i < sizeofarray(predefined_entities);
             i++, predef++) {
         s = predef->rplc[0];
-        e = xml_entity_new(ehash, predef->name, predef->namelen);
+        // Entity allocation routine is tailored for allocating from a definition,
+        // emulate that
+        if (predef->namelen + h->tokenbuf_start > h->tokenbuf_end) {
+            xml_tokenbuf_realloc(h);
+        }
+        // Store in the name token
+        memcpy(h->tokenbuf_start, predef->name, predef->namelen);
+        h->svtk.name.offset = 0;
+        h->svtk.name.len = predef->namelen;
+        e = xml_entity_new(h, false);
         e->type = XML_READER_REF_INTERNAL;
         // Only ASCII replacements here, 1 byte per character
         nchars = strlen(s);
@@ -1056,9 +1293,8 @@ xml_reader_new(const xml_reader_options_t *opts)
     h->normalization = opts->normalization;
     h->norm_include = NULL;
 
-    h->tokenbuf = xmalloc(opts->initial_tokenbuf);
-    h->tokenbuf_end = h->tokenbuf + opts->initial_tokenbuf;
-    h->tokenlen = 0;
+    h->tokenbuf_start = xmalloc(opts->initial_tokenbuf);
+    h->tokenbuf_end = h->tokenbuf_start + opts->initial_tokenbuf;
 
     xml_loader_info_init(&h->dtd_loader_info, NULL, NULL);
 
@@ -1074,7 +1310,7 @@ xml_reader_new(const xml_reader_options_t *opts)
     STAILQ_INIT(&h->completed_input);
     STAILQ_INIT(&h->external);
 
-    xml_entity_populate(h->entities_gen);
+    xml_entity_populate(h);
 
     return h;
 }
@@ -1115,7 +1351,7 @@ xml_reader_delete(xml_reader_t *h)
     strhash_destroy(h->entities_unknown);
     strhash_destroy(h->notations);
 
-    xfree(h->tokenbuf);
+    xfree(h->tokenbuf_start);
     xfree(h->ucs4buf);
     xfree(h->refrplc);
     xfree(h);
@@ -1152,16 +1388,33 @@ xml_reader_set_loader(xml_reader_t *h, xml_loader_t func, void *arg)
 }
 
 /**
-    Call a user-registered function for the specified event.
+    Initialize a callback structure.
 
     @param h Reader handle
-    @param cbparam Parameter for the callback
+    @param cbtype Callback type
+    @param cbp Callback parameter structure
     @return None
 */
 static inline void
-xml_reader_invoke_callback(xml_reader_t *h, xml_reader_cbparam_t *cbparam)
+xml_reader_callback_init(xml_reader_t *h, enum xml_reader_cbtype_e cbtype,
+        xml_reader_cbparam_t *cbp)
 {
-    h->cb_func(h->cb_arg, cbparam);
+    memset(cbp, 0, sizeof(*cbp));
+    cbp->cbtype = cbtype;
+    cbp->loc = h->prodloc;
+}
+
+/**
+    Call a user-registered function for the specified event.
+
+    @param h Reader handle
+    @param cbp Callback parameter structure
+    @return None
+*/
+static inline void
+xml_reader_callback_invoke(xml_reader_t *h, xml_reader_cbparam_t *cbp)
+{
+    h->cb_func(h->cb_arg, cbp);
 }
 
 /**
@@ -1201,22 +1454,20 @@ xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
         // Loader didn't create an input
         h->hidden_loader_arg = NULL;
         // Notify the app
-        cbp.cbtype = XML_READER_CB_ENTITY_NOT_LOADED;
-        cbp.loc = h->lastreadloc;
+        xml_reader_callback_init(h, XML_READER_CB_ENTITY_NOT_LOADED, &cbp);
         if (e) {
-            cbp.token.str = e->name;
-            cbp.token.len = e->namelen;
+            cbp.entity.name = e->name;
             cbp.entity.type = e->type;
         }
         else {
             OOPS_ASSERT(ctx); // For non-entity inputs, context must be provided.
-            cbp.token.str = NULL;
-            cbp.token.len = 0;
+            xml_reader_token_unset(&cbp.entity.name);
             cbp.entity.type = ctx->reftype;
         }
-        cbp.entity.system_id = loader_info->system_id;
-        cbp.entity.public_id = loader_info->public_id;
-        xml_reader_invoke_callback(h, &cbp);
+        // TBD make loader use utf8_t (and size?)
+        TOKEN_FROM_CHAR(&cbp.entity.system_id, loader_info->system_id);
+        TOKEN_FROM_CHAR(&cbp.entity.public_id, loader_info->public_id);
+        xml_reader_callback_invoke(h, &cbp);
         if (on_complete) {
             on_complete(h, false);
         }
@@ -1405,31 +1656,27 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
     size_t clen;
     utf8_t *bufptr;
     xru_t rv = XRU_CONTINUE;
-    bool saved_loc = false;
     bool norm_warned;
 
     xml_reader_input_complete_notify(h); // Process any outstanding notifications
 
+    // TBD remove R_NO_TOKEN_RESET - instead, do explicit clear (h->tokenbuf_len = 0) where needed
+    // (will enable merging of TEXT and CDATA callbacks)
+    bufptr = h->tokenbuf_start + h->tokenbuf_used;
     if (h->flags & R_NO_TOKEN_RESET) {
-        bufptr = h->tokenbuf + h->tokenlen;
+        bufptr += h->tokenbuf_len;
     }
     else {
-        bufptr = h->tokenbuf;
-        h->tokenlen = 0;
+        h->tokenbuf_len = 0;
     }
     h->rejected = UCS4_NOCHAR; // Avoid stale data if we exit without looking at next char
 
     do {
         // ... and only if we're not terminating yet, try to get next read pointers
-        rv = xml_reader_input_rptr(h, &begin, &end);
-        inp = STAILQ_FIRST(&h->active_input);
-        if (!saved_loc && inp) {
-            saved_loc = true;
-            h->lastreadloc = inp->curloc;
-        }
-        if (rv != XRU_CONTINUE) {
+        if ((rv = xml_reader_input_rptr(h, &begin, &end)) != XRU_CONTINUE) {
             break;
         }
+        inp = STAILQ_FIRST(&h->active_input);
         ex = inp->external;
         for (ptr = begin;
                 rv == XRU_CONTINUE && ptr < (const ucs4_t *)end;
@@ -1567,12 +1814,12 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
                 clen = utf8_clen(cp);
                 if (bufptr + clen > h->tokenbuf_end) {
                     // Double token storage
-                    offs = bufptr - h->tokenbuf;
+                    offs = bufptr - h->tokenbuf_start;
                     xml_tokenbuf_realloc(h);
-                    bufptr = h->tokenbuf + offs;
+                    bufptr = h->tokenbuf_start + offs;
                 }
                 utf8_store(&bufptr, cp);
-                h->tokenlen += clen;
+                h->tokenbuf_len += clen;
                 if (h->flags & R_SAVE_UCS4) {
                     xml_ucs4_store(h, cp);
                 }
@@ -1931,7 +2178,7 @@ xml_read_termstring(xml_reader_t *h, const xml_termstring_desc_t *ts,
         return PR_NOMATCH;
     }
     // Drop match terminator from token buffer
-    h->tokenlen -= st.term.len;
+    h->tokenbuf_len -= st.term.len;
     return PR_OK;
 }
 
@@ -2050,7 +2297,6 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     xml_cb_charref_state_t st;
     xml_reader_input_t *inp;
     const xml_reference_info_t *ri;
-    xmlerr_loc_t saveloc;           // Report reference at the start character
     xru_t rv;
     ucs4_t startchar = h->rejected;
 
@@ -2064,7 +2310,6 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
         // This may be either entity or character reference
         xml_read_string_assert(h, "&");
         xml_reader_input_lock(h);
-        saveloc = h->lastreadloc;
         if (xml_read_Name(h) == PR_OK) {
             // EntityRef
             *reftype = XML_READER_REF_GENERAL;
@@ -2102,7 +2347,6 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     // (S) rather than Name.
     xml_read_string_assert(h, "%");
     xml_reader_input_lock(h);
-    saveloc = h->lastreadloc;
     if (xml_read_Name(h) == PR_OK) {
         *reftype = XML_READER_REF_PE;
         goto read_content;
@@ -2120,7 +2364,6 @@ read_content:
         goto malformed;
     }
     h->flags &= ~R_NO_INC_NORM;
-    h->lastreadloc = saveloc;
     xml_reader_input_unlock_assert(h);
     return PR_OK;
 
@@ -2132,14 +2375,12 @@ literal_percent:
     xml_reader_input_unlock_assert(h);
     inp = xml_reader_input_new(h, "literal percent sign");
     strbuf_set_input(inp->buf, rplc_percent, sizeof(rplc_percent));
-    inp->curloc = saveloc;
     inp->ignore_references = true;
     return PR_NOMATCH;
 
 malformed:
     h->flags &= ~R_NO_INC_NORM;
     ri = xml_entity_type_info(*reftype);
-    h->lastreadloc = saveloc;
     xml_reader_message_lastread(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
             "Malformed %s reference", ri->desc);
     xml_reader_input_unlock_assert(h);
@@ -2183,15 +2424,13 @@ entity_start(xml_reader_t *h, xml_reader_entity_t *e)
 {
     xml_reader_cbparam_t cbp;
 
-    cbp.cbtype = XML_READER_CB_ENTITY_START;
-    cbp.loc = h->lastreadloc;
-    cbp.token.str = e->name;
-    cbp.token.len = e->namelen;
+    xml_reader_callback_init(h, XML_READER_CB_ENTITY_PARSE_START, &cbp);
     cbp.entity.type = e->type;
-    cbp.entity.system_id = e->loader_info.system_id;
-    cbp.entity.public_id = e->loader_info.public_id;
-    xml_reader_invoke_callback(h, &cbp);
-    e->included = h->lastreadloc;
+    cbp.entity.name = e->name;
+    TOKEN_FROM_CHAR(&cbp.entity.system_id, e->loader_info.system_id);
+    TOKEN_FROM_CHAR(&cbp.entity.public_id, e->loader_info.public_id);
+    xml_reader_callback_invoke(h, &cbp);
+    e->included = h->prodloc;
     e->being_parsed = true;
 }
 
@@ -2208,15 +2447,13 @@ entity_end(xml_reader_t *h, void *arg)
     xml_reader_entity_t *e = arg;
     xml_reader_cbparam_t cbp;
 
-    memset(&cbp, 0, sizeof(cbp));
-    cbp.cbtype = XML_READER_CB_ENTITY_END;
-    cbp.loc = e->included;
-    cbp.token.str = e->name;
-    cbp.token.len = e->namelen;
+    xml_reader_callback_init(h, XML_READER_CB_ENTITY_PARSE_END, &cbp);
+    cbp.loc = e->included; // TBD keep or use h->prodloc?
     cbp.entity.type = e->type;
-    cbp.entity.system_id = e->loader_info.system_id;
-    cbp.entity.public_id = e->loader_info.public_id;
-    xml_reader_invoke_callback(h, &cbp);
+    cbp.entity.name = e->name;
+    TOKEN_FROM_CHAR(&cbp.entity.system_id, e->loader_info.system_id);
+    TOKEN_FROM_CHAR(&cbp.entity.public_id, e->loader_info.public_id);
+    xml_reader_callback_invoke(h, &cbp);
     e->being_parsed = false;
 }
 
@@ -2351,8 +2588,8 @@ reference_bypassed(xml_reader_t *h, xml_reader_entity_t *e)
     // Prepare the replacement text for the reference
     h->refrplclen = 0;
     xml_refrplc_store(h, ucs4_fromlocal('&'));
-    ptr = e->name;
-    end = ptr + e->namelen;
+    ptr = e->name.str;
+    end = ptr + e->name.len;
     while (ptr < end) {
         xml_refrplc_store(h, utf8_load(&ptr));
     }
@@ -2365,8 +2602,8 @@ reference_bypassed(xml_reader_t *h, xml_reader_entity_t *e)
     // it is defined as unparsed
     if (e->type == XML_READER_REF_GENERAL) {
         ue = xmalloc(sizeof(xml_reader_unknown_entity_t));
-        ue->referenced = h->lastreadloc;
-        strhash_set(h->entities_unknown, e->name, e->namelen, ue);
+        ue->referenced = h->prodloc;
+        strhash_set(h->entities_unknown, e->name.str, e->name.len, ue);
     }
 }
 
@@ -2403,14 +2640,10 @@ reference_unknown(xml_reader_t *h, xml_reader_entity_t *e)
 {
     xml_reader_cbparam_t cbp;
 
-    cbp.cbtype = XML_READER_CB_ENTITY_UNKNOWN;
-    cbp.loc = h->lastreadloc;
+    xml_reader_callback_init(h, XML_READER_CB_ENTITY_UNKNOWN, &cbp);
     cbp.entity.type = e->type;
-    cbp.token.str = e->name;
-    cbp.token.len = e->namelen;
-    cbp.entity.system_id = NULL;
-    cbp.entity.public_id = NULL;
-    xml_reader_invoke_callback(h, &cbp);
+    cbp.entity.name = e->name;
+    xml_reader_callback_invoke(h, &cbp);
 }
 
 /**
@@ -2455,19 +2688,16 @@ reference_included_charref(xml_reader_t *h, xml_reader_entity_t *e)
 static xru_t
 xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void *arg)
 {
-    xru_t stopstatus;
     enum xml_reader_reference_e reftype = XML_READER_REF_NONE; // No reference yet
+    xml_reader_saved_token_t lasttoken;
+    xru_t stopstatus;
     xml_reader_entity_t *e;
     xml_reader_entity_t fakeent;
     const char *saved_relevant;
     uint32_t saved_flags;
-    const uint8_t *lasttoken;
-    size_t lastlen, saved_len;
-    bool loc_saved = false; // TBD should be gone after all token-buf changes
-    xmlerr_loc_t lastreadloc; // TBD should be gone
 
     // We'll accumulate text over multiple calls to xml_read_until
-    h->tokenlen = 0;
+    h->tokenbuf_len = 0;
     h->flags |= R_NO_TOKEN_RESET;
 
     saved_flags = h->flags;
@@ -2484,17 +2714,12 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
             h->flags |= refops->flags;
             stopstatus = xml_read_until(h, refops->condread, arg);
             h->flags = saved_flags;
-            if (!loc_saved) {
-                loc_saved = true;
-                lastreadloc = h->lastreadloc;
-            }
         } while (stopstatus == XRU_INPUT_BOUNDARY);
 
         if (stopstatus != XRU_REFERENCE) {
             h->relevant = NULL;
             h->flags &= ~R_NO_TOKEN_RESET;
             if (refops->textblock) {
-                h->lastreadloc = lastreadloc;
                 refops->textblock(arg);
             }
             return stopstatus; // Saw the terminating condition or EOF
@@ -2504,36 +2729,27 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         // itself is not a relevant construct (although Name production inside it,
         // if it is an entity reference, is).
         saved_relevant = h->relevant;
-        saved_len = h->tokenlen;
         h->relevant = NULL;
+        xml_tokenbuf_save(h, &lasttoken);
         if (xml_parse_reference(h, &reftype) != PR_OK) {
             // This may or may not be error: PR_NOMATCH may mean that it just wasn't a PE
             // reference despite having started with a percent sign.  If it is an error,
             // no recovery - just interpret anything after error as plain text.
             // No need to restore h->relevant, will be reset anyway in the above loop
-            h->tokenlen = saved_len;
+            xml_tokenbuf_release(h, &lasttoken);
             continue;
         }
         h->relevant = saved_relevant;
 
         // Save current token (entity name) into lasttoken/lastlen and restore buffer
         // to the state before parsing the reference.
-        lasttoken = h->tokenbuf + saved_len;
-        lastlen = h->tokenlen - saved_len;
-        h->tokenlen = saved_len;
+        xml_tokenbuf_release(h, &lasttoken);
 
         e = NULL;
         switch (reftype) {
         case XML_READER_REF_GENERAL:
-            // Clarify the type
-            if ((e = strhash_get(h->entities_gen, lasttoken, lastlen)) == NULL) {
-                goto unknown_entity;
-            }
-            reftype = e->type;
-            break;
-
         case XML_READER_REF_PE:
-            if ((e = strhash_get(h->entities_param, lasttoken, lastlen)) == NULL) {
+            if ((e = xml_entity_get(h, &lasttoken, reftype == XML_READER_REF_PE)) == NULL) {
                 goto unknown_entity;
             }
             reftype = e->type;
@@ -2542,8 +2758,7 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         unknown_entity:
             /* Create a fake entity record */
             memset(&fakeent, 0, sizeof(fakeent));
-            fakeent.name = lasttoken;
-            fakeent.namelen = lastlen;
+            xml_tokenbuf_setcbtoken(h, &lasttoken, &fakeent.name);
             fakeent.type = reftype;
             e = &fakeent;
             break;
@@ -2664,16 +2879,8 @@ xml_parse_whitespace_conditional(xml_reader_t *h)
 static void
 textblock_append_common(xml_reader_t *h, bool ws)
 {
-    xml_reader_cbparam_t cbp;
-
-    if (h->tokenlen) {
-        cbp.cbtype = XML_READER_CB_APPEND;
-        cbp.loc = h->lastreadloc;
-        cbp.token.str = h->tokenbuf;
-        cbp.token.len = h->tokenlen;
-        cbp.append.ws = ws;
-        xml_reader_invoke_callback(h, &cbp);
-    }
+    xml_tokenbuf_save(h, &h->svtk.value);
+    h->ws = ws;
 }
 
 /// Callback state for literal reading
@@ -2910,8 +3117,8 @@ static void
 check_VersionInfo(xml_reader_external_t *ex)
 {
     xml_reader_t *h = ex->h;
-    const utf8_t *str = h->tokenbuf;
-    size_t sz = h->tokenlen;
+    const utf8_t *str = h->tokenbuf_start + h->tokenbuf_used;
+    size_t sz = h->tokenbuf_len;
     size_t i;
 
     if (sz == 3) {
@@ -2969,9 +3176,9 @@ static void
 check_EncName(xml_reader_external_t *ex)
 {
     xml_reader_t *h = ex->h;
-    const utf8_t *str = h->tokenbuf;
+    const utf8_t *str = h->tokenbuf_start + h->tokenbuf_used;
     const utf8_t *s;
-    size_t sz = h->tokenlen;
+    size_t sz = h->tokenbuf_len;
     size_t i;
 
     for (i = 0, s = str; i < sz; i++, s++) {
@@ -3014,8 +3221,8 @@ static void
 check_SD_YesNo(xml_reader_external_t *ex)
 {
     xml_reader_t *h = ex->h;
-    const utf8_t *str = h->tokenbuf;
-    size_t sz = h->tokenlen;
+    const utf8_t *str = h->tokenbuf_start + h->tokenbuf_used;
+    size_t sz = h->tokenbuf_len;
 
     // Standalone status applies to the whole document and can only be set
     // in XMLDecl (i.e., in document entity).
@@ -3103,10 +3310,6 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     // We know it's there, checked above
     xml_read_string_assert(h, "<?xml");
     xml_reader_input_lock(h);
-    cbp.cbtype = XML_READER_CB_XMLDECL;
-    cbp.token.str = NULL;
-    cbp.token.len = 0;
-    cbp.loc = h->lastreadloc;
 
     while (true) {
         had_ws = xml_parse_whitespace(h) == PR_OK;
@@ -3130,8 +3333,11 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
         // Go through the remaining attributes and see if this one is known
         // (and if we skipped any mandatory attributes while advancing).
         while (attrlist->name) {
-            if (h->tokenlen == strlen(attrlist->name)
-                    && utf8_eqn(h->tokenbuf, attrlist->name, h->tokenlen)) {
+            // TBD also report raw tokens in callback? Then save tokens here, also makes
+            // the expressions (h->tokenbuf_*) simpler
+            if (h->tokenbuf_len == strlen(attrlist->name)
+                    && utf8_eqn(h->tokenbuf_start + h->tokenbuf_used,
+                        attrlist->name, h->tokenbuf_len)) {
                 break; // Yes, that is what we expect
             }
             if (attrlist->mandatory) {
@@ -3177,19 +3383,16 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
         attrlist++;
     }
 
-    // Secret knowledge: xml_reader_start() will do some further checks
-    // that involve XMLDecl; we want them reported at the start of the
-    // declaration. Pass it back via h->lastreadloc.
-    h->lastreadloc = cbp.loc;
-
     // Emit an event (callback) for XML declaration
+    // TBD emit raw events?
+    xml_reader_callback_init(h, XML_READER_CB_XMLDECL, &cbp);
     cbp.xmldecl.encoding = h->current_external->enc_declared;
     cbp.xmldecl.version = h->current_external->version;
     cbp.xmldecl.standalone = h->standalone; // TBD do away with XML declaration reporting? doesn't seem
                                             // to have any value for consumer, and standalone status
                                             // does not make sense except in doc entity. Instead,
                                             // provide interfaces to query it via API
-    xml_reader_invoke_callback(h, &cbp);
+    xml_reader_callback_invoke(h, &cbp);
     xml_reader_input_unlock_assert(h);
 
     return PR_OK;
@@ -3201,28 +3404,22 @@ malformed: // Any fatal malformedness: report location where actual error was
     return PR_FAIL;
 }
 
-/// State of CharData parser
-typedef struct {
-    xml_reader_t *h;        ///< Reader handle
-    bool ws;                ///< True if parsed token only has whitespace
-} cb_CharData_t;
-
 /**
     Callback to find the end of the character data.
 
-    @param arg CharData parser state
+    @param arg Reader handle cast to void pointer
     @param cp Current codepoint
     @return Nothing
 */
 static ucs4_t
 xml_cb_CharData(void *arg, ucs4_t cp)
 {
-    cb_CharData_t *st = arg;
+    xml_reader_t *h = arg;
 
     // TBD: need to check if the content matches ']]>' token and raise an error if it does
-    if (!ucs4_cheq(cp, '<') || STAILQ_FIRST(&st->h->active_input)->charref) {
-        if (st->ws && !xml_is_whitespace(cp)) {
-            st->ws = false;
+    if (!ucs4_cheq(cp, '<') || STAILQ_FIRST(&h->active_input)->charref) {
+        if (h->ws && !xml_is_whitespace(cp)) {
+            h->ws = false;
         }
         return cp;
     }
@@ -3238,9 +3435,9 @@ xml_cb_CharData(void *arg, ucs4_t cp)
 static void
 textblock_append_CharData(void *arg)
 {
-    cb_CharData_t *st = arg;
+    xml_reader_t *h = arg;
 
-    textblock_append_common(st->h, st->ws);
+    textblock_append_common(h, h->ws);
 }
 
 /// Virtual methods for reading CharData production
@@ -3274,11 +3471,14 @@ static const xml_reference_ops_t reference_ops_CharData = {
 static prodres_t
 xml_parse_CharData(xml_reader_t *h)
 {
-    cb_CharData_t st;
+    xml_reader_cbparam_t cbp;
 
-    st.h = h;
-    st.ws = true; // Until we've seen anything but
-    (void)xml_read_until_parseref(h, &reference_ops_CharData, &st);
+    h->ws = true;
+    (void)xml_read_until_parseref(h, &reference_ops_CharData, h);
+    xml_reader_callback_init(h, XML_READER_CB_TEXT, &cbp);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.text.text);
+    cbp.text.ws = h->ws;
+    xml_reader_callback_invoke(h, &cbp);
     return PR_OK;
 }
 
@@ -3337,8 +3537,6 @@ xml_parse_Comment(xml_reader_t *h)
 
     xml_read_string_assert(h, "<!--");
     xml_reader_input_lock(h);
-    cbp.cbtype = XML_READER_CB_COMMENT;
-    cbp.loc = h->lastreadloc;
 
     cbh.h = h;
     cbh.warned = false;
@@ -3349,9 +3547,12 @@ xml_parse_Comment(xml_reader_t *h)
         xml_reader_input_unlock_assert(h);
         return PR_STOP;
     }
-    cbp.token.str = h->tokenbuf;
-    cbp.token.len = h->tokenlen;
-    xml_reader_invoke_callback(h, &cbp);
+    xml_tokenbuf_save(h, &h->svtk.value);
+
+    xml_reader_callback_init(h, XML_READER_CB_COMMENT, &cbp);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.comment.text);
+    xml_reader_callback_invoke(h, &cbp);
+
     xml_reader_input_unlock_assert(h);
     return PR_OK;
 }
@@ -3389,8 +3590,7 @@ xml_parse_PI(xml_reader_t *h)
 
     xml_read_string_assert(h, "<?");
     xml_reader_input_lock(h);
-    cbp.cbtype = XML_READER_CB_PI_TARGET;
-    cbp.loc = h->lastreadloc;
+
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                 "Expected PI target here");
@@ -3398,27 +3598,14 @@ xml_parse_PI(xml_reader_t *h)
         xml_reader_input_unlock_assert(h);
         return PR_OK;
     }
+    xml_tokenbuf_save(h, &h->svtk.name);
     /// @todo Check for XML-reserved names ([Xx][Mm][Ll]*)
-
-    // "The XML Notation mechanism may be used for formal declaration of PI targets"
-    // If it was, report notation's system and public IDs.
-    cbp.token.str = h->tokenbuf;
-    cbp.token.len = h->tokenlen;
-    n = strhash_get(h->notations, h->tokenbuf, h->tokenlen);
-    cbp.ndata.public_id = n ? n->loader_info.public_id : NULL;
-    cbp.ndata.system_id = n ? n->loader_info.system_id : NULL;
-    xml_reader_invoke_callback(h, &cbp);
 
     // Content, if any, must be separated by a whitespace
     if (xml_parse_whitespace(h) == PR_OK) {
         // Whitespace; everything up to closing ?> is the content
         if (xml_read_termstring(h, &termstring_pi, NULL, NULL) == PR_OK) {
-            cbp.cbtype = XML_READER_CB_PI_CONTENT;
-            cbp.token.str = h->tokenbuf;
-            cbp.token.len = h->tokenlen;
-            xml_reader_invoke_callback(h, &cbp);
-            xml_reader_input_unlock_assert(h);
-            return PR_OK;
+            xml_tokenbuf_save(h, &h->svtk.value);
         }
         else {
             // no need to recover (EOF)
@@ -3428,15 +3615,27 @@ xml_parse_PI(xml_reader_t *h)
             return PR_STOP;
         }
     }
-    else if (xml_read_string(h, "?>", XMLERR(ERROR, XML, P_PI)) == PR_OK) {
-        // We could only have closing ?> if there's no whitespace after PI target.
-        // There is no content in this case.
+    else if (xml_read_string(h, "?>", XMLERR(ERROR, XML, P_PI)) != PR_OK) {
+        // Recover by skipping until closing angle bracket
+        xml_read_until_gt(h);
         xml_reader_input_unlock_assert(h);
         return PR_OK;
     }
 
-    // Recover by skipping until closing angle bracket
-    xml_read_until_gt(h);
+    xml_reader_callback_init(h, XML_READER_CB_PI, &cbp);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.pi.target);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.pi.content);
+
+    // "The XML Notation mechanism may be used for formal declaration of PI targets"
+    // If it was, report notation's system and public IDs.
+    if ((n = xml_notation_get(h, &h->svtk.name)) != NULL) {
+        TOKEN_FROM_CHAR(&cbp.pi.nsystem_id, n->loader_info.system_id);
+        TOKEN_FROM_CHAR(&cbp.pi.npublic_id, n->loader_info.public_id);
+    }
+    xml_reader_callback_invoke(h, &cbp);
+
+    // We could only have closing ?> if there's no whitespace after PI target.
+    // There is no content in this case.
     xml_reader_input_unlock_assert(h);
     return PR_OK;
 }
@@ -3517,8 +3716,6 @@ xml_parse_CDSect(xml_reader_t *h)
     h->flags &= ~R_NO_INC_NORM;
 
     xml_reader_input_lock(h);
-    cbp.cbtype = XML_READER_CB_CDSECT;
-    cbp.loc = h->lastreadloc;
 
     // Starting CData - which is relevant construct
     h->relevant = "CData";
@@ -3534,10 +3731,13 @@ xml_parse_CDSect(xml_reader_t *h)
     }
     h->flags &= ~R_NO_INC_NORM; // Set in callback when parsing closing markup
     h->relevant = NULL;
-    cbp.token.str = h->tokenbuf;
-    cbp.token.len = h->tokenlen;
-    cbp.append.ws = false;
-    xml_reader_invoke_callback(h, &cbp);
+    xml_tokenbuf_save(h, &h->svtk.value);
+
+    xml_reader_callback_init(h, XML_READER_CB_CDSECT, &cbp);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.text.text);
+    cbp.text.ws = false;
+    xml_reader_callback_invoke(h, &cbp);
+
     xml_reader_input_unlock_assert(h);
     return PR_OK;
 }
@@ -3549,17 +3749,13 @@ xml_parse_CDSect(xml_reader_t *h)
     @param h Reader handle
     @param allowed_PublicID If true, PublicID production is allowed. In that case, this
         function may also consume the whitespace following the PubidLiteral.
-    @param loader_info If non-NULL, points to the structure where system/public ID copies
-        will be saved
     @return PR_OK if parsed either of these productions; PR_FAIL if parsing error was
         detected or PR_NOMATCH if there was no whitespace or it was not followed by 'S'
         or 'P' characters. In case of PR_NOMATCH, whitespace is consumed.
 */
 static prodres_t
-xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
-        xml_loader_info_t *loader_info)
+xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID)
 {
-    xml_reader_cbparam_t cbp;
     bool has_public_id = false;
 
     // 'SYSTEM' ... or 'PUBLIC' ...
@@ -3588,15 +3784,7 @@ xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
         if (xml_parse_literal(h, &reference_ops_PubidLiteral) != PR_OK) {
             return PR_FAIL;
         }
-        if (loader_info) {
-            xml_loader_info_set_public_id(loader_info,
-                    h->tokenbuf, h->tokenlen);
-        }
-        cbp.cbtype = XML_READER_CB_PUBID;
-        cbp.loc = h->lastreadloc;
-        cbp.token.str = h->tokenbuf;
-        cbp.token.len = h->tokenlen;
-        xml_reader_invoke_callback(h, &cbp);
+        xml_tokenbuf_save(h, &h->svtk.pubid);
     }
 
     // System ID is always allowed (though may not be always present, i.e. in notation declaration)
@@ -3619,15 +3807,7 @@ xml_parse_ExternalID(xml_reader_t *h, bool allowed_PublicID,
     if (xml_parse_literal(h, &reference_ops_SystemLiteral) != PR_OK) {
         return PR_FAIL;
     }
-    if (loader_info) {
-        xml_loader_info_set_system_id(loader_info,
-                h->tokenbuf, h->tokenlen);
-    }
-    cbp.cbtype = XML_READER_CB_SYSID;
-    cbp.loc = h->lastreadloc;
-    cbp.token.str = h->tokenbuf;
-    cbp.token.len = h->tokenlen;
-    xml_reader_invoke_callback(h, &cbp);
+    xml_tokenbuf_save(h, &h->svtk.sysid);
     return PR_OK;
 }
 
@@ -3706,10 +3886,9 @@ xml_parse_EntityDecl(xml_reader_t *h)
     xml_reader_cbparam_t cbp;
     xml_reader_unknown_entity_t *ue = NULL;
     xml_reader_entity_t *e = NULL;
-    xml_reader_notation_t *n;
+    xml_reader_notation_t *n = NULL;
     xml_reader_entity_t *eold;
     const xml_predefined_entity_t *predef;
-    strhash_t *ehash = h->entities_gen;
     bool parameter = false;
     size_t i, j;
     const char *s;
@@ -3719,8 +3898,6 @@ xml_parse_EntityDecl(xml_reader_t *h)
     // TBD use lock/unlock and check unlock's retval for proper nesting
     // ['<!ENTITY' S]
     xml_read_string_assert(h, "<!ENTITY");
-    cbp.cbtype = XML_READER_CB_ENTITY_DEF_START;
-    cbp.loc = h->lastreadloc;
 
     h->flags |= R_AMBIGUOUS_PERCENT;
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
@@ -3734,7 +3911,6 @@ xml_parse_EntityDecl(xml_reader_t *h)
     // If ['%' S] follows, it is a parameter entity
     if (ucs4_cheq(h->rejected, '%')) {
         xml_read_string_assert(h, "%");
-        ehash = h->entities_param;
         parameter = true;
         if (xml_parse_whitespace_conditional(h) != PR_OK) {
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
@@ -3750,6 +3926,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
                 "Expect entity name here");
         goto malformed;
     }
+    xml_tokenbuf_save(h, &h->svtk.name);
 
     // If the same entity is declared more than once, the first declaration encountered
     // is binding; at user option, an XML processor MAY issue a warning if entities are
@@ -3757,7 +3934,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     // ...
     //  For interoperability, valid XML documents SHOULD declare these [predefined]
     // entities, like any others, before using them.
-    if ((eold = strhash_get(ehash, h->tokenbuf, h->tokenlen)) != NULL) {
+    if ((eold = xml_entity_get(h, &h->svtk.name, parameter)) != NULL) {
         // We have a previous definition. If it is predefined, we'll verify validity
         // of the replacement text later; predefined entities may be re-declared once
         // by the document without warning. 
@@ -3773,22 +3950,15 @@ xml_parse_EntityDecl(xml_reader_t *h)
     }
     else {
         predef = NULL;
-        e = xml_entity_new(ehash, h->tokenbuf, h->tokenlen);
-        e->declared = cbp.loc;
-        e->parameter = parameter;
+        e = xml_entity_new(h, parameter);
+        e->declared = h->prodloc;
 
         // Check if this general entity was referenced previously. If it was, it must not
-        // be defined as unparsed entity. In any case, do not need to check it afterwards.
+        // be defined as unparsed entity.
         if (!parameter) {
-            ue = strhash_get(h->entities_unknown, h->tokenbuf, h->tokenlen);
+            ue = xml_unknown_entity_get(h, &h->svtk.name);
         }
     }
-
-
-    cbp.token.str = h->tokenbuf;
-    cbp.token.len = h->tokenlen;
-    cbp.entitydef.parameter = parameter;
-    xml_reader_invoke_callback(h, &cbp);
 
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
@@ -3798,8 +3968,12 @@ xml_parse_EntityDecl(xml_reader_t *h)
 
     // This may be followed by either [ExternalID], [ExternalID NDataDecl]
     // (only for general entities) or [EntityValue]
-    switch ((rv = xml_parse_ExternalID(h, false, e ? &e->loader_info : NULL))) {
+    switch ((rv = xml_parse_ExternalID(h, false))) {
     case PR_OK:
+        if (e) {
+            xml_tokenbuf_set_loader_info(h, &e->loader_info);
+        }
+
         // Predefined entities cannot be declared as external entities:
         // "If the entities [...] are declared, they MUST be declared as internal entities..."
         if (eold && eold->predef) {
@@ -3823,7 +3997,8 @@ xml_parse_EntityDecl(xml_reader_t *h)
                             "Expect notation name here");
                     goto malformed;
                 }
-                if ((n = strhash_get(h->notations, h->tokenbuf,  h->tokenlen)) == NULL) {
+                xml_tokenbuf_save(h, &h->svtk.ndata);
+                if ((n = xml_notation_get(h, &h->svtk.ndata)) == NULL) {
                     xml_reader_message_lastread(h, XMLERR(ERROR, XML, VC_NOTATION_DECLARED),
                             "Notation must be declared");
                     goto malformed;
@@ -3838,13 +4013,6 @@ xml_parse_EntityDecl(xml_reader_t *h)
                                 "This is the location of the reference");
                     }
                 }
-                cbp.cbtype = XML_READER_CB_NDATA;
-                cbp.loc = h->lastreadloc;
-                cbp.token.str = h->tokenbuf;
-                cbp.token.len = h->tokenlen;
-                cbp.ndata.system_id = n->loader_info.system_id;
-                cbp.ndata.public_id = n->loader_info.public_id;
-                xml_reader_invoke_callback(h, &cbp);
             }
             else {
                 if (e) {
@@ -3866,6 +4034,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
         if (xml_parse_literal(h, h->ctx->entity_value_parser) != PR_OK) {
             goto malformed;
         }
+        xml_tokenbuf_save(h, &h->svtk.value);
         if (predef) {
             // Predefined entity: the definition must be compatible
             /// @todo Some function to compare UCS-4 string to local string? Or use UCS-4 in array
@@ -3915,19 +4084,31 @@ compatible:
     }
     if (ue) {
         // This entity is now known
-        strhash_set(h->entities_unknown, e->name, e->namelen, NULL);
+        xml_unknown_entity_delete(h, &h->svtk.name);
     }
-    cbp.cbtype = XML_READER_CB_ENTITY_DEF_END;
-    cbp.loc = h->lastreadloc;
-    cbp.token.str = NULL;
-    cbp.token.len = 0;
-    xml_reader_invoke_callback(h, &cbp);
+
+    if (e) {
+        // No callbacks for redefinitions - first definition is binding
+        xml_reader_callback_init(h, XML_READER_CB_ENTITY_DEF, &cbp);
+        cbp.entity.type = e->type;
+        xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.entity.name);
+        xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.entity.text);
+        xml_tokenbuf_setcbtoken(h, &h->svtk.sysid, &cbp.entity.system_id);
+        xml_tokenbuf_setcbtoken(h, &h->svtk.pubid, &cbp.entity.public_id);
+        xml_tokenbuf_setcbtoken(h, &h->svtk.ndata, &cbp.entity.ndata);
+        if (n) {
+            TOKEN_FROM_CHAR(&cbp.entity.nsystem_id, n->loader_info.system_id);
+            TOKEN_FROM_CHAR(&cbp.entity.npublic_id, n->loader_info.public_id);
+        }
+        xml_reader_callback_invoke(h, &cbp);
+    }
+
     return PR_OK;
 
 malformed:
     if (e) {
         // Remove the entity from the hash
-        strhash_set(ehash, e->name, e->namelen, NULL);
+        xml_entity_delete(h, e);
     }
     return xml_read_until_gt(h);
 }
@@ -3953,8 +4134,6 @@ xml_parse_NotationDecl(xml_reader_t *h)
 
     // TBD use lock/unlock and check unlock's retval for proper nesting
     xml_read_string_assert(h, "<!NOTATION");
-    cbp.cbtype = XML_READER_CB_NOTATION_DEF_START;
-    cbp.loc = h->lastreadloc;
 
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_NotationDecl),
@@ -3966,15 +4145,13 @@ xml_parse_NotationDecl(xml_reader_t *h)
                 "Expect notation name here");
         goto malformed;
     }
-    if (strhash_get(h->notations, h->tokenbuf, h->tokenlen) != NULL) {
+    xml_tokenbuf_save(h, &h->svtk.name);
+    if (xml_notation_get(h, &h->svtk.name) != NULL) {
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, VC_UNIQUE_NOTATION_NAME),
                 "Given Name must not be declared in more than one notation declaration");
         goto malformed;
     }
-    n = xml_notation_new(h->notations, h->tokenbuf, h->tokenlen);
-    cbp.token.str = h->tokenbuf;
-    cbp.token.len = h->tokenlen;
-    xml_reader_invoke_callback(h, &cbp);
+    n = xml_notation_new(h);
 
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
@@ -3982,8 +4159,9 @@ xml_parse_NotationDecl(xml_reader_t *h)
         goto malformed;
     }
 
-    switch ((rv = xml_parse_ExternalID(h, true, &n->loader_info))) {
+    switch ((rv = xml_parse_ExternalID(h, true))) {
     case PR_OK:
+        xml_tokenbuf_set_loader_info(h, &n->loader_info);
         break;
 
     case PR_NOMATCH:
@@ -4003,17 +4181,17 @@ xml_parse_NotationDecl(xml_reader_t *h)
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_NotationDecl)) != PR_OK) {
         goto malformed;
     }
-    cbp.cbtype = XML_READER_CB_NOTATION_DEF_END;
-    cbp.loc = h->lastreadloc;
-    cbp.token.str = NULL;
-    cbp.token.len = 0;
-    xml_reader_invoke_callback(h, &cbp);
+    xml_reader_callback_init(h, XML_READER_CB_NOTATION_DEF, &cbp);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.notation.name);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.sysid, &cbp.notation.system_id);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.pubid, &cbp.notation.public_id);
+    xml_reader_callback_invoke(h, &cbp);
     return PR_OK;
 
 malformed:
     if (n) {
         // Remove the notation from the hash
-        strhash_set(h->notations, n->name, n->namelen, NULL);
+        xml_notation_delete(h, n);
     }
     return xml_read_until_gt(h);
 }
@@ -4100,14 +4278,8 @@ xml_dtd_on_complete(xml_reader_t *h, bool loaded)
     xml_reader_cbparam_t cbp;
 
     strhash_foreach(h->entities_unknown, xml_unknown_entity, h);
-
-    cbp.cbtype = XML_READER_CB_DTD_END;
-    cbp.loc = STAILQ_FIRST(&h->active_input)->curloc;
-    cbp.token.str = NULL,
-    cbp.token.len = 0;
-
-    // Signal the end of DTD parsing
-    xml_reader_invoke_callback(h, &cbp);
+    xml_reader_callback_init(h, XML_READER_CB_DTD_END, &cbp);
+    xml_reader_callback_invoke(h, &cbp);
 }
 
 /**
@@ -4128,7 +4300,7 @@ xml_parse_dtd_end(xml_reader_t *h)
     }
 
     // We know there's input in the queue, we've just read from it
-    h->lastreadloc = STAILQ_FIRST(&h->active_input)->curloc;
+    h->prodloc = STAILQ_FIRST(&h->active_input)->curloc; // TBD keep?
 
     if (xml_loader_info_isset(&h->dtd_loader_info)) {
         // TBD should have a ENTITY_START message here or in invoke_loader for DTD/main doc.
@@ -4154,7 +4326,12 @@ xml_parse_dtd_end(xml_reader_t *h)
 static prodres_t
 xml_end_internal_subset(xml_reader_t *h)
 {
+    xml_reader_cbparam_t cbp;
+
     xml_read_string_assert(h, "]");
+    xml_reader_callback_init(h, XML_READER_CB_DTD_END_INTERNAL, &cbp);
+    xml_reader_callback_invoke(h, &cbp);
+
     h->ctx = &parser_document_entity;
     return xml_parse_dtd_end(h);
 }
@@ -4276,8 +4453,6 @@ xml_parse_doctypedecl(xml_reader_t *h)
 
     // Common part: '<!DOCTYPE' S Name
     xml_read_string_assert(h, "<!DOCTYPE");
-    cbp.cbtype = XML_READER_CB_DTD_BEGIN;
-    cbp.loc = h->lastreadloc;
 
     // DTD allowed only once and only before the root element
     if (h->flags & (R_HAS_DTD|R_HAS_ROOT)) {
@@ -4296,26 +4471,29 @@ xml_parse_doctypedecl(xml_reader_t *h)
                 "Expect root element type here");
         return PR_FAIL;
     }
-    cbp.token.str = h->tokenbuf;
-    cbp.token.len = h->tokenlen;
-    xml_reader_invoke_callback(h, &cbp);
+    xml_tokenbuf_save(h, &h->svtk.name);
 
     if (xml_parse_whitespace(h) == PR_OK) {
-        rv = xml_parse_ExternalID(h, false, &h->dtd_loader_info);
-        if (rv != PR_OK && rv != PR_NOMATCH) {
-            return rv; // See above: no recovery
+        rv = xml_parse_ExternalID(h, false);
+        if (rv == PR_FAIL) {
+            return PR_FAIL; // See above: no recovery
+        }
+        else if (rv == PR_OK) {
+            xml_tokenbuf_set_loader_info(h, &h->dtd_loader_info);
         }
     }
+
+    xml_reader_callback_init(h, XML_READER_CB_DTD_BEGIN, &cbp);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.dtd.root);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.sysid, &cbp.dtd.system_id);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.pubid, &cbp.dtd.public_id);
+    xml_reader_callback_invoke(h, &cbp);
 
     // Ignore optional whitespace before internal subset
     (void)xml_parse_whitespace(h);
     if (ucs4_cheq(h->rejected, '[')) {
         // Internal subset: '[' intSubset ']'
         xml_read_string_assert(h, "[");
-        cbp.cbtype = XML_READER_CB_DTD_INTERNAL;
-        cbp.token.str = NULL,
-        cbp.token.len = 0;
-        xml_reader_invoke_callback(h, &cbp);
 
         // Will continue parsing the declaration with internal subset context
         // Any external entities therein are interpreted as external parameter
@@ -4347,13 +4525,9 @@ static prodres_t
 xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
-    bool had_ws;
-    bool is_empty;
 
     xml_read_string_assert(h, "<");
     xml_reader_input_lock(h);
-    cbp.cbtype = XML_READER_CB_STAG;
-    cbp.loc = h->lastreadloc;
 
     // Check the document production: at the top level, only one element is allowed
     if (!h->nestlvl) {
@@ -4372,11 +4546,19 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
                 "Expected element type");
         goto malformed;
     }
+    xml_tokenbuf_save(h, &h->svtk.name);
 
     // Notify the application that a new element has started
-    cbp.token.str = h->tokenbuf;
-    cbp.token.len = h->tokenlen;
-    xml_reader_invoke_callback(h, &cbp);
+    xml_reader_callback_init(h, XML_READER_CB_STAG, &cbp);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.tag.name);
+    xml_reader_callback_invoke(h, &cbp);
+
+    // Consume whitespace, if any, and pass that info to further parsers
+    h->ws = xml_parse_whitespace(h) == PR_OK;
+    return PR_OK;
+
+#if 0 // TBD switch to attribute/end-of-tag parser context
+    bool is_empty, had_ws;
 
     while (true) {
         had_ws = xml_parse_whitespace(h) == PR_OK;
@@ -4431,6 +4613,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     xml_reader_invoke_callback(h, &cbp);
     // Do not unlock until a matching ETag
     return PR_OK;
+#endif
 
 malformed:
     // Try to recover by reading till end of opening tag. Do not lock the input
@@ -4459,8 +4642,6 @@ xml_parse_ETag(xml_reader_t *h)
 
     xml_read_string_assert(h, "</");
     // Locked by STag
-    cbp.cbtype = XML_READER_CB_ETAG;
-    cbp.loc = h->lastreadloc;
     if (xml_read_Name(h) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_ETag),
@@ -4468,17 +4649,19 @@ xml_parse_ETag(xml_reader_t *h)
         xml_reader_input_unlock_assert(h);
         return xml_read_until_gt(h);
     }
-
-    cbp.token.str = h->tokenbuf;
-    cbp.token.len = h->tokenlen;
-    xml_reader_invoke_callback(h, &cbp);
+    xml_tokenbuf_save(h, &h->svtk.name);
 
     (void)xml_parse_whitespace(h); // optional whitespace
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag)) != PR_OK) {
         // Not terminated properly  - try to recover by skipping until closing bracket
+        // TBD looks like it may OOPS here if the input is both unbalanced and malformed
         xml_reader_input_unlock_assert(h);
         return xml_read_until_gt(h);
     }
+
+    xml_reader_callback_init(h, XML_READER_CB_ETAG, &cbp);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.tag.name);
+    xml_reader_callback_invoke(h, &cbp);
 
     if (!xml_reader_input_unlock(h)) {
         // Error, no recovery needed
@@ -4868,7 +5051,6 @@ failed:
     // the very end of this input (e.g. if we failed mid-way into an assumed string
     // h->lastreadloc will point to the beginning of the string)
     ex->aborted = true;
-    h->lastreadloc = inp->curloc;
     xml_reader_input_complete(h, inp);
 }
 
@@ -4920,28 +5102,24 @@ void
 xml_reader_message(xml_reader_t *h, const xmlerr_loc_t *loc, xmlerr_info_t info,
         const char *fmt, ...)
 {
-    xml_reader_cbparam_t cbparam;
+    xml_reader_cbparam_t cbp;
     xml_reader_input_t *inp;
     va_list ap;
 
-    cbparam.cbtype = XML_READER_CB_MESSAGE;
-    cbparam.token.str = NULL;
-    cbparam.token.len = 0;
+    xml_reader_callback_init(h, XML_READER_CB_MESSAGE, &cbp);
     if (loc) {
-        cbparam.loc = *loc;
+        cbp.loc = *loc;
     }
     else if ((inp = STAILQ_FIRST(&h->active_input)) != NULL) {
-        cbparam.loc = inp->curloc;
+        // TBD use prodloc as default (i.e. when NULL is passed)? It is already initialized in cbp
+        cbp.loc = inp->curloc;
     }
-    else {
-        cbparam.loc = h->lastreadloc;
-    }
-    cbparam.message.info = info;
+    cbp.message.info = info;
     va_start(ap, fmt);
-    cbparam.message.msg = xvasprintf(fmt, ap);
+    cbp.message.msg = xvasprintf(fmt, ap);
     va_end(ap);
-    xml_reader_invoke_callback(h, &cbparam);
-    xfree(cbparam.message.msg);
+    xml_reader_callback_invoke(h, &cbp);
+    xfree(cbp.message.msg);
 }
 
 /**
@@ -4972,6 +5150,11 @@ xml_reader_process(xml_reader_t *h)
             rv = PR_STOP;
         }
         else {
+            // Starting a new production, reset the tokens and save location
+            h->prodloc = STAILQ_FIRST(&h->active_input)->curloc;
+            memset(&h->svtk, 0, sizeof(h->svtk));
+
+            // Look for matching production in this context
             rv = PR_NOMATCH;
             for (pat = h->ctx->lookahead;; pat++) {
                 // Last pattern must accept the input

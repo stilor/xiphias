@@ -12,6 +12,5 @@ extern const enumtbl_t enum_xmlerr_severity;
 extern const enumtbl_t enum_xmlerr_spec;
 extern const enumtbl_t enum_xmlerr_code;
 extern const enumtbl_t enum_reftype;
-extern const enumtbl_t enum_attrnorm;
 
 #endif

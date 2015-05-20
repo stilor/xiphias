@@ -22,26 +22,19 @@ static const enumval_t enumval_cbtype[] = {
     ENUM_VAL(XML_READER_CB_MESSAGE, "Message")
     ENUM_VAL(XML_READER_CB_ENTITY_UNKNOWN, "Unknown entity")
     ENUM_VAL(XML_READER_CB_ENTITY_NOT_LOADED, "Entity not loaded")
-    ENUM_VAL(XML_READER_CB_ENTITY_START, "Entity parsing start")
-    ENUM_VAL(XML_READER_CB_ENTITY_END, "Entity parsing end")
-    ENUM_VAL(XML_READER_CB_PUBID, "Public ID")
-    ENUM_VAL(XML_READER_CB_SYSID, "System ID")
-    ENUM_VAL(XML_READER_CB_NDATA, "Notation data")
-    ENUM_VAL(XML_READER_CB_APPEND, "Append text")
-    ENUM_VAL(XML_READER_CB_CDSECT, "CDATA section")
+    ENUM_VAL(XML_READER_CB_ENTITY_PARSE_START, "Entity parsing start")
+    ENUM_VAL(XML_READER_CB_ENTITY_PARSE_END, "Entity parsing end")
     ENUM_VAL(XML_READER_CB_XMLDECL, "XML declaration")
-    ENUM_VAL(XML_READER_CB_COMMENT, "Comment")
-    ENUM_VAL(XML_READER_CB_PI_TARGET, "PI target")
-    ENUM_VAL(XML_READER_CB_PI_CONTENT, "PI content")
     ENUM_VAL(XML_READER_CB_DTD_BEGIN, "DTD begin")
-    ENUM_VAL(XML_READER_CB_DTD_INTERNAL, "DTD internal subset")
+    ENUM_VAL(XML_READER_CB_DTD_END_INTERNAL, "DTD end of internal subset")
     ENUM_VAL(XML_READER_CB_DTD_END, "DTD end")
-    ENUM_VAL(XML_READER_CB_ENTITY_DEF_START, "Start entity definition")
-    ENUM_VAL(XML_READER_CB_ENTITY_DEF_END, "End entity definition")
-    ENUM_VAL(XML_READER_CB_NOTATION_DEF_START, "Start notation definition")
-    ENUM_VAL(XML_READER_CB_NOTATION_DEF_END, "End notation definition")
+    ENUM_VAL(XML_READER_CB_COMMENT, "Comment")
+    ENUM_VAL(XML_READER_CB_PI, "PI")
+    ENUM_VAL(XML_READER_CB_ENTITY_DEF, "Entity definition")
+    ENUM_VAL(XML_READER_CB_NOTATION_DEF, "Notation definition")
+    ENUM_VAL(XML_READER_CB_TEXT, "Text node")
+    ENUM_VAL(XML_READER_CB_CDSECT, "CDATA section")
     ENUM_VAL(XML_READER_CB_STAG, "Start tag")
-    ENUM_VAL(XML_READER_CB_STAG_END, "Start tag complete")
     ENUM_VAL(XML_READER_CB_ETAG, "End tag")
     ENUM_VAL(XML_READER_CB_ATTR, "Attribute")
 };
@@ -62,12 +55,6 @@ static const enumval_t enumval_reftype[] = {
 	ENUM_VAL(XML_READER_REF_NONE, "Bad value (unset)")
 };
 ENUM_DECLARE(reftype);
-
-static const enumval_t enumval_attrnorm[] = {
-    ENUM_VAL(XML_READER_ATTRNORM_CDATA, "Basic normalization")
-    ENUM_VAL(XML_READER_ATTRNORM_OTHER, "Collapse whitespace")
-};
-ENUM_DECLARE(attrnorm);
 
 static const enumval_t enumval_xmlerr_severity[] = {
 	ENUM_VAL(XMLERR_INFO, "INFO")

@@ -18,30 +18,23 @@ void xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam);
 // Some macro magic for declaring event (which is a disciminated union)
 #define FL_NONE               __dummy
 #define FL_MESSAGE            message
-#define FL_XMLDECL            xmldecl
-#define FL_PUBID              __dummy
-#define FL_SYSID              __dummy
-#define FL_NDATA              ndata
-#define FL_APPEND             append
-#define FL_CDSECT             append
-#define FL_COMMENT            __dummy
-#define FL_PI_TARGET          ndata
-#define FL_PI_CONTENT         __dummy
-#define FL_DTD_BEGIN          __dummy
-#define FL_DTD_INTERNAL       __dummy
-#define FL_DTD_END            __dummy
-#define FL_ENTITY_DEF_START   entitydef
-#define FL_ENTITY_DEF_END     __dummy
-#define FL_NOTATION_DEF_START __dummy
-#define FL_NOTATION_DEF_END   __dummy
-#define FL_STAG               __dummy
-#define FL_STAG_END           stag_end
-#define FL_ETAG               __dummy
-#define FL_ATTR               attr
 #define FL_ENTITY_UNKNOWN     entity
 #define FL_ENTITY_NOT_LOADED  entity
-#define FL_ENTITY_START       entity
-#define FL_ENTITY_END         entity
+#define FL_ENTITY_PARSE_START entity
+#define FL_ENTITY_PARSE_END   entity
+#define FL_XMLDECL            xmldecl
+#define FL_DTD_BEGIN          dtd
+#define FL_DTD_END_INTERNAL   __dummy
+#define FL_DTD_END            __dummy
+#define FL_COMMENT            comment
+#define FL_PI                 pi
+#define FL_ENTITY_DEF         entity
+#define FL_NOTATION_DEF       notation
+#define FL_TEXT               text
+#define FL_CDSECT             text
+#define FL_STAG               tag
+#define FL_ETAG               tag
+#define FL_ATTR               attr
 #define FL(t)                 FL_##t
 
 #define E(t, l, tok, ...)   { .cbtype = XML_READER_CB_##t, l, tok, .FL(t) = { __VA_ARGS__ }, }
