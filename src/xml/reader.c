@@ -336,6 +336,7 @@ typedef enum {
 // Known contexts
 static const xml_reader_context_t parser_content;
 static const xml_reader_context_t parser_document_entity;
+static const xml_reader_context_t parser_attributes;
 static const xml_reader_context_t parser_internal_subset;
 static const xml_reader_context_t parser_external_subset;
 
@@ -1948,6 +1949,8 @@ xml_cb_gt(void *arg, ucs4_t cp)
 static prodres_t
 xml_read_until_gt(xml_reader_t *h)
 {
+    // TBD xml_read_until_recover(xml_reader_t *h, const char *stopchars, bool after)
+    // TBD if the first character matches stopchar, skip to the next one
     xml_read_until(h, xml_cb_gt, NULL);
     return PR_OK;
 }
@@ -4235,7 +4238,9 @@ xml_parse_whitespace_peref_or_recover(xml_reader_t *h)
             "Invalid content in DTD");
 
     // Recover by skipping to the next angle bracket. If we are already at the
-    // angle bracket, then skip to the next one (we didn't recognize the production // starting with that angle bracket)
+    // angle bracket, then skip to the next one (we didn't recognize the production
+    // starting with that angle bracket)
+    // TBD after resolving TBD for unified recovery function, simplify this
     if (ucs4_cheq(h->rejected, '<')) {
         xml_read_until_gt(h);
     }
@@ -4513,9 +4518,6 @@ xml_parse_doctypedecl(xml_reader_t *h)
     @verbatim
     STag         ::= '<' Name (S Attribute)* S? '>'
     EmptyElemTag ::= '<' Name (S Attribute)* S? '/>'
-    Attribute    ::= Name Eq AttValue
-    AttValue     ::= '"' ([^<&"] | Reference)* '"' | "'" ([^<&'] | Reference)* "'"
-    Eq           ::= S? '=' S?
     @endverbatim
 
     @param h Reader handle
@@ -4553,9 +4555,152 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.tag.name);
     xml_reader_callback_invoke(h, &cbp);
 
-    // Consume whitespace, if any, and pass that info to further parsers
+    // Consume whitespace, if any, and pass that info to further parsers in the
+    // attribute-parsing context
+    h->ws = xml_parse_whitespace(h) == PR_OK;
+    h->ctx = &parser_attributes;
+    h->nestlvl++; // Opened element
+    return PR_OK;
+
+malformed:
+    // Try to recover by reading till end of opening tag. Do not lock the input
+    // (as we don't know how broken the markup was).
+    xml_read_until_gt(h);
+    xml_reader_input_unlock_assert(h);
+    return PR_OK;
+}
+
+/**
+    Parse an attribute.
+
+    @verbatim
+    Attribute    ::= Name Eq AttValue
+    AttValue     ::= '"' ([^<&"] | Reference)* '"' | "'" ([^<&'] | Reference)* "'"
+    Eq           ::= S? '=' S?
+    @endverbatim
+
+    @param h Reader handle
+    @return PR_OK on success or recovery
+*/
+static prodres_t
+xml_parse_attribute(xml_reader_t *h)
+{
+    xml_reader_cbparam_t cbp;
+
+    if (!h->ws) {
+        // Try to recover by reading till end of opening tag
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
+                "Expect whitespace, or >, or /> here");
+        goto malformed;
+    }
+
+    if (xml_read_Name(h) != PR_OK) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
+                "Expect attribute name here");
+        goto malformed;
+    }
+    xml_tokenbuf_save(h, &h->svtk.name);
+
+    (void)xml_parse_whitespace(h);
+    if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_Attribute)) != PR_OK) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
+                "Expect = (equal sign) here");
+        goto malformed;
+    }
+    (void)xml_parse_whitespace(h);
+
+    if (xml_parse_literal(h, &reference_ops_AttValue) != PR_OK) {
+        // Already complained
+        goto malformed;
+    }
+
+    xml_reader_callback_init(h, XML_READER_CB_ATTR, &cbp);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.attr.name);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.attr.value);
+    xml_reader_callback_invoke(h, &cbp);
+
+    // Prepare for the next parser
     h->ws = xml_parse_whitespace(h) == PR_OK;
     return PR_OK;
+
+malformed:
+    // TBD after implementing: return xml_read_recover(h, ">/", false);
+    return PR_OK;
+}
+
+/**
+    Handle closing of an element, either explicit (via ETag production)
+    or implicit (via EmptyElemTag).
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_handle_closing_tag(xml_reader_t *h)
+{
+    if (!xml_reader_input_unlock(h)) {
+        // Error, no recovery needed
+        xml_reader_message_current(h, h->ctx->errcode,
+                "%s must match '%s' production",
+                h->ctx->reftype == XML_READER_REF_DOCUMENT ?
+                        "Document" : "Replacement text for entity",
+                h->ctx->production);
+    }
+
+    // Do not decrement nest level if already at the root level. Otherwise,
+    // check if this closure puts us at the root level or inside the content.
+    if (!h->nestlvl || --h->nestlvl == 0) {
+        // Returned to top level
+        h->ctx = &parser_document_entity;
+    }
+    else {
+        h->ctx = &parser_content;
+    }
+}
+
+/**
+    Parse closing markup for STag.
+
+    @verbatim
+    STag         ::= '<' Name (S Attribute)* S? '>'
+    @endverbatim
+
+    @param h Reader handle
+    @return PR_OK on success or recovery
+*/
+static prodres_t
+xml_parse_closing_STag(xml_reader_t *h)
+{
+    // Just read the mark-up and restore the context. Since we just opened
+    // a tag, nest level is non-zero - so we're in the content context.
+    xml_read_string_assert(h, ">");
+    OOPS_ASSERT(h->nestlvl);
+    h->ctx = &parser_content;
+    return PR_OK;
+}
+
+/**
+    Parse closing markup for EmptyElemTag.
+
+    @verbatim
+    EmptyElemTag ::= '<' Name (S Attribute)* S? '/>'
+    @endverbatim
+
+    @param h Reader handle
+    @return PR_OK on success or recovery
+*/
+static prodres_t
+xml_parse_closing_EmptyElemTag(xml_reader_t *h)
+{
+    xml_reader_cbparam_t cbp;
+
+    // Event with name unset == used empty element tag.
+    xml_read_string_assert(h, "/>");
+    xml_reader_callback_init(h, XML_READER_CB_ETAG, &cbp);
+    xml_reader_callback_invoke(h, &cbp);
+    xml_handle_closing_tag(h);
+    return PR_OK;
+}
 
 #if 0 // TBD switch to attribute/end-of-tag parser context
     bool is_empty, had_ws;
@@ -4573,34 +4718,8 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
         else if (ucs4_cheq(h->rejected, '>')) {
             xml_read_string_assert(h, ">");
             is_empty = false;
-            h->nestlvl++; // Opened element
             h->ctx = &parser_content; // No longer at top level
             break;
-        }
-        else if (had_ws && xml_read_Name(h) == PR_OK) {
-            // Attribute, if any, must be preceded by S (whitespace).
-            cbp.cbtype = XML_READER_CB_ATTR;
-            cbp.loc = h->lastreadloc;
-            cbp.token.str = h->tokenbuf;
-            cbp.token.len = h->tokenlen;
-            cbp.attr.attrnorm = XML_READER_ATTRNORM_CDATA;
-            /// @todo Get attribute value normalization type from callback and
-            /// use it for reading attribute value below
-            xml_reader_invoke_callback(h, &cbp);
-            (void)xml_parse_whitespace(h);
-            if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_Attribute)) != PR_OK) {
-                goto malformed;
-            }
-            (void)xml_parse_whitespace(h);
-            if (xml_parse_literal(h, &reference_ops_AttValue) != PR_OK) {
-                goto malformed;
-            }
-        }
-        else {
-            // Try to recover by reading till end of opening tag
-            xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
-                    "Expect whitespace, or >, or />");
-            goto malformed;
         }
     }
 
@@ -4614,14 +4733,6 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     // Do not unlock until a matching ETag
     return PR_OK;
 #endif
-
-malformed:
-    // Try to recover by reading till end of opening tag. Do not lock the input
-    // (as we don't know how broken the markup was).
-    xml_read_until_gt(h);
-    xml_reader_input_unlock_assert(h);
-    return PR_OK;
-}
 
 /**
     Read and process ETag production.
@@ -4662,21 +4773,7 @@ xml_parse_ETag(xml_reader_t *h)
     xml_reader_callback_init(h, XML_READER_CB_ETAG, &cbp);
     xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.tag.name);
     xml_reader_callback_invoke(h, &cbp);
-
-    if (!xml_reader_input_unlock(h)) {
-        // Error, no recovery needed
-        xml_reader_message(h, &cbp.loc, h->ctx->errcode,
-                "%s must match '%s' production",
-                h->ctx->reftype == XML_READER_REF_DOCUMENT ?
-                        "Document" : "Replacement text for entity",
-                h->ctx->production);
-    }
-    // Do not decrement nest level if already at the root level. This document
-    // is already malformed, so an error message should already be raised.
-    if (h->nestlvl && --h->nestlvl == 0) {
-        // Returned to top level
-        h->ctx = &parser_document_entity;
-    }
+    xml_handle_closing_tag(h);
     return PR_OK;
 }
 
@@ -4777,6 +4874,31 @@ static const xml_reader_context_t parser_document_entity = {
     .entity_value_parser = &reference_ops_EntityValue_internal,
     .errcode = XMLERR(ERROR, XML, P_document),
     .production = "document",
+};
+
+/**
+    Context for parsing attributes and closing markup of the STag/EmptyElemTag
+    production.
+
+    @verbatim
+    STag         ::= '<' Name (S Attribute)* S? '>'
+    EmptyElemTag ::= '<' Name (S Attribute)* S? '/>'
+    Attribute    ::= Name Eq AttValue
+    AttValue     ::= '"' ([^<&"] | Reference)* '"' | "'" ([^<&'] | Reference)* "'"
+    Eq           ::= S? '=' S?
+    @endverbatim
+*/
+static const xml_reader_context_t parser_attributes = {
+    .lookahead = {
+        LOOKAHEAD("/>", xml_parse_closing_EmptyElemTag),
+        LOOKAHEAD(">", xml_parse_closing_STag),
+        LOOKAHEAD("", xml_parse_attribute),
+    },
+    .declinfo = NULL, // not applicable
+    .reftype = XML_READER_REF_NONE, // not an external entity
+    .entity_value_parser = NULL, // not applicable
+    .errcode = XMLERR(ERROR, XML, P_STag),
+    .production = "STag/EmptyElemTag",
 };
 
 /**

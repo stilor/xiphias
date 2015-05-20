@@ -173,11 +173,11 @@ string_escape_unicode_control(const utf8_t *s, size_t len)
     if (xml_reader_token_isset(&(x)->f)) { \
         char *s; \
         s = string_escape_utf8((x)->f.str, (x)->f.len); \
-        printf(FIELD_FMT(f, "{ .str = \"%s\", .len = %zu }"), s, (x)->f.len); \
+        printf(FIELD_FMT(f, "TOK(\"%s\")"), s); \
         xfree(s); \
     } \
     else { \
-        printf(FIELD_FMT(f, "{ .str = NULL, .len = 0 }")); \
+        printf(FIELD_FMT(f, "NOTOK")); \
     } \
 } while (0)
 
