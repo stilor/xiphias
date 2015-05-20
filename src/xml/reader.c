@@ -102,9 +102,6 @@ typedef struct xml_reference_ops_s {
     /// Stop condition function
     xml_condread_func_t condread;
 
-    /// How text blocks are handled
-    void (*textblock)(void *arg);
-    
     /// How different types of entities are handled
     xml_refhandler_t hnd[XML_READER_REF__MAX];
 } xml_reference_ops_t;
@@ -516,7 +513,7 @@ xml_tokenbuf_save(xml_reader_t *h, xml_reader_saved_token_t *svtk)
     svtk->offset = h->tokenbuf_used;
     svtk->len = h->tokenbuf_len;
     svtk->reserved = true;
-    h->tokenbuf_used += h->tokenbuf_len; // TBD reset tokenbuf_used at each production start
+    h->tokenbuf_used += h->tokenbuf_len;
     h->tokenbuf_len = 0;
 }
 
@@ -903,7 +900,7 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz)
             else {
                 // Shouldn't be locking character references...
                 OOPS_ASSERT(inp->entity);
-                // TBD drop e->parameter, use e->type? Have entity type as a bitfield for easy check?
+                OOPS_ASSERT(inp->entity->type != XML_READER_REF_PE);
                 if (inp->entity->type == XML_READER_REF_PE_INTERNAL
                         || inp->entity->type == XML_READER_REF_PE_EXTERNAL) {
                     xml_reader_message_current(h,
@@ -2689,9 +2686,6 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         if (stopstatus != XRU_REFERENCE) {
             h->relevant = NULL;
             h->flags &= ~R_NO_TOKEN_RESET;
-            if (refops->textblock) {
-                refops->textblock(arg);
-            }
             return stopstatus; // Saw the terminating condition or EOF
         }
 
@@ -2839,20 +2833,6 @@ xml_parse_whitespace_conditional(xml_reader_t *h)
 }
 
 
-/**
-    Common part of a handler for text block in literals or content.
-
-    @param h Reader handle
-    @param ws If true, appended text contains only whitespace
-    @return Nothing
-*/
-static void
-textblock_append_common(xml_reader_t *h, bool ws)
-{
-    xml_tokenbuf_save(h, &h->svtk.value);
-    h->ws = ws;
-}
-
 /// Callback state for literal reading
 typedef struct xml_cb_literal_state_s {
     /// UCS4_NOCHAR at start, quote seen in progress, or UCS4_STOPCHAR if saw final quote
@@ -2862,20 +2842,6 @@ typedef struct xml_cb_literal_state_s {
     /// Deferred setting of 'relevant construct'
     bool starting;
 } xml_cb_literal_state_t;
-
-/**
-    Handler for text block in literals: invoke callback to append text.
-
-    @param arg Literal parser state
-    @return Nothing
-*/
-static void
-textblock_append_literal(void *arg)
-{
-    xml_cb_literal_state_t *st = arg;
-
-    textblock_append_common(st->h, false);
-}
 
 /**
     Closure for xml_read_until: expect an initial quote, then read
@@ -2963,7 +2929,6 @@ static const xml_reference_ops_t reference_ops_AttValue = {
     .condread = xml_cb_literal,
     .flags = R_RECOGNIZE_REF,
     .relevant = NULL,
-    .textblock = textblock_append_literal,
     .hnd = {
         /* Default: 'Not recognized' */
         [XML_READER_REF_GENERAL] = reference_unknown,
@@ -3001,7 +2966,6 @@ static const xml_reference_ops_t reference_ops_EntityValue_internal = {
     .condread = xml_cb_literal_EntityValue,
     .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
     .relevant = NULL,
-    .textblock = textblock_append_literal,
     .hnd = {
         [XML_READER_REF_PE] = reference_forbidden,
         [XML_READER_REF_PE_INTERNAL] = reference_forbidden,
@@ -3020,7 +2984,6 @@ static const xml_reference_ops_t reference_ops_EntityValue_external = {
     .condread = xml_cb_literal_EntityValue,
     .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
     .relevant = NULL,
-    .textblock = textblock_append_literal,
     .hnd = {
         [XML_READER_REF_PE] = reference_unknown,
         [XML_READER_REF_PE_INTERNAL] = reference_included_in_literal,
@@ -3354,7 +3317,6 @@ xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
     }
 
     // Emit an event (callback) for XML declaration
-    // TBD emit raw events?
     xml_reader_callback_init(h, XML_READER_CB_XMLDECL, &cbp);
     cbp.xmldecl.encoding = h->current_external->enc_declared;
     cbp.xmldecl.version = h->current_external->version;
@@ -3396,27 +3358,12 @@ xml_cb_CharData(void *arg, ucs4_t cp)
     return UCS4_STOPCHAR;
 }
 
-/**
-    Handler for text block in content: invoke callback to append text.
-
-    @param arg CharData parser state
-    @return Nothing
-*/
-static void
-textblock_append_CharData(void *arg)
-{
-    xml_reader_t *h = arg;
-
-    textblock_append_common(h, h->ws);
-}
-
 /// Virtual methods for reading CharData production
 static const xml_reference_ops_t reference_ops_CharData = {
     .errinfo = XMLERR(ERROR, XML, P_CharData),
     .condread = xml_cb_CharData,
     .flags = R_RECOGNIZE_REF,
     .relevant = "CharData",
-    .textblock = textblock_append_CharData,
     .hnd = {
         /* Default: 'Not recognized' */
         [XML_READER_REF_GENERAL] = reference_unknown,
@@ -3445,10 +3392,14 @@ xml_parse_CharData(xml_reader_t *h)
 
     h->ws = true;
     (void)xml_read_until_parseref(h, &reference_ops_CharData, h);
-    xml_reader_callback_init(h, XML_READER_CB_TEXT, &cbp);
-    xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.text.text);
-    cbp.text.ws = h->ws;
-    xml_reader_callback_invoke(h, &cbp);
+    xml_tokenbuf_save(h, &h->svtk.value);
+
+    if (h->svtk.value.len) {
+        xml_reader_callback_init(h, XML_READER_CB_TEXT, &cbp);
+        xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.text.text);
+        cbp.text.ws = h->ws;
+        xml_reader_callback_invoke(h, &cbp);
+    }
     return PR_OK;
 }
 
@@ -4579,6 +4530,7 @@ xml_parse_attribute(xml_reader_t *h)
         // Already complained
         goto malformed;
     }
+    xml_tokenbuf_save(h, &h->svtk.value);
 
     xml_reader_callback_init(h, XML_READER_CB_ATTR, &cbp);
     xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.attr.name);
@@ -4590,8 +4542,8 @@ xml_parse_attribute(xml_reader_t *h)
     return PR_OK;
 
 malformed:
-    // TBD after implementing: return xml_read_recover(h, ">/", false);
-    return PR_OK;
+    // Error message printed above
+    return xml_read_recover(h, ">/", false);
 }
 
 /**
@@ -4667,38 +4619,6 @@ xml_parse_closing_EmptyElemTag(xml_reader_t *h)
     xml_handle_closing_tag(h);
     return PR_OK;
 }
-
-#if 0 // TBD switch to attribute/end-of-tag parser context
-    bool is_empty, had_ws;
-
-    while (true) {
-        had_ws = xml_parse_whitespace(h) == PR_OK;
-        if (ucs4_cheq(h->rejected, '/')) {
-            if (xml_read_string(h, "/>", XMLERR(ERROR, XML, P_STag)) != PR_OK) {
-                goto malformed;
-            }
-            is_empty = true;
-            xml_reader_input_unlock_assert(h);
-            break;
-        }
-        else if (ucs4_cheq(h->rejected, '>')) {
-            xml_read_string_assert(h, ">");
-            is_empty = false;
-            h->ctx = &parser_content; // No longer at top level
-            break;
-        }
-    }
-
-    // Notify the app
-    cbp.cbtype = XML_READER_CB_STAG_END;
-    cbp.token.str = NULL;
-    cbp.token.len = 0;
-    cbp.loc = h->lastreadloc;
-    cbp.stag_end.is_empty = is_empty;
-    xml_reader_invoke_callback(h, &cbp);
-    // Do not unlock until a matching ETag
-    return PR_OK;
-#endif
 
 /**
     Read and process ETag production.
