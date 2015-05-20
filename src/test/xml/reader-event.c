@@ -22,6 +22,7 @@ typedef struct event_s {
     void (*gencode)(const xml_reader_cbparam_t *e); ///< Code generation for test case
     bool (*equal)(const xml_reader_cbparam_t *e1,
             const xml_reader_cbparam_t *e2);        ///< Check events for equality
+    bool (*isset)(const xml_reader_cbparam_t *e);   ///< Check if type-specific part is not default
 } event_t;
 
 static char *
@@ -149,44 +150,6 @@ string_escape_unicode_control(const utf8_t *s, size_t len)
     return p;
 }
 
-#define INDENT                  "    "
-
-#define FIELD_FMT(f, fmt)       INDENT INDENT "." #f " = " fmt ",\n"
-
-#define FIELD_BOOL(x,f) do { \
-    printf(FIELD_FMT(f, "%s"), (x)->f ? "true" : "false"); \
-} while (0)
-
-#define FIELD_STR_OR_NULL(x,f) do { \
-    if ((x)->f) { \
-        char *s; \
-        s = string_escape((x)->f); \
-        printf(FIELD_FMT(f, "\"%s\""), s); \
-        xfree(s); \
-    } \
-    else { \
-        printf(FIELD_FMT(f, "NULL")); \
-    } \
-} while (0)
-
-#define FIELD_TOKEN(x,f) do { \
-    if (xml_reader_token_isset(&(x)->f)) { \
-        char *s; \
-        s = string_escape_utf8((x)->f.str, (x)->f.len); \
-        printf(FIELD_FMT(f, "TOK(\"%s\")"), s); \
-        xfree(s); \
-    } \
-    else { \
-        printf(FIELD_FMT(f, "NOTOK")); \
-    } \
-} while (0)
-
-#define FIELD_ENUM(x,f,e) do { \
-    printf(FIELD_FMT(f, "%s"), enum2id((x)->f, &enum_##e, NULL)); \
-} while (0)
-
-// Supporting functions: print event data
-
 static void
 print_token(const char *pfx, const xml_reader_token_t *tk)
 {
@@ -214,372 +177,251 @@ equal_token(const xml_reader_token_t *tk1, const xml_reader_token_t *tk2)
     return !memcmp(tk1->str, tk2->str, tk1->len); // Compare content
 }
 
-// MESSAGE
+#define INDENT                  "    "
+
+#define GENC_FMT(f, fmt)       INDENT INDENT INDENT ".%s = " fmt ",\n", f
+
+#define ISSET_BOOL(x,f,e) \
+        true
+#define GENC_BOOL(x,f,e) do { \
+            printf(GENC_FMT(#f, "%s"), (x)->f ? "true" : "false"); \
+        } while (0);
+#define P_BOOL(x,f,e) do { \
+            if ((x)->f) { \
+                printf("  (%s)", e); \
+            } \
+        } while (0);
+#define EQ_BOOL(x1,x2,f,e) \
+        ((x1)->f == (x2)->f)
+
+#define ISSET_STR_OR_NULL(x,f,e) \
+        ((x)->f)
+#define GENC_STR_OR_NULL(x,f,e) do { \
+            char *s; \
+            s = string_escape((x)->f); \
+            printf(GENC_FMT(#f, "\"%s\""), s); \
+            xfree(s); \
+        } while (0)
+#define P_STR_OR_NULL(x,f,e) do { \
+            if (e) { \
+                printf("  %s '%s'", e, (x)->f); \
+            } \
+            else { \
+                printf("  '%s'", (x)->f); \
+            } \
+        } while (0);
+#define EQ_STR_OR_NULL(x1,x2,f,e) \
+        ((!(x1)->f && !(x2)->f) || ((x1)->f && (x2)->f && !strcmp((x1)->f, (x2)->f)))
+
+#define ISSET_TOKEN(x,f,e) \
+        (xml_reader_token_isset(&(x)->f))
+#define GENC_TOKEN(x,f,e) do { \
+            char *s; \
+            s = string_escape_utf8((x)->f.str, (x)->f.len); \
+            printf(GENC_FMT(#f, "TOK(\"%s\")"), s); \
+            xfree(s); \
+        } while (0);
+#define P_TOKEN(x,f,e) do { \
+            print_token(e, &(x)->f); \
+        } while (0);
+#define EQ_TOKEN(x1,x2,f,e) \
+        (equal_token(&(x1)->f, &(x2)->f))
+
+#define ISSET_ENUM(x,f,e) \
+        true
+#define GENC_ENUM(x,f,e) do { \
+            printf(GENC_FMT(#f, "%s"), enum2id((x)->f, &enum_##e, NULL)); \
+        } while (0);
+#define P_ENUM(x,f,e) do { \
+            printf("%s", enum2str((x)->f, &enum_##e)); \
+        } while (0);
+#define EQ_ENUM(x1,x2,f,e) \
+        ((x1)->f == (x2)->f)
+
+
+#define ISSET_CUSTOM(x,f,e)     t_isset_##e(&(x)->f)
+#define GENC_CUSTOM(x,f,e)      t_genc_##e(&(x)->f, #f);
+#define P_CUSTOM(x,f,e)         t_print_##e(&(x)->f, #f);
+#define EQ_CUSTOM(x1,x2,f,e)    t_equal_##e(&(x1)->f, &(x2)->f)
+
+// xmlerr_info_t ops
+static bool
+t_isset_xmlerr(const xmlerr_info_t *xi)
+{
+    return true; // always initialized
+}
 
 static void
-evprint_message(const xml_reader_cbparam_t *cbparam)
+t_genc_xmlerr(const xmlerr_info_t *xi, const char *fldname)
 {
-    const xml_reader_cbparam_message_t *x = &cbparam->message;
-    xmlerr_info_t spec_code = XMLERR_MK(XMLERR__NONE,
-            XMLERR_SPEC(x->info), XMLERR_CODE(x->info));
+    xmlerr_info_t spec_code = XMLERR_MK(XMLERR__NONE, XMLERR_SPEC(*xi), XMLERR_CODE(*xi));
 
-    printf("%s ", x->msg ? x->msg : "<no message>");
-    if (x->info == XMLERR_NOTE) {
+    if (*xi == XMLERR_NOTE) {
+        printf(GENC_FMT(fldname, "XMLERR_NOTE"));
+    }
+    else if (*xi == XMLERR_INTERNAL) {
+        printf(GENC_FMT(fldname, "XMLERR_INTERNAL"));
+    }
+    else {
+        printf(GENC_FMT(fldname, "XMLERR(%s, %s, %s)"),
+                enum2id(XMLERR_SEVERITY(*xi), &enum_xmlerr_severity, "XMLERR_"),
+                enum2id(XMLERR_SPEC(*xi), &enum_xmlerr_spec, "XMLERR_SPEC_"),
+                enum2id(spec_code, &enum_xmlerr_code, NULL));
+    }
+}
+
+static void
+t_print_xmlerr(const xmlerr_info_t *xi, const char *fldname)
+{
+    xmlerr_info_t spec_code = XMLERR_MK(XMLERR__NONE, XMLERR_SPEC(*xi), XMLERR_CODE(*xi));
+
+    if (*xi == XMLERR_NOTE) {
         printf("[NOTE]");
     }
-    else if (x->info == XMLERR_INTERNAL) {
+    else if (*xi == XMLERR_INTERNAL) {
         printf("[INTERNAL]");
     }
     else {
         printf("[%s %s:%s]",
-            enum2str(XMLERR_SEVERITY(x->info), &enum_xmlerr_severity),
-            enum2str(XMLERR_SPEC(x->info), &enum_xmlerr_spec),
+            enum2str(XMLERR_SEVERITY(*xi), &enum_xmlerr_severity),
+            enum2str(XMLERR_SPEC(*xi), &enum_xmlerr_spec),
             enum2str(spec_code, &enum_xmlerr_code));
     }
 }
 
-static void
-evgenc_message(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_message_t *x = &cbparam->message;
-    xmlerr_info_t spec_code = XMLERR_MK(XMLERR__NONE,
-            XMLERR_SPEC(x->info), XMLERR_CODE(x->info));
-
-    if (x->info == XMLERR_NOTE) {
-        printf(FIELD_FMT(info, "XMLERR_NOTE"));
-    }
-    else if (x->info == XMLERR_INTERNAL) {
-        printf(FIELD_FMT(info, "XMLERR_INTERNAL"));
-    }
-    else {
-        printf(FIELD_FMT(info, "XMLERR(%s, %s, %s)"),
-                enum2id(XMLERR_SEVERITY(x->info), &enum_xmlerr_severity, "XMLERR_"),
-                enum2id(XMLERR_SPEC(x->info), &enum_xmlerr_spec, "XMLERR_SPEC_"),
-                enum2id(spec_code, &enum_xmlerr_code, NULL));
-    }
-    FIELD_STR_OR_NULL(x, msg);
-}
-
 static bool
-evequal_message(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+t_equal_xmlerr(const xmlerr_info_t *xi1, const xmlerr_info_t *xi2)
 {
-    const xml_reader_cbparam_message_t *x1 = &e1->message;
-    const xml_reader_cbparam_message_t *x2 = &e2->message;
-
-    return str_null_or_equal(x1->msg, x2->msg)
-            && x1->info == x2->info;
-}
-
-// ENTITY_{UNKNOWN,NOT_LOADED,START,END,DEF}
-
-static void
-evprint_entity(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_entity_t *x = &cbparam->entity;
-
-    printf("%s", enum2str(x->type, &enum_reftype));
-    print_token("name", &x->name);
-    print_token("text", &x->text);
-    print_token("sysid", &x->system_id);
-    print_token("pubid", &x->public_id);
-    print_token("ndata", &x->ndata);
-    print_token("n/sysid", &x->nsystem_id);
-    print_token("n/pubid", &x->npublic_id);
-}
-
-static void
-evgenc_entity(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_entity_t *x = &cbparam->entity;
-
-    FIELD_ENUM(x, type, reftype);
-    FIELD_TOKEN(x, name);
-    FIELD_TOKEN(x, text);
-    FIELD_TOKEN(x, system_id);
-    FIELD_TOKEN(x, public_id);
-    FIELD_TOKEN(x, ndata);
-    FIELD_TOKEN(x, nsystem_id);
-    FIELD_TOKEN(x, npublic_id);
-}
-
-static bool
-evequal_entity(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_entity_t *x1 = &e1->entity;
-    const xml_reader_cbparam_entity_t *x2 = &e2->entity;
-
-    return x1->type == x2->type
-            && equal_token(&x1->name, &x2->name)
-            && equal_token(&x1->text, &x2->text)
-            && equal_token(&x1->system_id, &x2->system_id)
-            && equal_token(&x1->public_id, &x2->public_id)
-            && equal_token(&x1->ndata, &x2->ndata)
-            && equal_token(&x1->nsystem_id, &x2->nsystem_id)
-            && equal_token(&x1->npublic_id, &x2->npublic_id);
-}
-
-// NOTATION
-
-static void
-evprint_notation(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_notation_t *x = &cbparam->notation;
-
-    print_token("name", &x->name);
-    print_token("sysid", &x->system_id);
-    print_token("pubid", &x->public_id);
-}
-
-static void
-evgenc_notation(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_notation_t *x = &cbparam->notation;
-
-    FIELD_TOKEN(x, name);
-    FIELD_TOKEN(x, system_id);
-    FIELD_TOKEN(x, public_id);
-}
-
-static bool
-evequal_notation(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_notation_t *x1 = &e1->notation;
-    const xml_reader_cbparam_notation_t *x2 = &e2->notation;
-
-    return equal_token(&x1->name, &x2->name)
-            && equal_token(&x1->system_id, &x2->system_id)
-            && equal_token(&x1->public_id, &x2->public_id);
-}
-
-// XMLDECL
-
-static void
-evprint_xmldecl(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_xmldecl_t *x = &cbparam->xmldecl;
-
-    printf("encoding '%s', standalone '%s', version '%s'",
-            x->encoding ? x->encoding : "<unknown>",
-            enum2str(x->standalone, &enum_xml_standalone),
-            enum2str(x->version, &enum_xml_version));
-}
-
-static void
-evgenc_xmldecl(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_xmldecl_t *x = &cbparam->xmldecl;
-
-    FIELD_STR_OR_NULL(x, encoding);
-    FIELD_ENUM(x, standalone, xml_standalone);
-    FIELD_ENUM(x, version, xml_version);
-}
-
-static bool
-evequal_xmldecl(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_xmldecl_t *x1 = &e1->xmldecl;
-    const xml_reader_cbparam_xmldecl_t *x2 = &e2->xmldecl;
-
-    return str_null_or_equal(x1->encoding, x2->encoding)
-            && x1->standalone == x2->standalone
-            && x1->version == x2->version;
-}
-
-// DTD
-
-static void
-evprint_dtd(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_dtd_t *x = &cbparam->dtd;
-
-    print_token("root", &x->root);
-    print_token("sysid", &x->system_id);
-    print_token("pubid", &x->public_id);
-}
-
-static void
-evgenc_dtd(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_dtd_t *x = &cbparam->dtd;
-
-    FIELD_TOKEN(x, root);
-    FIELD_TOKEN(x, system_id);
-    FIELD_TOKEN(x, public_id);
-}
-
-static bool
-evequal_dtd(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_dtd_t *x1 = &e1->dtd;
-    const xml_reader_cbparam_dtd_t *x2 = &e2->dtd;
-
-    return equal_token(&x1->root, &x2->root)
-            && equal_token(&x1->system_id, &x2->system_id)
-            && equal_token(&x1->public_id, &x2->public_id);
-}
-
-// COMMENT
-
-static void
-evprint_comment(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_comment_t *x = &cbparam->comment;
-
-    print_token("text", &x->text);
-}
-
-static void
-evgenc_comment(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_comment_t *x = &cbparam->comment;
-
-    FIELD_TOKEN(x, text);
-}
-
-static bool
-evequal_comment(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_comment_t *x1 = &e1->comment;
-    const xml_reader_cbparam_comment_t *x2 = &e2->comment;
-
-    return equal_token(&x1->text, &x2->text);
-}
-
-// PI
-
-static void
-evprint_pi(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_pi_t *x = &cbparam->pi;
-
-    print_token("target", &x->target);
-    print_token("content", &x->content);
-    print_token("n/sysid", &x->nsystem_id);
-    print_token("n/pubid", &x->npublic_id);
-}
-
-static void
-evgenc_pi(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_pi_t *x = &cbparam->pi;
-
-    FIELD_TOKEN(x, target);
-    FIELD_TOKEN(x, content);
-    FIELD_TOKEN(x, nsystem_id);
-    FIELD_TOKEN(x, npublic_id);
-}
-
-static bool
-evequal_pi(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_pi_t *x1 = &e1->pi;
-    const xml_reader_cbparam_pi_t *x2 = &e2->pi;
-
-    return equal_token(&x1->target, &x2->target)
-            && equal_token(&x1->content, &x2->content)
-            && equal_token(&x1->nsystem_id, &x2->nsystem_id)
-            && equal_token(&x1->npublic_id, &x2->npublic_id);
-}
-
-// TEXT, CDSECT
-
-static void
-evprint_text(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_text_t *x = &cbparam->text;
-
-    print_token("text", &x->text);
-    if (x->ws) {
-        printf(" (whitespace)");
-    }
-}
-
-static void
-evgenc_text(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_text_t *x = &cbparam->text;
-
-    FIELD_TOKEN(x, text);
-    FIELD_BOOL(x, ws);
-}
-
-static bool
-evequal_text(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_text_t *x1 = &e1->text;
-    const xml_reader_cbparam_text_t *x2 = &e2->text;
-
-    return equal_token(&x1->text, &x2->text)
-            && x1->ws == x2->ws;
-}
-
-// STAG/ETAG
-
-static void
-evprint_tag(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_tag_t *x = &cbparam->tag;
-
-    print_token("name", &x->name);
-}
-
-static void
-evgenc_tag(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_tag_t *x = &cbparam->tag;
-
-    FIELD_TOKEN(x, name);
-}
-
-static bool
-evequal_tag(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_tag_t *x1 = &e1->tag;
-    const xml_reader_cbparam_tag_t *x2 = &e2->tag;
-
-    return equal_token(&x1->name, &x2->name);
-}
-
-// ATTR
-
-static void
-evprint_attr(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_attr_t *x = &cbparam->attr;
-
-    print_token("name", &x->name);
-    print_token("value", &x->value);
-}
-
-static void
-evgenc_attr(const xml_reader_cbparam_t *cbparam)
-{
-    const xml_reader_cbparam_attr_t *x = &cbparam->attr;
-
-    FIELD_TOKEN(x, name);
-    FIELD_TOKEN(x, value);
-}
-
-static bool
-evequal_attr(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
-{
-    const xml_reader_cbparam_attr_t *x1 = &e1->attr;
-    const xml_reader_cbparam_attr_t *x2 = &e2->attr;
-
-    return equal_token(&x1->name, &x2->name)
-            && equal_token(&x1->value, &x2->value);
+    return *xi1 == *xi2;
 }
 
 
-#define evprint___dummy     NULL
-#define evequal___dummy     NULL
-#define evgenc___dummy      NULL
+#define FIELDS_message \
+        FLD(info, CUSTOM, xmlerr) \
+        FLD(msg, STR_OR_NULL, "msg") \
+
+#define FIELDS_entity \
+        FLD(type, ENUM, reftype) \
+        FLD(name, TOKEN, "name") \
+        FLD(text, TOKEN, "text") \
+        FLD(system_id, TOKEN, "sysid") \
+        FLD(public_id, TOKEN, "pubid") \
+        FLD(ndata, TOKEN, "ndata") \
+        FLD(nsystem_id, TOKEN, "n/sysid") \
+        FLD(npublic_id, TOKEN, "n/pubid") \
+
+#define FIELDS_notation \
+        FLD(name, TOKEN, "name") \
+        FLD(system_id, TOKEN, "sysid") \
+        FLD(public_id, TOKEN, "pubid") \
+
+#define FIELDS_xmldecl \
+        FLD(encoding, STR_OR_NULL, "encoding") \
+        FLD(standalone, ENUM, xml_standalone) \
+        FLD(version, ENUM, xml_version) \
+
+#define FIELDS_dtd \
+        FLD(root, TOKEN, "root") \
+        FLD(system_id, TOKEN, "sysid") \
+        FLD(public_id, TOKEN, "pubid") \
+
+#define FIELDS_comment \
+        FLD(text, TOKEN, "text") \
+
+#define FIELDS_pi \
+        FLD(target, TOKEN, "target") \
+        FLD(content, TOKEN, "content") \
+        FLD(nsystem_id, TOKEN, "n/sysid") \
+        FLD(npublic_id, TOKEN, "n/pubid") \
+
+#define FIELDS_text \
+        FLD(text, TOKEN, "text") \
+        FLD(ws, BOOL, "whitespace") \
+
+#define FIELDS_tag \
+        FLD(name, TOKEN, "name") \
+
+#define FIELDS_attr \
+        FLD(name, TOKEN, "name") \
+        FLD(value, TOKEN, "value") \
+
+#define MSGTYPES \
+        MT(message) \
+        MT(entity) \
+        MT(notation) \
+        MT(xmldecl) \
+        MT(dtd) \
+        MT(comment) \
+        MT(pi) \
+        MT(text) \
+        MT(tag) \
+        MT(attr) \
+
+// Checking for non-default initializer
+#define FLD(f,t,e) || ISSET_##t(x,f,e)
+#define MT(n) \
+static bool \
+ev_isset_##n(const xml_reader_cbparam_t *cbp) \
+{ \
+    const xml_reader_cbparam_##n##_t *x = &cbp->n; \
+    return false FIELDS_##n; \
+}
+MSGTYPES
+#undef MT
+#undef FLD
+
+// Printing in human readable form
+#define FLD(f,t,e) P_##t(x,f,e);
+#define MT(n) \
+static void \
+ev_print_##n(const xml_reader_cbparam_t *cbp) \
+{ \
+    const xml_reader_cbparam_##n##_t *x = &cbp->n; \
+    FIELDS_##n \
+}
+MSGTYPES
+#undef MT
+#undef FLD
+
+// Code generation
+#define FLD(f,t,e) if (ISSET_##t(x,f,e)) { GENC_##t(x,f,e); }
+#define MT(n) \
+static void \
+ev_genc_##n(const xml_reader_cbparam_t *cbp) \
+{ \
+    const xml_reader_cbparam_##n##_t *x = &cbp->n; \
+    FIELDS_##n \
+}
+MSGTYPES
+#undef MT
+#undef FLD
+
+// Checking for equality
+#define FLD(f,t,e) && EQ_##t(x1,x2,f,e)
+#define MT(n) \
+static bool \
+ev_equal_##n(const xml_reader_cbparam_t *cbp1, const xml_reader_cbparam_t *cbp2) \
+{ \
+    const xml_reader_cbparam_##n##_t *x1 = &cbp1->n; \
+    const xml_reader_cbparam_##n##_t *x2 = &cbp2->n; \
+    return true FIELDS_##n; \
+}
+MSGTYPES
+#undef MT
+#undef FLD
+
+
+#define ev_isset___no_extra_data     NULL
+#define ev_print___no_extra_data     NULL
+#define ev_genc___no_extra_data      NULL
+#define ev_equal___no_extra_data     NULL
 
 #define X(t) \
         [XML_READER_CB_##t] = { \
-            .print = concat(evprint_, FL(t)), \
-            .equal = concat(evequal_, FL(t)), \
-            .gencode = concat(evgenc_, FL(t)), \
+            .isset = concat(ev_isset_, FL(t)), \
+            .print = concat(ev_print_, FL(t)), \
+            .equal = concat(ev_equal_, FL(t)), \
+            .gencode = concat(ev_genc_, FL(t)), \
         },
 
 static const event_t events[] = {
@@ -614,11 +456,15 @@ static const event_t events[] = {
 void
 xmlreader_event_print(const xml_reader_cbparam_t *cbparam)
 {
-    printf("[%s:%u:%u]", cbparam->loc.src ? cbparam->loc.src : "<undef>",
-            cbparam->loc.line, cbparam->loc.pos);
-    printf(" %s: ", enum2str(cbparam->cbtype, &enum_cbtype));
-    if (cbparam->cbtype < sizeofarray(events) && events[cbparam->cbtype].print) {
-        events[cbparam->cbtype].print(cbparam);
+    const event_t *evt;
+
+    evt = &events[cbparam->cbtype < sizeofarray(events) ? cbparam->cbtype : XML_READER_CB_NONE];
+    printf("[%s:%u:%u] %s:",
+            cbparam->loc.src ? cbparam->loc.src : "<undef>",
+            cbparam->loc.line, cbparam->loc.pos,
+            enum2str(cbparam->cbtype, &enum_cbtype));
+    if (evt && evt->print) {
+        evt->print(cbparam);
     }
     printf("\n");
 }
@@ -655,21 +501,34 @@ xmlreader_event_equal(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t
 void
 xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam)
 {
+    const event_t *evt;
+    bool isset;
     char *s;
 
-    printf(INDENT "E(%s,\n", enum2id(cbparam->cbtype, &enum_cbtype, "XML_READER_CB_"));
+    // .isset is due to peculiarity of C syntax: empty structure initializers
+    // are not allowed, even though the intent is to have all members initialized
+    // with default values. GCC accepts this, but issues a warning. Thus, 'E' is
+    // used for regular events and 'EE' for events with empty initializers for
+    // type-specific portion.
+    evt = &events[cbparam->cbtype < sizeofarray(events) ? cbparam->cbtype : XML_READER_CB_NONE];
+    isset = evt->isset && evt->isset(cbparam);
+    printf(INDENT "%s(%s,\n",
+            isset ? "EV" : "E0",
+            enum2id(cbparam->cbtype, &enum_cbtype, "XML_READER_CB_"));
     if (cbparam->loc.src) {
         s = string_escape(cbparam->loc.src);
-        printf(INDENT INDENT "LOC(\"%s\", %u, %u),\n",
-                s, cbparam->loc.line, cbparam->loc.pos);
+        printf(INDENT INDENT INDENT "LOC(\"%s\", %u, %u)%s\n",
+                s, cbparam->loc.line, cbparam->loc.pos,
+                isset ? "," : "");
         xfree(s);
     }
     else {
-        printf(INDENT INDENT "LOC(NULL, %u, %u),\n",
-                cbparam->loc.line, cbparam->loc.pos);
+        printf(INDENT INDENT INDENT "LOC(NULL, %u, %u)%s\n",
+                cbparam->loc.line, cbparam->loc.pos,
+                isset ? "," : "");
     }
-    if (events[cbparam->cbtype].gencode) {
-        events[cbparam->cbtype].gencode(cbparam);
+    if (isset && evt->gencode) {
+        evt->gencode(cbparam);
     }
     printf(INDENT "),\n");
 }

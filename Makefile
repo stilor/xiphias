@@ -18,6 +18,7 @@ COVERAGE_CMD-lcov		:= lcov --output-file build/lcov.tmp.info \
 						   		--function-coverage build/lcov.info
 
 CC	= gcc
+# TBD -Wextra?
 WARNS					:= -Werror -Wall -Wstrict-prototypes -Wmissing-prototypes \
 						   -Wstrict-overflow=4 -Wignored-qualifiers -Wunused-but-set-parameter \
 						   -Wmaybe-uninitialized -Wpointer-arith -Wtype-limits -Wbad-function-cast \

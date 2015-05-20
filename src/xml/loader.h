@@ -1,4 +1,4 @@
-/* vi: set ts=5 sw=4 et : */
+/* vi: set ts=4 sw=4 et : */
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
 /** @file

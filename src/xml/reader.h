@@ -1,4 +1,4 @@
-/* vi: set ts=5 sw=4 et : */
+/* vi: set ts=4 sw=4 et : */
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
 /** @file
@@ -195,10 +195,6 @@ typedef struct {
     xml_reader_token_t value;           ///< Attribute value
 } xml_reader_cbparam_attr_t;
 
-/// Dummy structure for events with no extra parameters
-typedef struct {
-} xml_reader_cbparam___dummy_t;
-
 /// Combined callback parameter type
 typedef struct {
     enum xml_reader_cbtype_e cbtype;              ///< Callback type
@@ -214,7 +210,6 @@ typedef struct {
         xml_reader_cbparam_tag_t tag;             ///< Tag start/end
         xml_reader_cbparam_attr_t attr;           ///< Attribute
         xml_reader_cbparam_text_t text;           ///< Text node
-        xml_reader_cbparam___dummy_t __dummy;     ///< Dummy structure
     };
 } xml_reader_cbparam_t;
 
