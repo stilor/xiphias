@@ -37,16 +37,16 @@ void xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam);
 #define FL_ATTR               attr
 #define FL(t)                 FL_##t
 
-#define E(t, l, tok, ...)   { .cbtype = XML_READER_CB_##t, l, tok, .FL(t) = { __VA_ARGS__ }, }
+#define E(t, l, ...)   { .cbtype = XML_READER_CB_##t, l, .FL(t) = { __VA_ARGS__ }, }
 #define END                 { .cbtype = XML_READER_CB_NONE, }
 
 /// Initializer for location info
 #define LOC(s,l,p)      .loc = { .src = (s), .line = (l), .pos = (p), }
 
 /// Initializer for a token string
-#define TOK(s)          .token = { .str = U s, .len = sizeof(s) - 1 }
+#define TOK(s)          { .str = U s, .len = sizeof(s) - 1 }
 
 /// Initializer for absense of token string
-#define NOTOK           .token = { .str = NULL, .len = 0 }
+#define NOTOK           { .str = NULL, .len = 0 }
 
 #endif
