@@ -151,13 +151,25 @@ string_escape_unicode_control(const utf8_t *s, size_t len)
 }
 
 static void
+print_prefix(const char *msg)
+{
+    if (msg) {
+        printf("  %s: ", msg);
+    }
+    else {
+        printf("  ");
+    }
+}
+
+static void
 print_token(const char *pfx, const xml_reader_token_t *tk)
 {
     char *s;
 
     if (xml_reader_token_isset(tk)) {
         s = string_escape_unicode_control(tk->str, tk->len);
-        printf("  %s: '%s' [%zu]", pfx, s, tk->len);
+        print_prefix(pfx);
+        printf("'%s' [%zu]", s, tk->len);
         xfree(s);
     }
 }
@@ -185,12 +197,18 @@ equal_token(const xml_reader_token_t *tk1, const xml_reader_token_t *tk2)
         true
 #define GENC_BOOL(x,f,e) do { \
             printf(GENC_FMT(#f, "%s"), (x)->f ? "true" : "false"); \
-        } while (0);
-#define P_BOOL(x,f,e) do { \
-            if ((x)->f) { \
-                printf("  (%s)", e); \
+        } while (0)
+#define P_BOOL(x,f,e,n) do { \
+            if (n || (x)->f) { \
+                print_prefix(n); /* only if we would print anything */ \
             } \
-        } while (0);
+            if (!e) { \
+                printf("%s", (x)->f ? "true" : "false"); \
+            } \
+            else if ((x)->f) { \
+                printf("(%s)", e); \
+            } \
+        } while (0)
 #define EQ_BOOL(x1,x2,f,e) \
         ((x1)->f == (x2)->f)
 
@@ -202,14 +220,15 @@ equal_token(const xml_reader_token_t *tk1, const xml_reader_token_t *tk2)
             printf(GENC_FMT(#f, "\"%s\""), s); \
             xfree(s); \
         } while (0)
-#define P_STR_OR_NULL(x,f,e) do { \
-            if (e) { \
-                printf("  %s '%s'", e, (x)->f); \
+#define P_STR_OR_NULL(x,f,e,n) do { \
+            print_prefix(n); \
+            if ((x)->f) { \
+                printf("'%s'", (x)->f); \
             } \
             else { \
-                printf("  '%s'", (x)->f); \
+                printf("not set"); \
             } \
-        } while (0);
+        } while (0)
 #define EQ_STR_OR_NULL(x1,x2,f,e) \
         ((!(x1)->f && !(x2)->f) || ((x1)->f && (x2)->f && !strcmp((x1)->f, (x2)->f)))
 
@@ -220,10 +239,10 @@ equal_token(const xml_reader_token_t *tk1, const xml_reader_token_t *tk2)
             s = string_escape_utf8((x)->f.str, (x)->f.len); \
             printf(GENC_FMT(#f, "TOK(\"%s\")"), s); \
             xfree(s); \
-        } while (0);
-#define P_TOKEN(x,f,e) do { \
-            print_token(e, &(x)->f); \
-        } while (0);
+        } while (0)
+#define P_TOKEN(x,f,e,n) do { \
+            print_token(n, &(x)->f); \
+        } while (0)
 #define EQ_TOKEN(x1,x2,f,e) \
         (equal_token(&(x1)->f, &(x2)->f))
 
@@ -231,17 +250,18 @@ equal_token(const xml_reader_token_t *tk1, const xml_reader_token_t *tk2)
         true
 #define GENC_ENUM(x,f,e) do { \
             printf(GENC_FMT(#f, "%s"), enum2id((x)->f, &enum_##e, NULL)); \
-        } while (0);
-#define P_ENUM(x,f,e) do { \
+        } while (0)
+#define P_ENUM(x,f,e,n) do { \
+            print_prefix(n); \
             printf("%s", enum2str((x)->f, &enum_##e)); \
-        } while (0);
+        } while (0)
 #define EQ_ENUM(x1,x2,f,e) \
         ((x1)->f == (x2)->f)
 
 
 #define ISSET_CUSTOM(x,f,e)     t_isset_##e(&(x)->f)
-#define GENC_CUSTOM(x,f,e)      t_genc_##e(&(x)->f, #f);
-#define P_CUSTOM(x,f,e)         t_print_##e(&(x)->f, #f);
+#define GENC_CUSTOM(x,f,e)      t_genc_##e(&(x)->f, #f)
+#define P_CUSTOM(x,f,e,n)       t_print_##e(&(x)->f, n)
 #define EQ_CUSTOM(x1,x2,f,e)    t_equal_##e(&(x1)->f, &(x2)->f)
 
 // xmlerr_info_t ops
@@ -271,10 +291,11 @@ t_genc_xmlerr(const xmlerr_info_t *xi, const char *fldname)
 }
 
 static void
-t_print_xmlerr(const xmlerr_info_t *xi, const char *fldname)
+t_print_xmlerr(const xmlerr_info_t *xi, const char *name)
 {
     xmlerr_info_t spec_code = XMLERR_MK(XMLERR__NONE, XMLERR_SPEC(*xi), XMLERR_CODE(*xi));
 
+    print_prefix(name);
     if (*xi == XMLERR_NOTE) {
         printf("[NOTE]");
     }
@@ -297,53 +318,53 @@ t_equal_xmlerr(const xmlerr_info_t *xi1, const xmlerr_info_t *xi2)
 
 
 #define FIELDS_message \
-        FLD(info, CUSTOM, xmlerr) \
-        FLD(msg, STR_OR_NULL, "msg") \
+        FLD(info, CUSTOM, xmlerr, NULL) \
+        FLD(msg, STR_OR_NULL, NULL, NULL) \
 
 #define FIELDS_entity \
-        FLD(type, ENUM, reftype) \
-        FLD(name, TOKEN, "name") \
-        FLD(text, TOKEN, "text") \
-        FLD(system_id, TOKEN, "sysid") \
-        FLD(public_id, TOKEN, "pubid") \
-        FLD(ndata, TOKEN, "ndata") \
-        FLD(nsystem_id, TOKEN, "n/sysid") \
-        FLD(npublic_id, TOKEN, "n/pubid") \
+        FLD(type, ENUM, reftype, NULL) \
+        FLD(name, TOKEN, NULL, NULL) \
+        FLD(text, TOKEN, NULL, "text") \
+        FLD(system_id, TOKEN, NULL, "sysid") \
+        FLD(public_id, TOKEN, NULL, "pubid") \
+        FLD(ndata, TOKEN, NULL, "ndata") \
+        FLD(nsystem_id, TOKEN, NULL, "n/sysid") \
+        FLD(npublic_id, TOKEN, NULL, "n/pubid") \
 
 #define FIELDS_notation \
-        FLD(name, TOKEN, "name") \
-        FLD(system_id, TOKEN, "sysid") \
-        FLD(public_id, TOKEN, "pubid") \
+        FLD(name, TOKEN, NULL, NULL) \
+        FLD(system_id, TOKEN, NULL, "sysid") \
+        FLD(public_id, TOKEN, NULL, "pubid") \
 
 #define FIELDS_xmldecl \
-        FLD(encoding, STR_OR_NULL, "encoding") \
-        FLD(standalone, ENUM, xml_standalone) \
-        FLD(version, ENUM, xml_version) \
+        FLD(encoding, STR_OR_NULL, NULL, "encoding") \
+        FLD(standalone, ENUM, xml_standalone, "standalone") \
+        FLD(version, ENUM, xml_version, "version") \
 
 #define FIELDS_dtd \
-        FLD(root, TOKEN, "root") \
-        FLD(system_id, TOKEN, "sysid") \
-        FLD(public_id, TOKEN, "pubid") \
+        FLD(root, TOKEN, NULL, "root") \
+        FLD(system_id, TOKEN, NULL, "sysid") \
+        FLD(public_id, TOKEN, NULL, "pubid") \
 
 #define FIELDS_comment \
-        FLD(text, TOKEN, "text") \
+        FLD(text, TOKEN, NULL, NULL) \
 
 #define FIELDS_pi \
-        FLD(target, TOKEN, "target") \
-        FLD(content, TOKEN, "content") \
-        FLD(nsystem_id, TOKEN, "n/sysid") \
-        FLD(npublic_id, TOKEN, "n/pubid") \
+        FLD(target, TOKEN, NULL, NULL) \
+        FLD(content, TOKEN, NULL, "content") \
+        FLD(nsystem_id, TOKEN, NULL, "n/sysid") \
+        FLD(npublic_id, TOKEN, NULL, "n/pubid") \
 
 #define FIELDS_text \
-        FLD(text, TOKEN, "text") \
-        FLD(ws, BOOL, "whitespace") \
+        FLD(text, TOKEN, NULL, NULL) \
+        FLD(ws, BOOL, "whitespace", NULL) \
 
 #define FIELDS_tag \
-        FLD(name, TOKEN, "name") \
+        FLD(name, TOKEN, NULL, NULL) \
 
 #define FIELDS_attr \
-        FLD(name, TOKEN, "name") \
-        FLD(value, TOKEN, "value") \
+        FLD(name, TOKEN, NULL, NULL) \
+        FLD(value, TOKEN, NULL, "value") \
 
 #define MSGTYPES \
         MT(message) \
@@ -358,7 +379,7 @@ t_equal_xmlerr(const xmlerr_info_t *xi1, const xmlerr_info_t *xi2)
         MT(attr) \
 
 // Checking for non-default initializer
-#define FLD(f,t,e) || ISSET_##t(x,f,e)
+#define FLD(f,t,e,n) || ISSET_##t(x,f,e)
 #define MT(n) \
 static bool \
 ev_isset_##n(const xml_reader_cbparam_t *cbp) \
@@ -371,7 +392,7 @@ MSGTYPES
 #undef FLD
 
 // Printing in human readable form
-#define FLD(f,t,e) P_##t(x,f,e);
+#define FLD(f,t,e,n) P_##t(x,f,e,n);
 #define MT(n) \
 static void \
 ev_print_##n(const xml_reader_cbparam_t *cbp) \
@@ -384,7 +405,7 @@ MSGTYPES
 #undef FLD
 
 // Code generation
-#define FLD(f,t,e) if (ISSET_##t(x,f,e)) { GENC_##t(x,f,e); }
+#define FLD(f,t,e,n) if (ISSET_##t(x,f,e)) { GENC_##t(x,f,e); }
 #define MT(n) \
 static void \
 ev_genc_##n(const xml_reader_cbparam_t *cbp) \
@@ -397,7 +418,7 @@ MSGTYPES
 #undef FLD
 
 // Checking for equality
-#define FLD(f,t,e) && EQ_##t(x1,x2,f,e)
+#define FLD(f,t,e,n) && EQ_##t(x1,x2,f,e)
 #define MT(n) \
 static bool \
 ev_equal_##n(const xml_reader_cbparam_t *cbp1, const xml_reader_cbparam_t *cbp2) \

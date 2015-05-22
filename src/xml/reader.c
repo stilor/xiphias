@@ -23,10 +23,10 @@
     Initial lookahead buffer size for parsing XML declaration. Each time it is
     insufficient, it is doubled.
 */
-#define INITIAL_DECL_LOOKAHEAD_SIZE 64
+#define INITIAL_DECL_LOOKAHEAD_SIZE 64U
 
 /// Maximum number of characters to look ahead
-#define MAX_LOOKAHEAD_SIZE          16
+#define MAX_LOOKAHEAD_SIZE          16U
 
 /// Reader flags
 enum {
@@ -125,7 +125,6 @@ typedef struct xml_reader_external_s {
 
     bool aborted;                   ///< If true, entity was not fully parsed
     bool saw_cr;                    ///< Saw U+000D, yet to see U+000A or U+0085.
-    xml_reader_t *h;                ///< Reader handle (for error reporting)
     encoding_handle_t *enc;         ///< Encoding used to transcode input
     strbuf_t *buf;                  ///< Raw input buffer (in document's encoding)
     nfc_t *norm_unicode;            ///< Normalization check handle for Unicode normalization
@@ -146,13 +145,17 @@ typedef struct xml_reader_xmldecl_attrdesc_s {
     const char *name;       ///< Name of the attribute
     bool mandatory;         ///< True if the attribute is mandatory
 
-    /// Value validation function
-    void (*check)(xml_reader_external_t *ex);
+    /**
+        Value validation function. Upon entry, token buffer contains the value
+        of the pseudo-attribute's literal.
+    */
+    void (*check)(xml_reader_t *h);
 } xml_reader_xmldecl_attrdesc_t;
 
-/// Declaration info for XMLDecl/TextDecl:
+/// Declaration info for XMLDecl/TextDecl
 typedef struct xml_reader_xmldecl_declinfo_s {
     const char *name;           ///< Declaration name in XML grammar
+    xmlerr_info_t errcode;      ///< Error code associated with this declaration
     const xml_reader_xmldecl_attrdesc_t *attrlist; ///< Allowed/required attributes
 } xml_reader_xmldecl_declinfo_t;
 
@@ -264,7 +267,14 @@ struct xml_reader_s {
     /// Argument to loader function
     xml_reader_hidden_loader_arg_t *hidden_loader_arg;
 
-    const xml_reader_context_t *ctx;///< Current parser context
+    /// Current parser context
+    const xml_reader_context_t *ctx;
+
+    /// Declaration type in the entity being added
+    const xml_reader_xmldecl_declinfo_t *declinfo;
+
+    /// Currentlly expected attribute in declaration
+    const xml_reader_xmldecl_attrdesc_t *declattr;
 
     ucs4_t *ucs4buf;                ///< Buffer for saved UCS-4 text
     size_t ucs4len;                 ///< Count of UCS-4 characters
@@ -290,7 +300,7 @@ struct xml_reader_s {
     bool ws;                        ///< In some contexts, we need to know whether we saw whitespace
 
     utf8_t *tokenbuf_start;         ///< Start of the allocated token buffer
-    utf8_t *tokenbuf_end;           ///< End of the token buffer
+    size_t tokenbuf_size;           ///< Size of the token buffer
     size_t tokenbuf_used;           ///< Length of saved data in token buffer
     size_t tokenbuf_len;            ///< Length of the current (unsaved) token
 
@@ -336,6 +346,8 @@ static const xml_reader_context_t parser_document_entity;
 static const xml_reader_context_t parser_attributes;
 static const xml_reader_context_t parser_internal_subset;
 static const xml_reader_context_t parser_external_subset;
+static const xml_reader_context_t parser_decl;
+static const xml_reader_context_t parser_decl_attributes;
 
 /// Convenience macro: report an error at the start of the last token
 #define xml_reader_message_lastread(h, ...) \
@@ -475,10 +487,8 @@ xml_reader_set_encoding(xml_reader_external_t *ex, const encoding_t *enc)
 static void
 xml_tokenbuf_realloc(xml_reader_t *h)
 {
-    size_t newsz = 2 * (h->tokenbuf_end - h->tokenbuf_start);
-
-    h->tokenbuf_start = xrealloc(h->tokenbuf_start, newsz);
-    h->tokenbuf_end = h->tokenbuf_start + newsz;
+    h->tokenbuf_size *= 2;
+    h->tokenbuf_start = xrealloc(h->tokenbuf_start, h->tokenbuf_size);
 }
 
 /**
@@ -861,26 +871,27 @@ xml_eof(xml_reader_t *h)
     using ASCII characters.
 
     @param h Reader handle
-    @param buf Buffer to read into
-    @param bufsz Buffer size
-    @return Number of characters read
+    @return Nothing
 */
-static size_t
-xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz)
+static void
+xml_lookahead(xml_reader_t *h)
 {
     xml_reader_input_t *inp;
     ucs4_t tmp[MAX_LOOKAHEAD_SIZE];
     ucs4_t *ptr = tmp;
+    utf8_t *bufptr = h->tokenbuf_start;
     size_t i, nread;
     const void *begin, *end;
 
-    OOPS_ASSERT(bufsz <= MAX_LOOKAHEAD_SIZE);
+    OOPS_ASSERT(h->tokenbuf_size >= MAX_LOOKAHEAD_SIZE);
+    OOPS_ASSERT(h->tokenbuf_used == 0);
 
     while (true) {
         if ((inp = STAILQ_FIRST(&h->active_input)) == NULL) {
-            return 0;
+            h->tokenbuf_len = 0;
+            return;
         }
-        nread = strbuf_lookahead(inp->buf, ptr, bufsz * sizeof(ucs4_t));
+        nread = strbuf_lookahead(inp->buf, ptr, MAX_LOOKAHEAD_SIZE * sizeof(ucs4_t));
         if (nread) {
             break;
         }
@@ -924,9 +935,9 @@ xml_lookahead(xml_reader_t *h, utf8_t *buf, size_t bufsz)
         if (*ptr >= 0x7F) {
             break; // Non-ASCII
         }
-        *buf++ = *ptr++;
+        *bufptr++ = *ptr++;
     }
-    return ptr - tmp;
+    h->tokenbuf_len = ptr - tmp;
 }
 
 /**
@@ -1180,11 +1191,9 @@ xml_entity_populate(xml_reader_t *h)
             i++, predef++) {
         s = predef->rplc[0];
         // Entity allocation routine is tailored for allocating from a definition,
-        // emulate that
-        if (predef->namelen + h->tokenbuf_start > h->tokenbuf_end) {
-            xml_tokenbuf_realloc(h);
-        }
-        // Store in the name token
+        // emulate that. We know the buffer is large enough to accommodate the predefined
+        // entities.
+        OOPS_ASSERT(predef->namelen <= h->tokenbuf_size);
         memcpy(h->tokenbuf_start, predef->name, predef->namelen);
         h->svtk.name.offset = 0;
         h->svtk.name.len = predef->namelen;
@@ -1291,8 +1300,8 @@ xml_reader_new(const xml_reader_options_t *opts)
     h->normalization = opts->normalization;
     h->norm_include = NULL;
 
-    h->tokenbuf_start = xmalloc(opts->initial_tokenbuf);
-    h->tokenbuf_end = h->tokenbuf_start + opts->initial_tokenbuf;
+    h->tokenbuf_size = max(opts->initial_tokenbuf, MAX_LOOKAHEAD_SIZE);
+    h->tokenbuf_start = xmalloc(h->tokenbuf_size);
 
     xml_loader_info_init(&h->dtd_loader_info, NULL, NULL);
 
@@ -1810,7 +1819,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 
             if (cp != UCS4_NOCHAR) {
                 clen = utf8_clen(cp);
-                if (bufptr + clen > h->tokenbuf_end) {
+                if (bufptr + clen > h->tokenbuf_start + h->tokenbuf_size) {
                     // Double token storage
                     offs = bufptr - h->tokenbuf_start;
                     xml_tokenbuf_realloc(h);
@@ -3043,13 +3052,13 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     VersionNum ::= '1.1'          {{XML1.1}}
     @endverbatim
 
-    @param ex External entity info
+    @param h Reader handle
     @return Nothing
 */
 static void
-check_VersionInfo(xml_reader_external_t *ex)
+check_VersionInfo(xml_reader_t *h)
 {
-    xml_reader_t *h = ex->h;
+    xml_reader_external_t *ex = h->current_external;
     const utf8_t *str = h->tokenbuf_start + h->tokenbuf_used;
     size_t sz = h->tokenbuf_len;
     size_t i;
@@ -3102,13 +3111,13 @@ bad_version:
     EncName  ::= [A-Za-z] ([A-Za-z0-9._] | '-')*
     @endverbatim
 
-    @param ex External entity info
+    @param h Reader handle
     @return Nothing
 */
 static void
-check_EncName(xml_reader_external_t *ex)
+check_EncName(xml_reader_t *h)
 {
-    xml_reader_t *h = ex->h;
+    xml_reader_external_t *ex = h->current_external;
     const utf8_t *str = h->tokenbuf_start + h->tokenbuf_used;
     const utf8_t *s;
     size_t sz = h->tokenbuf_len;
@@ -3147,18 +3156,18 @@ bad_encoding:
        <anonymous> ::= 'yes' | 'no'
     @endverbatim
 
-    @param ex External entity info
+    @param h Reader handle
     @return Nothing
 */
 static void
-check_SD_YesNo(xml_reader_external_t *ex)
+check_SD_YesNo(xml_reader_t *h)
 {
-    xml_reader_t *h = ex->h;
     const utf8_t *str = h->tokenbuf_start + h->tokenbuf_used;
     size_t sz = h->tokenbuf_len;
 
     // Standalone status applies to the whole document and can only be set
     // in XMLDecl (i.e., in document entity).
+    // TBD assert this is a document entity
     if (sz == 2 && utf8_eqn(str, "no", 2)) {
         h->standalone = XML_INFO_STANDALONE_NO;
     }
@@ -3181,6 +3190,10 @@ check_SD_YesNo(xml_reader_external_t *ex)
 */
 static const struct xml_reader_xmldecl_declinfo_s declinfo_textdecl = {
     .name = "TextDecl",
+    // TBD have a macro to combine spec/code, so that severity can be added later
+    // TBD use here and in other ecode/errcode fields
+    // TBD go over places invoking P_XMLDecl code and convert to use this via h->declinfo->errcode
+    .errcode = XMLERR(ERROR, XML, P_XMLDecl),
     .attrlist = (const xml_reader_xmldecl_attrdesc_t[]){
         { "version", false, check_VersionInfo },
         { "encoding", true, check_EncName },
@@ -3197,6 +3210,7 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_textdecl = {
 */
 static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
     .name = "XMLDecl",
+    .errcode = XMLERR(ERROR, XML, P_XMLDecl),
     .attrlist = (const struct xml_reader_xmldecl_attrdesc_s[]){
         { "version", true, check_VersionInfo },
         { "encoding", false, check_EncName },
@@ -3206,12 +3220,52 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
 };
 
 /**
-    Read XMLDecl/TextDecl if one is present. The set of expected attributes
-    and their optionality is passed in the handle.
+    Trivial parser: always returns 'Not matching'.
+
+    @param h Reader handle
+    @return Always PR_NOMATCH
+*/
+static prodres_t
+xml_parse_nomatch(xml_reader_t *h)
+{
+    return PR_NOMATCH;
+}
+
+/**
+    Start parsing XMLDecl/TextDecl if one is present.
 
     @verbatim
     XMLDecl      ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
     TextDecl     ::= '<?xml' VersionInfo? EncodingDecl S? '?>'
+    @endverbatim
+
+    @param h Reader handle
+    @return PR_NOMATCH if declaration is not found, PR_OK if start is parsed
+        successfully (switches to pseudo-attribute parsing in that case).
+*/
+static prodres_t
+xml_parse_decl_start(xml_reader_t *h)
+{
+    // We know '<?xml' is here, but it must be followed by a whitespace
+    // so that it can be distinguished from a XML PI, e.g. '<?xml-model'
+    if (h->tokenbuf_len < 6 || !xml_is_whitespace(h->tokenbuf_start[5])) {
+        return PR_NOMATCH;
+    }
+
+    // Ok, this is a declaration.
+    // We know it's there, checked above
+    xml_read_string_assert(h, "<?xml");
+    xml_reader_input_lock(h);
+    h->declattr = h->declinfo->attrlist; // Currently expected attribute
+    h->ws = xml_parse_whitespace(h) == PR_OK;
+    h->ctx = &parser_decl_attributes;
+    return PR_OK;
+}
+
+/**
+    Parse pseudo-attributes in XMLDecl/TextDecl.
+
+    @verbatim
     VersionInfo  ::= S 'version' Eq ("'" VersionNum "'" | '"' VersionNum '"')
     Eq           ::= S? '=' S?
     VersionNum   ::= '1.' [0-9]+    {{XML1.0}}
@@ -3223,117 +3277,116 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
     @endverbatim
 
     @param h Reader handle
-    @return PR_OK (this function does its own recovery)
+    @return PR_NOMATCH if declaration is not found, PR_OK if start is parsed
+        successfully (switches to pseudo-attribute parsing in that case).
 */
 static prodres_t
-xml_parse_XMLDecl_TextDecl(xml_reader_t *h)
+xml_parse_decl_attr(xml_reader_t *h)
 {
-    const xml_reader_xmldecl_declinfo_t *declinfo = h->ctx->declinfo;
-    const xml_reader_xmldecl_attrdesc_t *attrlist = declinfo->attrlist;
-    xml_reader_cbparam_t cbp;
-    utf8_t labuf[6]; // ['<?xml' + whitespace] or [?>]
-    bool had_ws;
+    const xml_reader_xmldecl_attrdesc_t *attr;
+    utf8_t *name;
 
-    if (6 != xml_lookahead(h, labuf, 6)
-            || !utf8_eqn(labuf, "<?xml", 5)
-            || !xml_is_whitespace(labuf[5])) {
-        return PR_NOMATCH; // Does not start with a declaration
+    if (!h->ws) {
+        xml_reader_message_current(h, h->declinfo->errcode,
+                "Malformed %s: expect whitespace or ?> here",
+                h->declinfo->name);
+        goto malformed;
     }
 
-    // We know it's there, checked above
-    xml_read_string_assert(h, "<?xml");
-    xml_reader_input_lock(h);
-
-    while (true) {
-        had_ws = xml_parse_whitespace(h) == PR_OK;
-
-        // From the productions above, we expect either closing ?> or Name=Literal.
-        // If it was a Name, it is further checked against the expected
-        // attribute list and Literal is then verified for begin a valid value
-        // for Name.
-        if (ucs4_cheq(h->rejected, '?')) {
-            if (xml_read_string(h, "?>", XMLERR(ERROR, XML, P_XMLDecl)) != PR_OK) {
-                goto malformed;
-            }
-            break;
-        }
-        // We may have no whitespace before final ?>, but must get some before
-        // pseudo-attributes.
-        if (!had_ws || xml_read_Name(h) != PR_OK) {
-            goto malformed;
-        }
-
-        // Go through the remaining attributes and see if this one is known
-        // (and if we skipped any mandatory attributes while advancing).
-        while (attrlist->name) {
-            // TBD also report raw tokens in callback? Then save tokens here, also makes
-            // the expressions (h->tokenbuf_*) simpler
-            if (h->tokenbuf_len == strlen(attrlist->name)
-                    && utf8_eqn(h->tokenbuf_start + h->tokenbuf_used,
-                        attrlist->name, h->tokenbuf_len)) {
-                break; // Yes, that is what we expect
-            }
-            if (attrlist->mandatory) {
-                // Non-fatal: continue with next pseudo-attributes
-                xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_XMLDecl),
-                        "Mandatory pseudo-attribute '%s' missing in %s",
-                        attrlist->name, declinfo->name);
-            }
-            attrlist++;
-        }
-        if (!attrlist->name) {
-            // Non-fatal: continue parsing as if matching the following production
-            //   Name Eq ('"' (Char - '"')* '"' | "'" (Char - "'")* "'")
-            xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_XMLDecl),
-                    "Unexpected pseudo-attribute");
-        }
-
-        // Parse Eq production
-        (void)xml_parse_whitespace(h);
-        if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_XMLDecl)) != PR_OK) {
-            goto malformed;
-        }
-        (void)xml_parse_whitespace(h);
-        if (xml_parse_literal(h, &reference_ops_pseudo) != PR_OK) {
-            goto malformed;
-        }
-
-        if (attrlist->name) {
-            // Check/get value and advance to the next attribute
-            attrlist->check(h->current_external);
-            attrlist++;
-        }
+    if (xml_read_Name(h) != PR_OK) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
+                "Malformed %s: expect pseudo-attribute name here",
+                h->declinfo->name);
+        goto malformed;
     }
 
-    // Check if any remaining mandatory attributes were omitted
-    while (attrlist->name) {
-        if (attrlist->mandatory) {
-            // Non-fatal: just assume the default
+    // Go through the remaining attributes and see if this one is known
+    // (and if we skipped any mandatory attributes while advancing).
+    name = h->tokenbuf_start + h->tokenbuf_used;
+    for (attr = h->declattr; attr->name; attr++) {
+        if (h->tokenbuf_len == strlen(attr->name)
+                && utf8_eqn(name, attr->name, h->tokenbuf_len)) {
+            break; // Yes, that is what we expect
+        }
+        if (attr->mandatory) {
+            // Non-fatal: continue with next pseudo-attributes
             xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_XMLDecl),
                     "Mandatory pseudo-attribute '%s' missing in %s",
-                    attrlist->name, declinfo->name);
+                    attr->name, h->declinfo->name);
         }
-        attrlist++;
     }
 
-    // Emit an event (callback) for XML declaration
+    if (!attr->name) {
+        // Non-fatal: continue parsing as if matching the following production
+        //   Name Eq ('"' (Char - '"')* '"' | "'" (Char - "'")* "'")
+        xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_XMLDecl),
+                "Malformed %s: expected pseudo-attribute",
+                h->declinfo->name);
+    }
+
+    // Parse Eq production
+    (void)xml_parse_whitespace(h);
+    if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_XMLDecl)) != PR_OK) {
+        // Already complained
+        goto malformed;
+    }
+    (void)xml_parse_whitespace(h);
+    if (xml_parse_literal(h, &reference_ops_pseudo) != PR_OK) {
+        // Already complained
+        goto malformed;
+    }
+
+    if (attr->name) {
+        attr->check(h);
+        h->declattr = attr + 1; // Expect the next attribute after this
+    }
+    else {
+        h->declattr = attr; // Expect nothing else, stay at the end marker
+    }
+    h->ws = xml_parse_whitespace(h) == PR_OK;
+    return PR_OK;
+
+malformed:
+    xml_reader_input_unlock_assert(h);
+    return PR_FAIL;
+}
+
+/**
+    Finish parsing XMLDecl/TextDecl.
+
+    @verbatim
+    XMLDecl      ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
+    TextDecl     ::= '<?xml' VersionInfo? EncodingDecl S? '?>'
+    @endverbatim
+
+    @param h Reader handle
+    @return PR_OK (emits errors but recovers)
+*/
+static prodres_t
+xml_parse_decl_end(xml_reader_t *h)
+{
+    const xml_reader_xmldecl_attrdesc_t *attr;
+    xml_reader_cbparam_t cbp;
+
+    for (attr = h->declattr; attr->name; attr++) {
+        if (attr->mandatory) {
+            // No recovery: just assume the default
+            xml_reader_message_lastread(h, h->declinfo->errcode,
+                    "Mandatory pseudo-attribute '%s' missing in %s",
+                    attr->name, h->declinfo->name);
+        }
+    }
+    // TBD do away with XML declaration reporting? doesn't seem to have any
+    // value for consumer, and standalone status does not make sense except
+    // in doc entity. Instead, provide interfaces to query it via API?
     xml_reader_callback_init(h, XML_READER_CB_XMLDECL, &cbp);
     cbp.xmldecl.encoding = h->current_external->enc_declared;
     cbp.xmldecl.version = h->current_external->version;
-    cbp.xmldecl.standalone = h->standalone; // TBD do away with XML declaration reporting? doesn't seem
-                                            // to have any value for consumer, and standalone status
-                                            // does not make sense except in doc entity. Instead,
-                                            // provide interfaces to query it via API
+    cbp.xmldecl.standalone = h->standalone;
     xml_reader_callback_invoke(h, &cbp);
     xml_reader_input_unlock_assert(h);
-
-    return PR_OK;
-
-malformed: // Any fatal malformedness: report location where actual error was
-    xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
-            "Malformed %s", declinfo->name);
-    xml_reader_input_unlock_assert(h);
-    return PR_FAIL;
+    h->declattr = NULL;
+    return PR_STOP;
 }
 
 /**
@@ -4259,87 +4312,6 @@ xml_end_internal_subset(xml_reader_t *h)
 }
 
 /**
-    Context for parsing internal subset in a document type definition (DTD).
-
-    @verbatim
-    intSubset    ::= (markupdecl | DeclSep)*
-    markupdecl   ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
-    DeclSep      ::= PEReference | S
-    elementdecl  ::= '<!ELEMENT' S Name S contentspec S? '>'
-    AttlistDecl  ::= '<!ATTLIST' S Name AttDef* S? '>'
-    EntityDecl   ::= GEDecl | PEDecl
-    GEDecl       ::= '<!ENTITY' S Name S EntityDef S? '>'
-    PEDecl       ::= '<!ENTITY' S '%' S Name S PEDef S? '>'
-    NotationDecl ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
-    PI           ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>' 
-    Comment      ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
-    @endverbatim
-
-    Additionally, in internal subset PEReference may only occur in DeclSep. So, we parse
-    DeclSep as whitespace with PE reference substitution enabled.
-*/
-static const xml_reader_context_t parser_internal_subset = {
-    .lookahead = {
-        LOOKAHEAD("<!ELEMENT", xml_parse_elementdecl),
-        LOOKAHEAD("<!ATTLIST", xml_parse_AttlistDecl),
-        LOOKAHEAD("<!ENTITY", xml_parse_EntityDecl),
-        LOOKAHEAD("<!NOTATION", xml_parse_NotationDecl),
-        LOOKAHEAD("<?", xml_parse_PI),
-        LOOKAHEAD("<!--", xml_parse_Comment),
-        LOOKAHEAD("]", xml_end_internal_subset),
-        LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
-    },
-    .declinfo = NULL,                   // Not used for reading any external entity
-    .reftype = XML_READER_REF_NONE,     // Not an external entity
-    .entity_value_parser = &reference_ops_EntityValue_internal,
-    .errcode = XMLERR(ERROR, XML, P_intSubset),
-    .production = "intSubset",
-};
-
-/**
-    Context for parsing external subset in a document type definition (DTD), including
-    one loaded via parameter entity.
-
-    @verbatim
-    extSubset       ::= TextDecl? extSubsetDecl
-    extSubsetDecl   ::= (markupdecl | conditionalSect | DeclSep)*
-    conditionalSect ::= includeSect | ignoreSect
-    includeSect     ::= '<![' S? 'INCLUDE' S? '[' extSubsetDecl ']]>'
-    ignoreSect      ::= '<![' S? 'IGNORE' S? '[' ignoreSectContents* ']]>'
-    markupdecl      ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
-    DeclSep         ::= PEReference | S
-    elementdecl     ::= '<!ELEMENT' S Name S contentspec S? '>'
-    AttlistDecl     ::= '<!ATTLIST' S Name AttDef* S? '>'
-    EntityDecl      ::= GEDecl | PEDecl
-    GEDecl          ::= '<!ENTITY' S Name S EntityDef S? '>'
-    PEDecl          ::= '<!ENTITY' S '%' S Name S PEDef S? '>'
-    NotationDecl    ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
-    PI              ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>' 
-    Comment         ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
-    @endverbatim
-
-    Additionally, in internal subset PEReference may only occur in DeclSep. So, we parse
-    DeclSep as whitespace with PE reference substitution enabled.
-*/
-static const xml_reader_context_t parser_external_subset = {
-    .lookahead = {
-        LOOKAHEAD("<!ELEMENT", xml_parse_elementdecl),
-        LOOKAHEAD("<!ATTLIST", xml_parse_AttlistDecl),
-        LOOKAHEAD("<!ENTITY", xml_parse_EntityDecl),
-        LOOKAHEAD("<!NOTATION", xml_parse_NotationDecl),
-        LOOKAHEAD("<![", xml_parse_conditionalSect),
-        LOOKAHEAD("<?", xml_parse_PI),
-        LOOKAHEAD("<!--", xml_parse_Comment),
-        LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
-    },
-    .declinfo = &declinfo_textdecl,
-    .reftype = XML_READER_REF_EXT_SUBSET, // If not parameter entity, this is external DTD
-    .entity_value_parser = &reference_ops_EntityValue_external,
-    .errcode = XMLERR(ERROR, XML, P_extSubset),
-    .production = "extSubset",
-};
-
-/**
     Read and process a document type declaration; the declaration may reference
     an external subset and contain an internal subset, or have both, or none.
 
@@ -4687,6 +4659,87 @@ xml_parse_whitespace_or_recover(xml_reader_t *h)
 }
 
 /**
+    Context for parsing internal subset in a document type definition (DTD).
+
+    @verbatim
+    intSubset    ::= (markupdecl | DeclSep)*
+    markupdecl   ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
+    DeclSep      ::= PEReference | S
+    elementdecl  ::= '<!ELEMENT' S Name S contentspec S? '>'
+    AttlistDecl  ::= '<!ATTLIST' S Name AttDef* S? '>'
+    EntityDecl   ::= GEDecl | PEDecl
+    GEDecl       ::= '<!ENTITY' S Name S EntityDef S? '>'
+    PEDecl       ::= '<!ENTITY' S '%' S Name S PEDef S? '>'
+    NotationDecl ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
+    PI           ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>' 
+    Comment      ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
+    @endverbatim
+
+    Additionally, in internal subset PEReference may only occur in DeclSep. So, we parse
+    DeclSep as whitespace with PE reference substitution enabled.
+*/
+static const xml_reader_context_t parser_internal_subset = {
+    .lookahead = {
+        LOOKAHEAD("<!ELEMENT", xml_parse_elementdecl),
+        LOOKAHEAD("<!ATTLIST", xml_parse_AttlistDecl),
+        LOOKAHEAD("<!ENTITY", xml_parse_EntityDecl),
+        LOOKAHEAD("<!NOTATION", xml_parse_NotationDecl),
+        LOOKAHEAD("<?", xml_parse_PI),
+        LOOKAHEAD("<!--", xml_parse_Comment),
+        LOOKAHEAD("]", xml_end_internal_subset),
+        LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
+    },
+    .declinfo = NULL,                   // Not used for reading any external entity
+    .reftype = XML_READER_REF_NONE,     // Not an external entity
+    .entity_value_parser = &reference_ops_EntityValue_internal,
+    .errcode = XMLERR(ERROR, XML, P_intSubset),
+    .production = "intSubset",
+};
+
+/**
+    Context for parsing external subset in a document type definition (DTD), including
+    one loaded via parameter entity.
+
+    @verbatim
+    extSubset       ::= TextDecl? extSubsetDecl
+    extSubsetDecl   ::= (markupdecl | conditionalSect | DeclSep)*
+    conditionalSect ::= includeSect | ignoreSect
+    includeSect     ::= '<![' S? 'INCLUDE' S? '[' extSubsetDecl ']]>'
+    ignoreSect      ::= '<![' S? 'IGNORE' S? '[' ignoreSectContents* ']]>'
+    markupdecl      ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
+    DeclSep         ::= PEReference | S
+    elementdecl     ::= '<!ELEMENT' S Name S contentspec S? '>'
+    AttlistDecl     ::= '<!ATTLIST' S Name AttDef* S? '>'
+    EntityDecl      ::= GEDecl | PEDecl
+    GEDecl          ::= '<!ENTITY' S Name S EntityDef S? '>'
+    PEDecl          ::= '<!ENTITY' S '%' S Name S PEDef S? '>'
+    NotationDecl    ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
+    PI              ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>' 
+    Comment         ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
+    @endverbatim
+
+    Additionally, in internal subset PEReference may only occur in DeclSep. So, we parse
+    DeclSep as whitespace with PE reference substitution enabled.
+*/
+static const xml_reader_context_t parser_external_subset = {
+    .lookahead = {
+        LOOKAHEAD("<!ELEMENT", xml_parse_elementdecl),
+        LOOKAHEAD("<!ATTLIST", xml_parse_AttlistDecl),
+        LOOKAHEAD("<!ENTITY", xml_parse_EntityDecl),
+        LOOKAHEAD("<!NOTATION", xml_parse_NotationDecl),
+        LOOKAHEAD("<![", xml_parse_conditionalSect),
+        LOOKAHEAD("<?", xml_parse_PI),
+        LOOKAHEAD("<!--", xml_parse_Comment),
+        LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
+    },
+    .declinfo = &declinfo_textdecl,
+    .reftype = XML_READER_REF_EXT_SUBSET, // If not parameter entity, this is external DTD
+    .entity_value_parser = &reference_ops_EntityValue_external,
+    .errcode = XMLERR(ERROR, XML, P_extSubset),
+    .production = "extSubset",
+};
+
+/**
     Expected tokens/handlers for parsing content production.
 
     Note that content is a recursive production: it may contain element, which in turn
@@ -4722,7 +4775,6 @@ static const xml_reader_context_t parser_content = {
     },
     .declinfo = &declinfo_textdecl,
     .reftype = XML_READER_REF_NONE, // Can only be loaded via entity
-    .entity_value_parser = NULL, // DTD not recognized
     .errcode = XMLERR(ERROR, XML, P_content),
     .production = "content",
 };
@@ -4780,12 +4832,92 @@ static const xml_reader_context_t parser_attributes = {
         LOOKAHEAD(">", xml_parse_closing_STag),
         LOOKAHEAD("", xml_parse_attribute),
     },
-    .declinfo = NULL, // not applicable
     .reftype = XML_READER_REF_NONE, // not an external entity
-    .entity_value_parser = NULL, // not applicable
     .errcode = XMLERR(ERROR, XML, P_STag),
-    .production = "STag/EmptyElemTag",
 };
+
+/**
+    Context for parsing the XMLDecl/TextDecl productions.
+
+    @verbatim
+    XMLDecl  ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
+    TextDecl ::= '<?xml' VersionInfo? EncodingDecl S? '?>'
+    @endverbatim
+*/
+static const xml_reader_context_t parser_decl = {
+    .lookahead = {
+        LOOKAHEAD("<?xml", xml_parse_decl_start),
+        LOOKAHEAD("", xml_parse_nomatch),
+    },
+    .reftype = XML_READER_REF_NONE, // not an external entity
+    .errcode = XMLERR(ERROR, XML, P_XMLDecl),
+};
+
+/**
+    Context for parsing the pseudo-attributes in the XMLDecl/TextDecl productions.
+
+    @verbatim
+    XMLDecl  ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
+    TextDecl ::= '<?xml' VersionInfo? EncodingDecl S? '?>'
+    @endverbatim
+*/
+static const xml_reader_context_t parser_decl_attributes = {
+    .lookahead = {
+        LOOKAHEAD("?>", xml_parse_decl_end),
+        LOOKAHEAD("", xml_parse_decl_attr),
+    },
+    .reftype = XML_READER_REF_NONE, // not an external entity
+    .errcode = XMLERR(ERROR, XML, P_XMLDecl),
+};
+
+/**
+    Process entities in input queue.
+
+    @param h Reader handle
+    @param ctx Context for parsing
+    @return Nothing
+*/
+static prodres_t
+xml_reader_process_by_ctx(xml_reader_t *h, const xml_reader_context_t *ctx)
+{
+    const xml_reader_pattern_t *pat;
+    const xml_reader_context_t *saved_ctx;
+    prodres_t rv;
+
+    saved_ctx = h->ctx;
+    h->ctx = ctx;
+
+    // TBD inline xml_lookahead, or move this one closer to it.
+    do {
+        // Starting a new production, reset the tokens
+        memset(&h->svtk, 0, sizeof(h->svtk));
+        h->tokenbuf_used = 0;
+
+        xml_lookahead(h);
+        if (xml_eof(h)) {
+            rv = PR_STOP;
+        }
+        else {
+            // Look for matching production in this context.
+            // xml_lookahead removed completed inputs; can now save location for production start.
+            h->prodloc = STAILQ_FIRST(&h->active_input)->curloc;
+            rv = PR_NOMATCH;
+            for (pat = h->ctx->lookahead;; pat++) {
+                // Last pattern must accept the input
+                OOPS_ASSERT(pat < h->ctx->lookahead + MAX_LA_PAIRS);
+                OOPS_ASSERT(pat->func);
+                if (!pat->patlen || (pat->patlen <= h->tokenbuf_len
+                            && !memcmp(h->tokenbuf_start, pat->pattern, pat->patlen))) {
+                    rv = pat->func(h);
+                    break;
+                }
+            }
+        }
+    } while (rv == PR_OK);
+
+    h->ctx = saved_ctx;
+    return rv;
+}
 
 /**
     Notification of an end of an external entity.
@@ -4855,7 +4987,6 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
 
     ex = xmalloc(sizeof(xml_reader_external_t));
     memset(ex, 0, sizeof(xml_reader_external_t));
-    ex->h = h;
     ex->buf = buf;
     ex->location = xstrdup(location);
     ex->norm_unicode = NULL;
@@ -4895,14 +5026,14 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     if (transport_encoding) {
         endian = ex->enc ? encoding_get(ex->enc)->endian : ENCODING_E_ANY;
         if ((enc = encoding_search(transport_encoding, endian)) == NULL) {
-            xml_reader_message_current(ex->h, XMLERR(ERROR, XML, ENCODING_ERROR),
+            xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                     "Unsupported transport encoding '%s'", transport_encoding);
             goto failed;
         }
         if (!xml_reader_set_encoding(ex, enc)) {
             // Replacing with an incompatible encoding is not possible;
             // the data that has been read previously cannot be trusted.
-            xml_reader_message_current(ex->h, XMLERR(ERROR, XML, ENCODING_ERROR),
+            xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                     "Transport encoding '%s' incompatible with auto-detected '%s'",
                     transport_encoding, encoding_get(ex->enc)->name);
             goto failed;
@@ -4932,12 +5063,17 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     strbuf_realloc(inp->buf, INITIAL_DECL_LOOKAHEAD_SIZE * sizeof(ucs4_t));
     strbuf_setops(inp->buf, &xml_reader_initial_ops, &xc);
 
-    // Parse the declaration; expect only ASCII
-    /// @todo Declaration seems to be forbidden in external subset; do not even try for that
-    /// context
+    // These are really per-entity, but we only add entities one at a time
+    // and these fields are not used after the initial parsing. So, store them
+    // in the reader handle instead. Note that for parsing the declaration,
+    // the context will be switched, so we won't have the access to it via h->ctx.
+    // Only ASCII is allowed in declaration.
+    OOPS_ASSERT(h->ctx->declinfo); // External entity context must have it
+    h->declinfo = h->ctx->declinfo;
     h->flags |= R_ASCII_ONLY;
-    switch ((decl_rv = xml_parse_XMLDecl_TextDecl(h))) {
-    case PR_OK:
+
+    switch ((decl_rv = xml_reader_process_by_ctx(h, &parser_decl))) {
+    case PR_STOP:
         // Consumed declaration from the raw buffer; advance before setting
         // permanent transcoding operations
         strbuf_radvance(buf, xc.la_offs);
@@ -4953,6 +5089,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
         goto failed;
     }
     h->flags &= ~R_ASCII_ONLY;
+    h->declinfo = NULL;
 
     // Done with the temporary buffer: free the memory buffer if it was reallocated
     if (xc.la_start != xc.initial) {
@@ -4998,14 +5135,14 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
 
     if (ex->enc_declared) {
         if ((enc = encoding_search(ex->enc_declared, encoding_get(ex->enc)->endian)) == NULL) {
-            xml_reader_message_current(ex->h, XMLERR(ERROR, XML, ENCODING_ERROR),
+            xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                     "Unsupported declared encoding '%s'", ex->enc_declared);
             // Recover by keeping whatever we used so far
         }
         else if (!xml_reader_set_encoding(ex, enc)) {
             // Encoding should be in clean state - if not, need to fix encoding to not consume
             // excess data.
-            xml_reader_message_current(ex->h, XMLERR(ERROR, XML, ENCODING_ERROR),
+            xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                     "Declared encoding '%s' incompatible with current encoding '%s'",
                     ex->enc_declared, encoding_get(ex->enc)->name);
         }
@@ -5136,49 +5273,18 @@ xml_reader_message(xml_reader_t *h, const xmlerr_loc_t *loc, xmlerr_info_t info,
     @param h Reader handle
     @return Nothing
 */
-void // TBD return true/false if we produced something (PR_STOP) or failed completely (PR_FAIL)
+void
 xml_reader_process(xml_reader_t *h)
 {
-    // Any entities within are external parsed entities by default
-    utf8_t labuf[MAX_PATTERN];
-    const xml_reader_pattern_t *pat;
-    size_t len;
     prodres_t rv;
 
-    /// @todo Have 2nd argument saved in external info? Or have a separate func for pre-reading
-    /// a standalone DTD?
-    /// @todo Return the parsing success/failure?
-    h->ctx = &parser_document_entity;
-
-    /// @todo Have lookahead read into tokenbuf? Do we need to use xml_lookahead() elsewhere?
-    do {
-        // xml_lookahead also removes completed inputs
-        len = xml_lookahead(h, labuf, sizeof(labuf));
-        if (xml_eof(h)) {
-            rv = PR_STOP;
-        }
-        else {
-            // Starting a new production, reset the tokens and save location
-            h->prodloc = STAILQ_FIRST(&h->active_input)->curloc;
-            memset(&h->svtk, 0, sizeof(h->svtk));
-
-            // Look for matching production in this context
-            rv = PR_NOMATCH;
-            for (pat = h->ctx->lookahead;; pat++) {
-                // Last pattern must accept the input
-                OOPS_ASSERT(pat < h->ctx->lookahead + MAX_LA_PAIRS);
-                OOPS_ASSERT(pat->func);
-                if (!pat->patlen ||
-                        (pat->patlen <= len && !memcmp(labuf, pat->pattern, pat->patlen))) {
-                    rv = pat->func(h);
-                    break;
-                }
-            }
-        }
-    } while (rv == PR_OK);
+    rv = xml_reader_process_by_ctx(h, &parser_document_entity);
 
     // In each context, the last parser must catch all and recover
     OOPS_ASSERT(rv != PR_NOMATCH);
+
+    /// @todo Return the parsing success/failure? i.e. if we produced
+    /// something (PR_STOP) or failed completely (PR_FAIL)
 }
 
 /**

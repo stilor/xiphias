@@ -34,9 +34,9 @@ extern jmp_buf *oops_buf;
         } while (0)
 
 static inline void __noreturn
-__oops(void)
+__oops(const char *msg, const char *file, unsigned int line)
 {
-    printf("OOPS in coverage run\n");
+    printf("OOPS in coverage run [%s:%u] %s\n", file, line, msg ? msg : "");
     if (!oops_buf) {
         exit(1);
     }
@@ -46,15 +46,15 @@ __oops(void)
 }
 
 static inline void
-__oops_assert(unsigned long c)
+__oops_assert(unsigned long c, const char *msg, const char *file, unsigned int line)
 {
     if (!c) {
-        __oops();
+        __oops(msg, file, line);
     }
 }
 
-#define OOPS_ASSERT(c)      __oops_assert((unsigned long)(c))
-#define OOPS                __oops()
+#define OOPS_ASSERT(c)      __oops_assert((unsigned long)(c), #c, __FILE__, __LINE__)
+#define OOPS                __oops(NULL, __FILE__, __LINE__)
 #define OOPS_UNREACHABLE    __unreachable()
 
 #endif
