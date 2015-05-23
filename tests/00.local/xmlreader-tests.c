@@ -160,7 +160,6 @@ static const testcase_t testcases_api[] = {
 
 // Set an encoding that cannot be autodetected. Dummy loader that always provides
 // a simple <a/> file.
-#if 0
 #define XORKEY  0xA5
 
 static size_t
@@ -221,7 +220,9 @@ set_loader_XORENC_BAD(xml_reader_t *h)
 {
     xml_reader_set_loader(h, loader_XORENC, DECONST("GNIDOCNE_ROX"));
 }
-#endif
+
+// TBD remove
+#define E(...) END
 
 static const testcase_t testcases_encoding[] = {
     {
@@ -290,13 +291,19 @@ static const testcase_t testcases_encoding[] = {
             END,
         },
     },
-#if 0
     {
         TC("No declaration in UTF-16LE, with BOM"),
         .input = "simple-no-decl.xml",
         .use_bom = true,
         .encoding = "UTF-16LE",
         .events = (const xml_reader_cbparam_t[]){
+            EV(STAG,
+                    LOC("simple-no-decl.xml", 1, 1),
+                    .name = TOK("a"),
+            ),
+            E0(ETAG,
+                    LOC("simple-no-decl.xml", 1, 3)
+            ),
             END,
         },
     },
@@ -305,11 +312,18 @@ static const testcase_t testcases_encoding[] = {
         .input = "simple-no-decl.xml",
         .encoding = "UTF-16LE",
         .events = (const xml_reader_cbparam_t[]){
-            E(MESSAGE,
+            EV(MESSAGE,
                     LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
                     .msg = "No external encoding information, no encoding "
                     "in XMLDecl, content in UTF-16LE encoding",
+            ),
+            EV(STAG,
+                    LOC("simple-no-decl.xml", 1, 1),
+                    .name = TOK("a"),
+            ),
+            E0(ETAG,
+                    LOC("simple-no-decl.xml", 1, 3)
             ),
             END,
         },
@@ -319,11 +333,18 @@ static const testcase_t testcases_encoding[] = {
         .input = "simple-utf8.xml",
         .use_bom = true,
         .events = (const xml_reader_cbparam_t[]){
-            E(XMLDECL,
-                    LOC("simple-utf8.xml", 1, 1),
+            EV(XMLDECL,
+                    LOC("simple-utf8.xml", 2, 8),
                     .encoding = "UTF-8",
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
+            ),
+            EV(STAG,
+                    LOC("simple-utf8.xml", 3, 9),
+                    .name = TOK("a"),
+            ),
+            E0(ETAG,
+                    LOC("simple-utf8.xml", 3, 11)
             ),
             END,
         },
@@ -553,7 +574,6 @@ static const testcase_t testcases_encoding[] = {
             END,
         },
     },
-#endif
 };
 
 static const testcase_t testcases_xmldecl[] = {

@@ -1548,6 +1548,8 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
         if (xc->la_offs == xc->la_avail) {
             // Need to read more data into the buffer ...
             if (xc->la_avail == xc->la_size) {
+                // TBD add a configurable limit on how large we can ever go
+                // (or malicious input can keep this library consuming more and more memory)
                 // ... but need to grow the buffer first
                 if (xc->la_start != xc->initial) {
                     // Don't bother with realloc: we're going to read from start anyway
@@ -1849,9 +1851,9 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 /**
     Read condition: until first non-whitespace.
 
-    @param arg Argument (unused)
+    @param arg Pointer to boolean, set when whitespace is seen.
     @param cp Codepoint
-    @return UCS4_STOPCHAR if @a cp is whitespace, @a cp otherwise
+    @return UCS4_STOPCHAR if @a cp is whitespace, UCS4_NOCHAR otherwise
 */
 static ucs4_t
 xml_cb_not_whitespace(void *arg, ucs4_t cp)
@@ -3320,7 +3322,7 @@ xml_parse_decl_attr(xml_reader_t *h)
         // Non-fatal: continue parsing as if matching the following production
         //   Name Eq ('"' (Char - '"')* '"' | "'" (Char - "'")* "'")
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_XMLDecl),
-                "Malformed %s: expected pseudo-attribute",
+                "Malformed %s: unexpected pseudo-attribute",
                 h->declinfo->name);
     }
 
@@ -3368,6 +3370,7 @@ xml_parse_decl_end(xml_reader_t *h)
     const xml_reader_xmldecl_attrdesc_t *attr;
     xml_reader_cbparam_t cbp;
 
+    xml_read_string_assert(h, "?>");
     for (attr = h->declattr; attr->name; attr++) {
         if (attr->mandatory) {
             // No recovery: just assume the default
@@ -4955,6 +4958,65 @@ external_entity_end(xml_reader_t *h, void *arg)
     }
 }
 
+/// Re-reader state
+typedef struct {
+    xmlerr_loc_t stop;
+    xml_reader_input_t *inp;
+} xml_read_to_position_state_t;
+
+/**
+    Read condition: until the position reaches the same point as on entry
+    to the reader.
+
+    @param arg Reader state
+    @param cp Codepoint
+    @return UCS4_STOPCHAR if accepting this char would cause to exceed the position,
+        UCS4_NOCHAR otherwise
+*/
+static ucs4_t
+xml_cb_to_position(void *arg, ucs4_t cp)
+{
+    xml_read_to_position_state_t *st = arg;
+
+    if (st->stop.line == st->inp->curloc.line) {
+        if (st->stop.pos == st->inp->curloc.pos) {
+            return UCS4_STOPCHAR;
+        }
+        OOPS_ASSERT(st->stop.pos > st->inp->curloc.pos);
+    }
+    return UCS4_NOCHAR;
+}
+
+/**
+    Re-read the content from the input until the same position is reached.
+    This is used after establishing a permanent transcoder for the entity -
+    the XML declaration then needs to be skipped.
+
+    @param h Reader handle
+    @return PR_OK if the position reached successfully.
+*/
+static prodres_t
+xml_read_to_position(xml_reader_t *h)
+{
+    xml_read_to_position_state_t st;
+    xru_t rv;
+
+    st.inp = STAILQ_FIRST(&h->active_input);
+    OOPS_ASSERT(st.inp);
+
+    // XML declaration does not recognize any references, nor does it include any new inputs.
+    // Thus, save the desired position and reset the position in the input. Once the input
+    // reaches the same position, we're done.
+    st.stop = st.inp->curloc;
+    st.inp->curloc.line = 1;
+    st.inp->curloc.pos = 1;
+    rv = xml_read_until(h, xml_cb_to_position, &st);
+
+    // Unless the encoding is actually not compatible and advanced the pointer differently
+    OOPS_ASSERT(rv == XRU_STOP);
+    return PR_OK;
+}
+
 /**
     Add an external parsed entity in the current context: if not reading anything,
     add a 'main document' entity. If expanding an external parameter entity reference,
@@ -5072,16 +5134,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     h->declinfo = h->ctx->declinfo;
     h->flags |= R_ASCII_ONLY;
 
-    switch ((decl_rv = xml_reader_process_by_ctx(h, &parser_decl))) {
-    case PR_STOP:
-        // Consumed declaration from the raw buffer; advance before setting
-        // permanent transcoding operations
-        strbuf_radvance(buf, xc.la_offs);
-        break;
-    case PR_NOMATCH:
-        // Nothing to do - just a document without declaration
-        break;
-    default:
+    if ((decl_rv = xml_reader_process_by_ctx(h, &parser_decl)) == PR_FAIL) {
         // Entity failed to parse in the declaration. Parsing the declaration
         // shouldn't have created any new inputs or loaded new external entities.
         // Keep the entity on the list of inputs which have been parsed.
@@ -5150,6 +5203,15 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
 
     // Set up permanent transcoder
     strbuf_setops(inp->buf, &xml_reader_transcode_ops, ex);
+
+    // If declaration was found, skip it. Do not update position again while skipping over.
+    /// @todo If at some point context parsers are implemented with DFAs, it will be
+    /// possible to do a simple strbuf_radvance(..., xc.la_offs) - since in that case
+    /// xml_lookahead will not read more than it actually needs to recognize the token.
+    if (decl_rv == PR_STOP) {
+        decl_rv = xml_read_to_position(h);
+        OOPS_ASSERT(decl_rv == PR_OK);
+    }
 
     // Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
     // begin with the Byte Order Mark described in ISO/IEC 10646 [ISO/IEC
