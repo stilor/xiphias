@@ -1768,9 +1768,9 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
             else if (cp0 >= 0x7F && (h->flags & R_ASCII_ONLY) != 0) {
                 // Only complain once.
                 h->flags &= ~R_ASCII_ONLY;
-                OOPS_ASSERT(h->ctx->declinfo);
+                OOPS_ASSERT(h->declinfo);
                 xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
-                        "Non-ASCII characters in %s", h->ctx->declinfo->name);
+                        "Malformed %s: non-ASCII character", h->declinfo->name);
             }
             else if (!inp->charref
                     && xml_is_restricted(cp0, h->current_external->version)) {
