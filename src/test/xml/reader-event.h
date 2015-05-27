@@ -44,6 +44,9 @@ void xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam);
 /// Initializer for location info
 #define LOC(s,l,p)      .loc = { .src = (s), .line = (l), .pos = (p), }
 
+/// No location (e.g. failed to load document entity)
+#define NOLOC           .loc = { .src = NULL, .line = 0, .pos = 0, }
+
 /// Initializer for a token string
 #define TOK(s)          { .str = U s, .len = sizeof(s) - 1 }
 

@@ -133,7 +133,7 @@ typedef struct xml_reader_external_s {
     const struct xml_reader_context_s *saved_ctx;
 
     // Extra processing upon completion
-    void (*on_complete)(xml_reader_t *h, bool loaded);
+    void (*on_complete)(xml_reader_t *h, const xmlerr_loc_t *loc);
 } xml_reader_external_t;
 
 /**
@@ -237,7 +237,7 @@ typedef struct xml_reader_context_s {
 } xml_reader_context_t;
 
 /// Completion handler for external entity
-typedef void (*xml_reader_external_completion_cb_t)(xml_reader_t *h, bool loaded);
+typedef void (*xml_reader_external_completion_cb_t)(xml_reader_t *h, const xmlerr_loc_t *loc);
 
 /// Hidden argument passed through the loader
 typedef struct {
@@ -1441,6 +1441,7 @@ xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
         xml_reader_external_completion_cb_t on_complete)
 {
     xml_reader_hidden_loader_arg_t ha;
+    xml_reader_input_t *inp;
     xml_reader_cbparam_t cbp;
 
     ha.entityref = e;
@@ -1460,8 +1461,17 @@ xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
     if (h->hidden_loader_arg) {
         // Loader didn't create an input
         h->hidden_loader_arg = NULL;
-        // Notify the app
+        // Notify the app. We want to report this at the location of the loading entity,
+        // not at the last production in the loaded entity.
         xml_reader_callback_init(h, XML_READER_CB_ENTITY_NOT_LOADED, &cbp);
+        if ((inp = STAILQ_FIRST(&h->active_input)) != NULL) {
+            cbp.loc = inp->curloc;
+        }
+        else {
+            cbp.loc.src = NULL;
+            cbp.loc.line = 0;
+            cbp.loc.pos = 0;
+        }
         if (e) {
             cbp.entity.name = e->name;
             cbp.entity.type = e->type;
@@ -1476,7 +1486,7 @@ xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
         TOKEN_FROM_CHAR(&cbp.entity.public_id, loader_info->public_id);
         xml_reader_callback_invoke(h, &cbp);
         if (on_complete) {
-            on_complete(h, false);
+            on_complete(h, NULL);
         }
         return false;
     }
@@ -1541,6 +1551,9 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
     xml_reader_external_t *ex = xc->ex;
     ucs4_t *cptr, *bptr;
 
+    // TBD no longer need to read this one-by-one, a block read is ok as long as it will stop
+    // reading (rather than emit an error) in case of encoding errors (which may be due to
+    // wrongly guessed encoding). Try that after restoring the test cases.
     OOPS_ASSERT(sz != 0);
     OOPS_ASSERT((sz & 3) == 0); // Reading in 32-bit blocks
     bptr = cptr = begin;
@@ -2034,14 +2047,13 @@ xml_cb_string(void *arg, ucs4_t cp)
 static prodres_t
 xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
 {
-    xml_cb_string_state_t state;
+    xml_cb_string_state_t st;
 
-    state.cur = s;
-    state.end = s + strlen(s);
-    if (xml_read_until(h, xml_cb_string, &state) != XRU_STOP
-            || state.cur != state.end) {
+    st.cur = s;
+    st.end = s + strlen(s);
+    if (xml_read_until(h, xml_cb_string, &st) != XRU_STOP || st.cur != st.end) {
         if (errinfo != XMLERR_NOERROR) {
-            xml_reader_message_lastread(h, errinfo, "Expected string: '%s'", s);
+            xml_reader_message_current(h, errinfo, "Expected string: '%s'", st.cur);
         }
         return PR_NOMATCH;
     }
@@ -2926,7 +2938,7 @@ UCS4_ASSERT(does_not_compose_with_preceding, ucs4_fromlocal('\''))
 
 /// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
 static const xml_reference_ops_t reference_ops_pseudo = {
-    .errinfo = XMLERR(ERROR, XML, P_XMLDecl),
+    .errinfo = XMLERR(ERROR, XML, P_XMLDecl), // TBD P_XMLDecl vs P_TextDecl
     .condread = xml_cb_literal,
     .flags = 0,
     .relevant = NULL,
@@ -3020,8 +3032,13 @@ static const xml_reference_ops_t reference_ops_EntityValue_external = {
 static prodres_t
 xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
 {
+    xml_reader_input_t *inp;
+    xmlerr_loc_t startloc;
     xml_cb_literal_state_t st;
 
+    inp = STAILQ_FIRST(&h->active_input);
+    OOPS_ASSERT(inp); // No calls to xml_lookahead/xml_read_until since the production start, please.
+    startloc = inp->curloc;
     // xml_read_until() may return 0 (empty literal), which is valid
     st.quote = UCS4_NOCHAR;
     st.h = h;
@@ -3029,12 +3046,12 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     if (xml_read_until_parseref(h, refops, &st) != XRU_STOP
             || st.quote != UCS4_STOPCHAR) {
         if (st.quote == UCS4_NOCHAR) {
-            xml_reader_message_lastread(h, refops->errinfo,
+            xml_reader_message(h, &startloc, refops->errinfo,
                     "Quoted literal expected");
             // Input only locked when quote character is seen
         }
         else {
-            xml_reader_message_lastread(h, refops->errinfo,
+            xml_reader_message(h, &startloc, refops->errinfo,
                     "Unterminated literal");
             // Quote character loses its meaning if entity is included
             // in literal
@@ -3296,8 +3313,8 @@ xml_parse_decl_attr(xml_reader_t *h)
     }
 
     if (xml_read_Name(h) != PR_OK) {
-        xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
-                "Malformed %s: expect pseudo-attribute name here",
+        xml_reader_message_current(h, h->declinfo->errcode,
+                "Malformed %s: expect pseudo-attribute name or ?> here",
                 h->declinfo->name);
         goto malformed;
     }
@@ -3312,7 +3329,7 @@ xml_parse_decl_attr(xml_reader_t *h)
         }
         if (attr->mandatory) {
             // Non-fatal: continue with next pseudo-attributes
-            xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_XMLDecl),
+            xml_reader_message_lastread(h, h->declinfo->errcode,
                     "Mandatory pseudo-attribute '%s' missing in %s",
                     attr->name, h->declinfo->name);
         }
@@ -3321,14 +3338,14 @@ xml_parse_decl_attr(xml_reader_t *h)
     if (!attr->name) {
         // Non-fatal: continue parsing as if matching the following production
         //   Name Eq ('"' (Char - '"')* '"' | "'" (Char - "'")* "'")
-        xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_XMLDecl),
+        xml_reader_message_lastread(h, h->declinfo->errcode,
                 "Malformed %s: unexpected pseudo-attribute",
                 h->declinfo->name);
     }
 
     // Parse Eq production
     (void)xml_parse_whitespace(h);
-    if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_XMLDecl)) != PR_OK) {
+    if (xml_read_string(h, "=", h->declinfo->errcode) != PR_OK) {
         // Already complained
         goto malformed;
     }
@@ -4247,11 +4264,11 @@ xml_unknown_entity(void *arg, const void *key, size_t keylen, const void *payloa
     DTD completion handler
 
     @param h Reader handle
-    @param loaded true if entity was loaded (Ignored, as we also check internal subset)
+    @param loc Last location in this DTD, or NULL if it was not loaded (ignored).
     @return Nothing
 */
 static void
-xml_dtd_on_complete(xml_reader_t *h, bool loaded)
+xml_dtd_on_complete(xml_reader_t *h, const xmlerr_loc_t *loc)
 {
     xml_reader_cbparam_t cbp;
 
@@ -4288,7 +4305,7 @@ xml_parse_dtd_end(xml_reader_t *h)
     }
     else {
         // No external subset - run the final checks.
-        xml_dtd_on_complete(h, false);
+        xml_dtd_on_complete(h, NULL);
     }
     return PR_OK;
 }
@@ -4850,7 +4867,7 @@ static const xml_reader_context_t parser_attributes = {
 static const xml_reader_context_t parser_decl = {
     .lookahead = {
         LOOKAHEAD("<?xml", xml_parse_decl_start),
-        LOOKAHEAD("", xml_parse_nomatch),
+        LOOKAHEAD("", xml_parse_nomatch), // TBD needed? or remove - NOMATCH is default code anyway
     },
     .reftype = XML_READER_REF_NONE, // not an external entity
     .errcode = XMLERR(ERROR, XML, P_XMLDecl),
@@ -4935,13 +4952,15 @@ external_entity_end(xml_reader_t *h, void *arg)
     xml_reader_input_t *inp = arg;
     xml_reader_external_t *ex = inp->external;
 
-    // Only if input was parsed fully (i.e. not aborted during addition)
+    // Only if input was parsed fully (i.e. not aborted during addition). Use
+    // the location in the input - h->prodloc refers to where the last production
+    // that used this entity started.
     if (!ex->aborted && !encoding_clean(ex->enc)) {
-        xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
-                "Partial characters at end of input");
+        xml_reader_message(h, &inp->curloc, XMLERR(ERROR, XML, ENCODING_ERROR),
+                "Partial character at the end of input");
     }
     if (ex->on_complete) {
-        ex->on_complete(h, !ex->aborted);
+        ex->on_complete(h, ex->aborted ? NULL : &inp->curloc);
     }
     // Restore context if needed
     if (ex->saved_ctx) {
@@ -5001,19 +5020,19 @@ xml_read_to_position(xml_reader_t *h)
     xml_read_to_position_state_t st;
     xru_t rv;
 
-    st.inp = STAILQ_FIRST(&h->active_input);
-    OOPS_ASSERT(st.inp);
+    // Can have no input if the document was empty
+    if ((st.inp = STAILQ_FIRST(&h->active_input)) != NULL) {
+        // XML declaration does not recognize any references, nor does it include any new inputs.
+        // Thus, save the desired position and reset the position in the input. Once the input
+        // reaches the same position, we're done.
+        st.stop = st.inp->curloc;
+        st.inp->curloc.line = 1;
+        st.inp->curloc.pos = 1;
+        rv = xml_read_until(h, xml_cb_to_position, &st);
 
-    // XML declaration does not recognize any references, nor does it include any new inputs.
-    // Thus, save the desired position and reset the position in the input. Once the input
-    // reaches the same position, we're done.
-    st.stop = st.inp->curloc;
-    st.inp->curloc.line = 1;
-    st.inp->curloc.pos = 1;
-    rv = xml_read_until(h, xml_cb_to_position, &st);
-
-    // Unless the encoding is actually not compatible and advanced the pointer differently
-    OOPS_ASSERT(rv == XRU_STOP);
+        // Unless the encoding is actually not compatible and advanced the pointer differently
+        OOPS_ASSERT(rv == XRU_STOP);
+    }
     return PR_OK;
 }
 
@@ -5150,6 +5169,12 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     }
     strbuf_clear(inp->buf);
 
+    // If a part of the character is stored in the encoding buffer, clean it up. We're
+    // going to re-read the content, possibly with a different transcoder - where it may
+    // be valid. Even if it is not the case, we don't want the 'invalid character' notification
+    // once we start reading the content.
+    encoding_reopen(ex->enc);
+
     // If there was no XML declaration, assume 1.0 (where XMLDecl is optional)
     /// @todo For external parsed entities, need to inherit version from including document
     if (ex->version == XML_INFO_VERSION_NO_VALUE) {
@@ -5227,7 +5252,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     if (!bom_len && ex->enc_declared
             && !strcmp(ex->enc_declared, "UTF-16")) {
         // Non-fatal: managed to detect the encoding somehow
-        xml_reader_message_lastread(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+        xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "UTF-16 encoding without byte-order mark");
     }
 
@@ -5254,9 +5279,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
 
 failed:
     // Keep the external in the list of entities we attempted to read, so that
-    // the locations for events remain valid. Have current location point to
-    // the very end of this input (e.g. if we failed mid-way into an assumed string
-    // h->lastreadloc will point to the beginning of the string)
+    // the locations for events remain valid.
     ex->aborted = true;
     xml_reader_input_complete(h, inp);
 }
@@ -5265,14 +5288,15 @@ failed:
     Final checks after completion of the document entity.
 
     @param h Reader handle
-    @param loaded If the document entity was loaded successfully
+    @param loc Location to be used for end-of-document events, or NULL if document
+        entity was not loaded
     @return Nothing
 */
 static void
-xml_document_on_complete(xml_reader_t *h, bool loaded)
+xml_document_on_complete(xml_reader_t *h, const xmlerr_loc_t *loc)
 {
-    if (loaded && !(h->flags & R_HAS_ROOT)) {
-        xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
+    if (loc && !(h->flags & R_HAS_ROOT)) {
+        xml_reader_message(h, loc, XMLERR(ERROR, XML, P_document),
                 "No root element");
     }
 }

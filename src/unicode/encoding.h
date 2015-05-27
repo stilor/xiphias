@@ -127,6 +127,7 @@ const encoding_t *encoding_detect(const uint8_t *buf, size_t bufsz, size_t *pbom
 
 // Handling transcoding
 encoding_handle_t *encoding_open(const encoding_t *);
+void encoding_reopen(encoding_handle_t *hnd);
 const encoding_t *encoding_get(encoding_handle_t *hnd);
 bool encoding_switch(encoding_handle_t **hndcur, encoding_handle_t *hndnew);
 void encoding_close(encoding_handle_t *hnd);

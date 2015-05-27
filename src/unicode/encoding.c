@@ -184,6 +184,23 @@ encoding_open(const encoding_t *enc)
 }
 
 /**
+    Re-open (clear) the encoding handle. Purges any partially read characters.
+
+    @param hnd Transcoder handle
+*/
+void
+encoding_reopen(encoding_handle_t *hnd)
+{
+    if (hnd->enc->destroy) {
+        hnd->enc->destroy(hnd->baton);
+    }
+    memset(hnd->baton, 0, hnd->enc->baton_sz);
+    if (hnd->enc->init) {
+        hnd->enc->init(hnd->baton, hnd->enc->data);
+    }
+}
+
+/**
     Return an encoding from a handle.
 
     @param hnd Transcoder handle
