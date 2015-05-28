@@ -544,8 +544,7 @@ xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam)
         xfree(s);
     }
     else {
-        printf(INDENT INDENT INDENT "LOC(NULL, %u, %u)%s\n",
-                cbparam->loc.line, cbparam->loc.pos,
+        printf(INDENT INDENT INDENT "NOLOC%s\n",
                 isset ? "," : "");
     }
     if (isset && evt->gencode) {

@@ -40,6 +40,7 @@ enum {
     R_HAS_DTD           = 0x0080,       ///< Document declaration seen
     R_AMBIGUOUS_PERCENT = 0x0100,       ///< '%' may either start PE reference or have literal meaning
     R_NO_TOKEN_RESET    = 0x0200,       ///< Do not clear the token when starting the read
+    R_NO_CHAR_CHECK     = 0x0400,       ///< When re-reading XMLDecl, disable checking restricted chars
 };
 
 /// Notation information
@@ -1761,11 +1762,14 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
             // Not rejected: check if original input was a disallowed character
             if (!cp0) {
                 // Non-fatal: recover by skipping the character
-                xml_reader_message_current(h, XMLERR(ERROR, XML, P_Char),
-                        "NUL character encountered");
+                if ((h->flags & R_NO_CHAR_CHECK) == 0) {
+                    xml_reader_message_current(h, XMLERR(ERROR, XML, P_Char),
+                            "NUL character encountered");
+                }
                 continue;
             }
-            else if (cp0 >= 0x7F && (h->flags & R_ASCII_ONLY) != 0) {
+            else if (cp0 >= 0x7F
+                    && (h->flags & (R_ASCII_ONLY|R_NO_CHAR_CHECK)) == R_ASCII_ONLY) {
                 // Only complain once.
                 h->flags &= ~R_ASCII_ONLY;
                 OOPS_ASSERT(h->declinfo);
@@ -1773,7 +1777,8 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
                         "Malformed %s: non-ASCII character", h->declinfo->name);
             }
             else if (!inp->charref
-                    && xml_is_restricted(cp0, h->current_external->version)) {
+                    && xml_is_restricted(cp0, h->current_external->version)
+                    && (h->flags & R_NO_CHAR_CHECK) == 0) {
                 // Ignore if it came from character reference (if it is prohibited,
                 // the character reference parser already complained)
                 // Non-fatal: just let the app figure what to do with it
@@ -2973,7 +2978,7 @@ static const xml_reference_ops_t reference_ops_SystemLiteral = {
 
 /// Virtual methods for reading public ID (PubidLiteral production)
 /// @todo Need to disallow characters except for PubidChar. Do it in some
-/// way so that READER_ASCII may also make use of that approach? Also,
+/// way so that R_ASCII may also make use of that approach? Also,
 /// can attribute value normalization use that approach?
 static const xml_reference_ops_t reference_ops_PubidLiteral = {
     .errinfo = XMLERR(ERROR, XML, P_PubidLiteral),
@@ -5234,7 +5239,9 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     /// possible to do a simple strbuf_radvance(..., xc.la_offs) - since in that case
     /// xml_lookahead will not read more than it actually needs to recognize the token.
     if (decl_rv == PR_STOP) {
+        h->flags |= R_NO_CHAR_CHECK;
         decl_rv = xml_read_to_position(h);
+        h->flags &= ~R_NO_CHAR_CHECK;
         OOPS_ASSERT(decl_rv == PR_OK);
     }
 
