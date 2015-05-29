@@ -42,6 +42,7 @@ enum {
     R_NO_TOKEN_RESET    = 0x0200,       ///< Do not clear the token when starting the read
     R_NO_CHAR_CHECK     = 0x0400,       ///< When re-reading XMLDecl, disable checking restricted chars
     R_NO_BREAK_LOCK     = 0x0800,       ///< Do not break locks on input
+    R_STOP              = 0x1000,       ///< Callback requested stop
 };
 
 /// Notation information
@@ -1917,9 +1918,14 @@ xml_cb_recover(void *arg, ucs4_t cp)
     xml_cb_recover_state_t *st = arg;
     const char *p;
 
-    for (p = st->stopchars; *p; p++) {
-        if (ucs4_cheq(cp, *p)) {
-            return st->stopafter ? (UCS4_NOCHAR | UCS4_LASTCHAR) : UCS4_STOPCHAR;
+    if (st->firstchar && !st->stopafter) {
+        st->firstchar = false; // Skip first char, or the recovery may never advance
+    }
+    else {
+        for (p = st->stopchars; *p; p++) {
+            if (ucs4_cheq(cp, *p)) {
+                return st->stopafter ? (UCS4_NOCHAR | UCS4_LASTCHAR) : UCS4_STOPCHAR;
+            }
         }
     }
     return UCS4_NOCHAR;
@@ -4524,8 +4530,7 @@ xml_parse_attribute(xml_reader_t *h)
 
     (void)xml_parse_whitespace(h);
     if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_Attribute)) != PR_OK) {
-        xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
-                "Expect = (equal sign) here");
+        // Already complained
         goto malformed;
     }
     (void)xml_parse_whitespace(h);
@@ -4640,10 +4645,10 @@ xml_parse_ETag(xml_reader_t *h)
     xml_read_string_assert(h, "</");
     // Locked by STag
     if (xml_read_Name(h) != PR_OK) {
-        // No valid name - try to recover by skipping until closing bracket
-        xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_ETag),
+        // No valid name - try to recover by skipping until closing bracket.
+        // Does not look like a closing tag, so do not unlock the input.
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_ETag),
                 "Expected element type");
-        xml_reader_input_unlock_assert(h);
         return xml_read_recover(h, ">", true);
     }
     xml_tokenbuf_save(h, &h->svtk.name);
@@ -4651,7 +4656,8 @@ xml_parse_ETag(xml_reader_t *h)
     (void)xml_parse_whitespace(h); // optional whitespace
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag)) != PR_OK) {
         // Not terminated properly  - try to recover by skipping until closing bracket
-        // TBD looks like it may OOPS here if the input is both unbalanced and malformed
+        // TBD looks like it may OOPS here if the input is both unbalanced and malformed -
+        // TBD skip unlocking?
         xml_reader_input_unlock_assert(h);
         return xml_read_recover(h, ">", true);
     }
@@ -4948,7 +4954,7 @@ xml_reader_process_by_ctx(xml_reader_t *h, const xml_reader_context_t *ctx)
                 }
             }
         }
-    } while (rv == PR_OK);
+    } while (rv == PR_OK && (h->flags & R_STOP) == 0);
 
     xml_reader_input_complete_notify(h);
     h->ctx = saved_ctx;
@@ -5383,6 +5389,7 @@ xml_reader_process(xml_reader_t *h)
 {
     prodres_t rv;
 
+    h->flags &= ~R_STOP; // If stopped previously, we can resume now.
     rv = xml_reader_process_by_ctx(h, &parser_document_entity);
 
     // In each context, the last parser must catch all and recover
@@ -5390,6 +5397,20 @@ xml_reader_process(xml_reader_t *h)
 
     /// @todo Return the parsing success/failure? i.e. if we produced
     /// something (PR_STOP) or failed completely (PR_FAIL)
+}
+
+/**
+    Stop processing after handling the current production.
+
+    @param h Reader handle
+    @return Nothing
+*/
+void
+xml_reader_stop(xml_reader_t *h)
+{
+    // TBD test exiting from nested xml_reader_process_by_ctx()? I.e. from XMLDecl processing loop?
+    // TBD looks like it should work fine, as only the last context (decl_end) makes a callback.
+    h->flags |= R_STOP;
 }
 
 /**

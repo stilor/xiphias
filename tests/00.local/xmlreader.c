@@ -40,12 +40,17 @@ typedef struct testcase_s {
     const xml_reader_cbparam_t *events;     ///< Events expected while parsing this input
 } testcase_t;
 
+/// Callback status
 typedef struct test_cb_s {
-    xml_reader_t *h;
-    const testcase_t *tc;
-    const xml_reader_cbparam_t *expect;
-    bool failed;
+    xml_reader_t *h;                    ///< Reader handle
+    const testcase_t *tc;               ///< Testcase description
+    const xml_reader_cbparam_t *expect; ///< Currently expected events
+    bool failed;                        ///< Whether any of the expected events compared unequal
+    uint32_t evtcnt;                    ///< Total counter of events
 } test_cb_t;
+
+/// How many unexpected events per test case at most
+#define MAX_NONE_EVENTS              10
 
 /**
     Test callback. Checks if received event matches the next expected event.
@@ -60,6 +65,13 @@ test_cb(void *arg, xml_reader_cbparam_t *cbparam)
     test_cb_t *cbarg = arg;
     result_t rc;
 
+    if (cbarg->expect->cbtype == XML_READER_CB_NONE
+            && cbarg->evtcnt++ >= MAX_NONE_EVENTS) {
+        xml_reader_stop(cbarg->h);
+        printf("             FAIL: Exceeded number of unexpected events (%u)\n",
+                MAX_NONE_EVENTS);
+        return;
+    }
     if (xmlreader_event_equal(cbarg->expect, cbparam)) {
         printf("             PASS: ");
         xmlreader_event_print(cbparam);
@@ -152,6 +164,7 @@ run_testcase(const void *arg)
     cbarg.failed = false;
     cbarg.h = reader;
     cbarg.tc = tc;
+    cbarg.evtcnt = 0;
 
     xml_reader_set_callback(reader, test_cb, &cbarg);
     xml_reader_set_loader(reader, xml_loader_file, &file_loader_opts);
