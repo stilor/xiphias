@@ -41,6 +41,7 @@ enum {
     R_AMBIGUOUS_PERCENT = 0x0100,       ///< '%' may either start PE reference or have literal meaning
     R_NO_TOKEN_RESET    = 0x0200,       ///< Do not clear the token when starting the read
     R_NO_CHAR_CHECK     = 0x0400,       ///< When re-reading XMLDecl, disable checking restricted chars
+    R_NO_BREAK_LOCK     = 0x0800,       ///< Do not break locks on input
 };
 
 /// Notation information
@@ -188,7 +189,7 @@ typedef STAILQ_HEAD(,xml_reader_input_s) xml_reader_input_head_t;
 /// Return status for production parser
 typedef enum {
     PR_OK,                      ///< Parsed successfully or performed recovery
-    PR_STOP,                    ///< Parsed successfully, exit current context
+    PR_STOP,                    ///< Parsed successfully, exit current context parser
     PR_FAIL,                    ///< Parsing failed (fatal)
     PR_NOMATCH,                 ///< Production was not matched
 } prodres_t;
@@ -232,8 +233,11 @@ typedef struct xml_reader_context_s {
     /// What is allowed in EntityValue
     const struct xml_reference_ops_s *entity_value_parser;
 
-    xmlerr_info_t errcode;          ///< Error code when breaking the lock
-    const char *production;         ///< Production this context must match
+    /// Status returned if EOF is encountered in this context
+    prodres_t eof_status;
+
+    xmlerr_info_t errcode;          ///< Error code when breaking the lock in this context
+    const char *errmsg;             ///< Error message when breaking the lock in this context
     enum xml_reader_reference_e reftype;    ///< If not a named entity, reference type for events
 } xml_reader_context_t;
 
@@ -854,27 +858,15 @@ xml_reader_input_radvance(xml_reader_t *h, size_t sz)
 }
 
 /**
-    Check if reached the end of all inputs.
-
-    @param h Reader handle
-    @return True if all input is consumed
-*/
-static bool
-xml_eof(xml_reader_t *h)
-{
-    xml_reader_input_complete_notify(h);
-    return STAILQ_EMPTY(&h->active_input);
-}
-
-/**
     Look ahead in the parsed stream without advancing the current read location.
     Stops on a non-ASCII character; all mark-up (that requires look-ahead) is
     using ASCII characters.
 
     @param h Reader handle
-    @return Nothing
+    @return true if input is available, false if no more input (EOF or no data in current
+        input and cannot break the lock).
 */
-static void
+static bool
 xml_lookahead(xml_reader_t *h)
 {
     xml_reader_input_t *inp;
@@ -887,10 +879,11 @@ xml_lookahead(xml_reader_t *h)
     OOPS_ASSERT(h->tokenbuf_size >= MAX_LOOKAHEAD_SIZE);
     OOPS_ASSERT(h->tokenbuf_used == 0);
 
+    xml_reader_input_complete_notify(h);
     while (true) {
         if ((inp = STAILQ_FIRST(&h->active_input)) == NULL) {
             h->tokenbuf_len = 0;
-            return;
+            return false;
         }
         nread = strbuf_lookahead(inp->buf, ptr, MAX_LOOKAHEAD_SIZE * sizeof(ucs4_t));
         if (nread) {
@@ -904,26 +897,30 @@ xml_lookahead(xml_reader_t *h)
             /// @todo Consider lock tokens with callback functions with more
             /// specific error info (i.e., which exact production locked the
             /// input and most importantly where)
-            if (inp->external) {
-                xml_reader_message_current(h, h->ctx->errcode,
-                        "Fails to parse: does not match %s production",
-                        h->ctx->production);
+            if (inp->entity &&
+                    (inp->entity->type == XML_READER_REF_PE_INTERNAL
+                     || inp->entity->type == XML_READER_REF_PE_EXTERNAL)) {
+                // Parameter entities in DTD are not expected to match any given
+                // production ("are well-formed by definition"). Instead, there are
+                // certain requirements on proper nesting of parameter entities.
+                xml_reader_message_current(h,
+                        XMLERR(ERROR, XML, VC_PROPER_DECL_PE_NESTING),
+                        "Fails to parse: parameter entities not properly nested");
             }
             else {
-                // Shouldn't be locking character references...
-                OOPS_ASSERT(inp->entity);
-                OOPS_ASSERT(inp->entity->type != XML_READER_REF_PE);
-                if (inp->entity->type == XML_READER_REF_PE_INTERNAL
-                        || inp->entity->type == XML_READER_REF_PE_EXTERNAL) {
-                    xml_reader_message_current(h,
-                            XMLERR(ERROR, XML, VC_PROPER_DECL_PE_NESTING),
-                            "Fails to parse: parameter entities not properly nested");
-                }
-                else {
-                    xml_reader_message_current(h,
-                            XMLERR(ERROR, XML, P_content),
-                            "Fails to parse: does not match content production");
-                }
+                // TBD is it possible to not break locks here (i.e. as part of the lookahead)
+                // but rather have them broken explicitly in the last, catchall, lookahead
+                // token parser? In that case, it should be possible to drop errmsg/errcode
+                // from h->ctx
+                xml_reader_message_current(h, h->ctx->errcode, "%s", h->ctx->errmsg);
+            }
+
+            // If the lock is "unbreakable" (used when parsing XMLDecl/TextDecl so
+            // that we don't break the lock and possibly read the declaration from including
+            // entity), keep the input and signal EOF.
+            if (h->flags & R_NO_BREAK_LOCK) {
+                h->tokenbuf_len = 0;
+                return false;
             }
             h->brokenlocks += inp->locked;
             inp->locked = 0;
@@ -939,6 +936,7 @@ xml_lookahead(xml_reader_t *h)
         *bufptr++ = *ptr++;
     }
     h->tokenbuf_len = ptr - tmp;
+    return true; // Even if we didn't put anything into token buffer, there's data to process
 }
 
 /**
@@ -3042,7 +3040,7 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     xml_cb_literal_state_t st;
 
     inp = STAILQ_FIRST(&h->active_input);
-    OOPS_ASSERT(inp); // No calls to xml_lookahead/xml_read_until since the production start, please.
+    OOPS_ASSERT(inp); // TBD can this be violated if document entity is truncated before literal?
     startloc = inp->curloc;
     // xml_read_until() may return 0 (empty literal), which is valid
     st.quote = UCS4_NOCHAR;
@@ -3281,7 +3279,8 @@ xml_parse_decl_start(xml_reader_t *h)
     xml_read_string_assert(h, "<?xml");
     xml_reader_input_lock(h);
     h->declattr = h->declinfo->attrlist; // Currently expected attribute
-    h->ws = xml_parse_whitespace(h) == PR_OK;
+    (void)xml_parse_whitespace(h); // checked above
+    h->ws = true;
     h->ctx = &parser_decl_attributes;
     return PR_OK;
 }
@@ -4320,7 +4319,7 @@ xml_parse_dtd_end(xml_reader_t *h)
     Note that it
 
     @param h Reader handle
-    @return Always PR_STOP (this function is only called if lookahead confirmed next
+    @return Always PR_OK (this function is only called if lookahead confirmed next
         character to be closing bracket)
 */
 static prodres_t
@@ -4458,7 +4457,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 
     if (xml_read_Name(h) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
-        xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_STag),
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
                 "Expected element type");
         goto malformed;
     }
@@ -4555,11 +4554,7 @@ xml_handle_closing_tag(xml_reader_t *h)
 {
     if (!xml_reader_input_unlock(h)) {
         // Error, no recovery needed
-        xml_reader_message_current(h, h->ctx->errcode,
-                "%s must match '%s' production",
-                h->ctx->reftype == XML_READER_REF_DOCUMENT ?
-                        "Document" : "Replacement text for entity",
-                h->ctx->production);
+        xml_reader_message_current(h, h->ctx->errcode, "%s", h->ctx->errmsg);
     }
 
     // Do not decrement nest level if already at the root level. Otherwise,
@@ -4717,8 +4712,9 @@ static const xml_reader_context_t parser_internal_subset = {
     .declinfo = NULL,                   // Not used for reading any external entity
     .reftype = XML_READER_REF_NONE,     // Not an external entity
     .entity_value_parser = &reference_ops_EntityValue_internal,
+    .eof_status = PR_FAIL,              // Non-terminal context, must close explicitly
     .errcode = XMLERR(ERROR, XML, P_intSubset),
-    .production = "intSubset",
+    .errmsg = "Missing closing ] for internal subset",
 };
 
 /**
@@ -4760,8 +4756,7 @@ static const xml_reader_context_t parser_external_subset = {
     .declinfo = &declinfo_textdecl,
     .reftype = XML_READER_REF_EXT_SUBSET, // If not parameter entity, this is external DTD
     .entity_value_parser = &reference_ops_EntityValue_external,
-    .errcode = XMLERR(ERROR, XML, P_extSubset),
-    .production = "extSubset",
+    .eof_status = PR_FAIL,              // Non-terminal context, must return to other entity
 };
 
 /**
@@ -4800,8 +4795,9 @@ static const xml_reader_context_t parser_content = {
     },
     .declinfo = &declinfo_textdecl,
     .reftype = XML_READER_REF_NONE, // Can only be loaded via entity
+    .eof_status = PR_FAIL,              // Non-terminal context, must return to other entity
     .errcode = XMLERR(ERROR, XML, P_content),
-    .production = "content",
+    .errmsg = "Replacement text for an entity must match 'content' production",
 };
 
 /**
@@ -4834,9 +4830,9 @@ static const xml_reader_context_t parser_document_entity = {
     },
     .declinfo = &declinfo_xmldecl,
     .reftype = XML_READER_REF_DOCUMENT, // Document entity
-    .entity_value_parser = &reference_ops_EntityValue_internal,
+    .eof_status = PR_STOP,              // Terminal context, may exit successfully
     .errcode = XMLERR(ERROR, XML, P_document),
-    .production = "document",
+    .errmsg = "Document entity must match 'document' production",
 };
 
 /**
@@ -4858,7 +4854,12 @@ static const xml_reader_context_t parser_attributes = {
         LOOKAHEAD("", xml_parse_attribute),
     },
     .reftype = XML_READER_REF_NONE, // not an external entity
+    .eof_status = PR_FAIL,          // must exit via closing markup
+    // TBD change errcode/errmsg to a callback function so that it can distinguish
+    // whether whitespace or attribute name was expected. Rename to on_lock_break
+    // (since it would not be usable on any other error)
     .errcode = XMLERR(ERROR, XML, P_STag),
+    .errmsg = "Expect attribute name, or >, or /> here",
 };
 
 /**
@@ -4872,10 +4873,10 @@ static const xml_reader_context_t parser_attributes = {
 static const xml_reader_context_t parser_decl = {
     .lookahead = {
         LOOKAHEAD("<?xml", xml_parse_decl_start),
-        LOOKAHEAD("", xml_parse_nomatch), // TBD needed? or remove - NOMATCH is default code anyway
+        LOOKAHEAD("", xml_parse_nomatch),
     },
     .reftype = XML_READER_REF_NONE, // not an external entity
-    .errcode = XMLERR(ERROR, XML, P_XMLDecl),
+    .eof_status = PR_NOMATCH,       // only in case of empty XML
 };
 
 /**
@@ -4892,7 +4893,9 @@ static const xml_reader_context_t parser_decl_attributes = {
         LOOKAHEAD("", xml_parse_decl_attr),
     },
     .reftype = XML_READER_REF_NONE, // not an external entity
+    .eof_status = PR_FAIL,          // must exit via closing markup
     .errcode = XMLERR(ERROR, XML, P_XMLDecl),
+    .errmsg = "Expect pseudo-attribute or ?> here",
 };
 
 /**
@@ -4912,15 +4915,14 @@ xml_reader_process_by_ctx(xml_reader_t *h, const xml_reader_context_t *ctx)
     saved_ctx = h->ctx;
     h->ctx = ctx;
 
-    // TBD inline xml_lookahead, or move this one closer to it.
+    // TBD move this func closer to xml_lookahead
     do {
         // Starting a new production, reset the tokens
         memset(&h->svtk, 0, sizeof(h->svtk));
         h->tokenbuf_used = 0;
 
-        xml_lookahead(h);
-        if (xml_eof(h)) {
-            rv = PR_STOP;
+        if (!xml_lookahead(h)) {
+            rv = h->ctx->eof_status;
         }
         else {
             // Look for matching production in this context.
@@ -5153,20 +5155,21 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // and these fields are not used after the initial parsing. So, store them
     // in the reader handle instead. Note that for parsing the declaration,
     // the context will be switched, so we won't have the access to it via h->ctx.
-    // Only ASCII is allowed in declaration.
+    // Only ASCII is allowed in declaration; if run into EOF, do not attempt to
+    // go back to the including input.
     OOPS_ASSERT(h->ctx->declinfo); // External entity context must have it
     h->declinfo = h->ctx->declinfo;
-    h->flags |= R_ASCII_ONLY;
+    h->flags |= R_ASCII_ONLY | R_NO_BREAK_LOCK;
+    decl_rv = xml_reader_process_by_ctx(h, &parser_decl);
+    h->flags &= ~(R_ASCII_ONLY | R_NO_BREAK_LOCK);
+    h->declinfo = NULL;
 
-    if ((decl_rv = xml_reader_process_by_ctx(h, &parser_decl)) == PR_FAIL) {
+    if (decl_rv == PR_FAIL) {
         // Entity failed to parse in the declaration. Parsing the declaration
         // shouldn't have created any new inputs or loaded new external entities.
         // Keep the entity on the list of inputs which have been parsed.
-        OOPS_ASSERT(decl_rv == PR_FAIL);
         goto failed;
     }
-    h->flags &= ~R_ASCII_ONLY;
-    h->declinfo = NULL;
 
     // Done with the temporary buffer: free the memory buffer if it was reallocated
     if (xc.la_start != xc.initial) {

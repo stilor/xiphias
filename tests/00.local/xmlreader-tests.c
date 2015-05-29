@@ -1871,7 +1871,7 @@ static const testcase_t testcases_structure[] = {
             EV(MESSAGE,
                     LOC("truncated-stag.xml", 2, 1),
                     .info = XMLERR(ERROR, XML, P_STag),
-                    .msg = "Expect whitespace, or >, or />",
+                    .msg = "Expect attribute name, or >, or /> here",
             ),
             END,
         },
