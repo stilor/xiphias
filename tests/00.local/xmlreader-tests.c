@@ -740,6 +740,23 @@ static const testcase_t testcases_xmldecl[] = {
         },
     },
     {
+        TC("Truncated declaration #5"),
+        .input = "truncated-decl5.xml",
+        .events = (const xml_reader_cbparam_t[]){
+            EV(MESSAGE,
+                    LOC("truncated-decl5.xml", 2, 1),
+                    .info = XMLERR(ERROR, XML, P_XMLDecl),
+                    .msg = "Expect pseudo-attribute or ?> here",
+            ),
+            EV(ENTITY_NOT_LOADED,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-decl5.xml"),
+            ),
+            END,
+        },
+    },
+    {
         TC("Non-ASCII character in declaration"),
         .input = "nonascii-decl.xml",
         .events = (const xml_reader_cbparam_t[]){
@@ -1603,7 +1620,6 @@ static const testcase_t testcases_xmldecl[] = {
         },
     },
 };
-#if 0 // TBD
 
 // To avoid defining this monster inline...
 #define VERY_LONG_NAME \
@@ -1632,24 +1648,18 @@ static const testcase_t testcases_structure[] = {
         .input = "simple-open-close.xml",
         .events = (const xml_reader_cbparam_t[]){
             EV(XMLDECL,
-                    LOC("simple-open-close.xml", 1, 1),
-                    NOTOK,
+                    LOC("simple-open-close.xml", 1, 37),
                     .encoding = "UTF-8",
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),
             EV(STAG,
                     LOC("simple-open-close.xml", 2, 1),
-                    TOK("a"),
-            ),
-            EV(STAG_END,
-                    LOC("simple-open-close.xml", 2, 3),
-                    NOTOK,
-                    .is_empty = false,
+                    .name = TOK("a"),
             ),
             EV(ETAG,
                     LOC("simple-open-close.xml", 2, 4),
-                    TOK("a"),
+                    .name = TOK("a"),
             ),
             END,
         },
@@ -1660,13 +1670,11 @@ static const testcase_t testcases_structure[] = {
         .events = (const xml_reader_cbparam_t[]){
             EV(MESSAGE,
                     LOC("invalid-top-level-nodecl.xml", 1, 1),
-                    NOTOK,
                     .info = XMLERR(ERROR, XML, P_document),
                     .msg = "Invalid content at root level",
             ),
             EV(MESSAGE,
                     LOC("invalid-top-level-nodecl.xml", 2, 1),
-                    NOTOK,
                     .info = XMLERR(ERROR, XML, P_document),
                     .msg = "No root element",
             ),
@@ -1678,21 +1686,18 @@ static const testcase_t testcases_structure[] = {
         .input = "invalid-top-level.xml",
         .events = (const xml_reader_cbparam_t[]){
             EV(XMLDECL,
-                    LOC("invalid-top-level.xml", 1, 1),
-                    NOTOK,
+                    LOC("invalid-top-level.xml", 1, 37),
                     .encoding = "UTF-8",
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_1,
             ),
             EV(MESSAGE,
                     LOC("invalid-top-level.xml", 2, 1),
-                    NOTOK,
                     .info = XMLERR(ERROR, XML, P_document),
                     .msg = "Invalid content at root level",
             ),
             EV(MESSAGE,
                     LOC("invalid-top-level.xml", 3, 1),
-                    NOTOK,
                     .info = XMLERR(ERROR, XML, P_document),
                     .msg = "No root element",
             ),
@@ -1704,71 +1709,81 @@ static const testcase_t testcases_structure[] = {
         .input = "invalid-top-level-withroot.xml",
         .events = (const xml_reader_cbparam_t[]){
             EV(XMLDECL,
-                    LOC("invalid-top-level-withroot.xml", 1, 1),
-                    NOTOK,
+                    LOC("invalid-top-level-withroot.xml", 1, 37),
                     .encoding = "UTF-8",
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_1,
             ),
             EV(MESSAGE,
                     LOC("invalid-top-level-withroot.xml", 2, 1),
-                    NOTOK,
                     .info = XMLERR(ERROR, XML, P_document),
                     .msg = "Invalid content at root level",
+            ),
+            EV(STAG,
+                    LOC("invalid-top-level-withroot.xml", 3, 1),
+                    .name = TOK("a"),
+            ),
+            E0(ETAG,
+                    LOC("invalid-top-level-withroot.xml", 3, 3)
             ),
             END,
         },
     },
     {
-        // XML reader used to test this condition. Retain until it's
-        // implemented in higher DOM/SAX driver
         TC("DTD specified twice"),
         .input = "dtd-twice.xml",
         .events = (const xml_reader_cbparam_t[]){
             EV(DTD_BEGIN,
                     LOC("dtd-twice.xml", 1, 1),
-                    TOK("a"),
+                    .root = TOK("a"),
             ),
-            EV(DTD_END,
-                    LOC("dtd-twice.xml", 1, 13),
-                    NOTOK,
+            E0(DTD_END,
+                    LOC("dtd-twice.xml", 1, 13)
             ),
             EV(MESSAGE,
                     LOC("dtd-twice.xml", 2, 1),
-                    NOTOK,
                     .info = XMLERR(ERROR, XML, P_document),
                     .msg = "Document type definition not allowed here",
             ),
             EV(DTD_BEGIN,
                     LOC("dtd-twice.xml", 2, 1),
-                    TOK("a"),
+                    .root = TOK("a"),
             ),
-            EV(DTD_END,
-                    LOC("dtd-twice.xml", 2, 13),
-                    NOTOK,
+            E0(DTD_END,
+                    LOC("dtd-twice.xml", 2, 13)
+            ),
+            EV(STAG,
+                    LOC("dtd-twice.xml", 3, 1),
+                    .name = TOK("a"),
+            ),
+            E0(ETAG,
+                    LOC("dtd-twice.xml", 3, 3)
             ),
             END,
         },
     },
     {
-        // XML reader used to test this condition. Retain until it's
-        // implemented in higher DOM/SAX driver
         TC("DTD specified after root element"),
         .input = "dtd-after-element.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(STAG,
+                    LOC("dtd-after-element.xml", 1, 1),
+                    .name = TOK("a"),
+            ),
+            E0(ETAG,
+                    LOC("dtd-after-element.xml", 1, 3)
+            ),
             EV(MESSAGE,
                     LOC("dtd-after-element.xml", 2, 1),
-                    NOTOK,
                     .info = XMLERR(ERROR, XML, P_document),
                     .msg = "Document type definition not allowed here",
             ),
             EV(DTD_BEGIN,
                     LOC("dtd-after-element.xml", 2, 1),
-                    TOK("a"),
+                    .root = TOK("a"),
             ),
-            EV(DTD_END,
-                    LOC("dtd-after-element.xml", 2, 13),
-                    NOTOK,
+            E0(DTD_END,
+                    LOC("dtd-after-element.xml", 2, 13)
             ),
             END,
         },
@@ -1777,11 +1792,24 @@ static const testcase_t testcases_structure[] = {
         TC("Root element specified twice"),
         .input = "root-element-twice.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(STAG,
+                    LOC("root-element-twice.xml", 1, 1),
+                    .name = TOK("a"),
+            ),
+            E0(ETAG,
+                    LOC("root-element-twice.xml", 1, 3)
+            ),
             EV(MESSAGE,
                     LOC("root-element-twice.xml", 2, 1),
-                    NOTOK,
                     .info = XMLERR(ERROR, XML, P_document),
                     .msg = "One root element allowed in a document",
+            ),
+            EV(STAG,
+                    LOC("root-element-twice.xml", 2, 1),
+                    .name = TOK("a"),
+            ),
+            E0(ETAG,
+                    LOC("root-element-twice.xml", 2, 3)
             ),
             END,
         },
@@ -1791,8 +1819,7 @@ static const testcase_t testcases_structure[] = {
         .input = "no-root-element.xml",
         .events = (const xml_reader_cbparam_t[]){
             EV(XMLDECL,
-                    LOC("no-root-element.xml", 1, 1),
-                    NOTOK,
+                    LOC("no-root-element.xml", 1, 20),
                     .encoding = NULL,
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_1,
@@ -1803,7 +1830,6 @@ static const testcase_t testcases_structure[] = {
             ),
             EV(MESSAGE,
                     LOC("no-root-element.xml", 4, 1),
-                    NOTOK,
                     .info = XMLERR(ERROR, XML, P_document),
                     .msg = "No root element",
             ),
@@ -1816,7 +1842,6 @@ static const testcase_t testcases_structure[] = {
         .events = (const xml_reader_cbparam_t[]){
             EV(MESSAGE,
                     LOC("bad-emptytag-name.xml", 1, 2),
-                    NOTOK,
                     .info = XMLERR(ERROR, XML, P_STag),
                     .msg = "Expected element type",
             ),
@@ -1829,7 +1854,6 @@ static const testcase_t testcases_structure[] = {
         .events = (const xml_reader_cbparam_t[]){
             EV(MESSAGE,
                     LOC("bad-stag-name.xml", 1, 2),
-                    NOTOK,
                     .info = XMLERR(ERROR, XML, P_STag),
                     .msg = "Expected element type",
             ),
@@ -1842,17 +1866,17 @@ static const testcase_t testcases_structure[] = {
         .events = (const xml_reader_cbparam_t[]){
             EV(STAG,
                     LOC("truncated-stag.xml", 1, 1),
-                    TOK("a"),
+                    .name = TOK("a"),
             ),
             EV(MESSAGE,
                     LOC("truncated-stag.xml", 2, 1),
-                    NOTOK,
                     .info = XMLERR(ERROR, XML, P_STag),
                     .msg = "Expect whitespace, or >, or />",
             ),
             END,
         },
     },
+#if 0 // TBD
     {
         TC("Bad character in start tag #1"),
         .input = "stag-badchar1.xml",
@@ -6838,16 +6862,14 @@ static const testcase_t testcases_structure[] = {
             END,
         },
     },
-};
 #endif
+};
 
 static const testset_t testsets[] = {
     TEST_SET(run_testcase, "Tests for misc APIs", testcases_api),
     TEST_SET(run_testcase, "Encoding tests", testcases_encoding),
     TEST_SET(run_testcase, "XML/Text declaration tests", testcases_xmldecl),
-#if 0
     TEST_SET(run_testcase, "XML structures", testcases_structure),
-#endif
 };
 
 static const testsuite_t testsuite = TEST_SUITE("Tests for XML reader API", testsets);
