@@ -1942,8 +1942,16 @@ xml_read_recover(xml_reader_t *h, const char *stopchars, bool stopafter)
     st.stopchars = stopchars;
     st.stopafter = stopafter;
     st.firstchar = true;
-    xml_read_until(h, xml_cb_recover, &st);
-    return PR_OK;
+    if (xml_read_until(h, xml_cb_recover, &st) == XRU_STOP) {
+        // Found the stop character
+        return PR_OK;
+    }
+
+    // Parsed till the end of the most recently locked input, stop char not seen
+    // TBD break the lock here?
+    // TBD call this function upon PR_FAIL return from the parser?
+    // TBD call context-specific callback to complain
+    return PR_STOP;
 }
 
 /**
@@ -4942,6 +4950,7 @@ xml_reader_process_by_ctx(xml_reader_t *h, const xml_reader_context_t *ctx)
         }
     } while (rv == PR_OK);
 
+    xml_reader_input_complete_notify(h);
     h->ctx = saved_ctx;
     return rv;
 }

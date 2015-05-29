@@ -1876,24 +1876,23 @@ static const testcase_t testcases_structure[] = {
             END,
         },
     },
-#if 0 // TBD
     {
         TC("Bad character in start tag #1"),
         .input = "stag-badchar1.xml",
         .events = (const xml_reader_cbparam_t[]){
             EV(STAG,
                     LOC("stag-badchar1.xml", 1, 1),
-                    TOK("element"),
+                    .name = TOK("element"),
             ),
             EV(MESSAGE,
                     LOC("stag-badchar1.xml", 1, 9),
-                    NOTOK,
                     .info = XMLERR(ERROR, XML, P_STag),
-                    .msg = "Expect whitespace, or >, or />",
+                    .msg = "Expect whitespace, or >, or /> here",
             ),
             END,
         },
     },
+#if 0 // TBD
     {
         TC("Bad character in start tag #2"),
         .input = "stag-badchar2.xml",
