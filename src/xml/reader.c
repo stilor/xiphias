@@ -319,6 +319,7 @@ struct xml_reader_s {
     } svtk;                         ///< Saved tokens
 
     xmlerr_loc_t prodloc;           ///< Reader's position at the start of reportable production
+    xmlerr_loc_t refloc;            ///< Entity reference inclusion point
     ucs4_t rejected;                ///< Next character (rejected by xml_read_until_*)
     ucs4_t charrefval;              ///< When parsing character reference: stored value
 
@@ -358,6 +359,10 @@ static const xml_reader_context_t parser_decl_attributes;
 /// Convenience macro: report an error at the start of the last token
 #define xml_reader_message_lastread(h, ...) \
         xml_reader_message(h, &h->prodloc, __VA_ARGS__)
+
+/// Convenience macro: report an error at entity/character reference
+#define xml_reader_message_ref(h, ...) \
+        xml_reader_message(h, &h->refloc, __VA_ARGS__)
 
 /// Convenience macro: report an error at current location (i.e. after a lookahead)
 #define xml_reader_message_current(h, ...) \
@@ -2312,6 +2317,9 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     // Until we know better
     *reftype = XML_READER_REF_NONE;
 
+    // Where this reference occurred
+    h->refloc = STAILQ_FIRST(&h->active_input)->curloc;
+
     // We know startchar is there, it has been rejected by previous call. Whatever
     // we read is not going to be a part of include-normalization check.
     h->flags |= R_NO_INC_NORM;
@@ -2390,7 +2398,7 @@ literal_percent:
 malformed:
     h->flags &= ~R_NO_INC_NORM;
     ri = xml_entity_type_info(*reftype);
-    xml_reader_message_lastread(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
+    xml_reader_message_ref(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
             "Malformed %s reference", ri->desc);
     xml_reader_input_unlock_assert(h);
     return PR_FAIL;
@@ -2434,12 +2442,13 @@ entity_start(xml_reader_t *h, xml_reader_entity_t *e)
     xml_reader_cbparam_t cbp;
 
     xml_reader_callback_init(h, XML_READER_CB_ENTITY_PARSE_START, &cbp);
+    cbp.loc = h->refloc;
     cbp.entity.type = e->type;
     cbp.entity.name = e->name;
     TOKEN_FROM_CHAR(&cbp.entity.system_id, e->loader_info.system_id);
     TOKEN_FROM_CHAR(&cbp.entity.public_id, e->loader_info.public_id);
     xml_reader_callback_invoke(h, &cbp);
-    e->included = h->prodloc;
+    e->included = h->refloc;
     e->being_parsed = true;
 }
 
@@ -2457,7 +2466,7 @@ entity_end(xml_reader_t *h, void *arg)
     xml_reader_cbparam_t cbp;
 
     xml_reader_callback_init(h, XML_READER_CB_ENTITY_PARSE_END, &cbp);
-    cbp.loc = e->included; // TBD keep or use h->prodloc?
+    cbp.loc = e->included;
     cbp.entity.type = e->type;
     cbp.entity.name = e->name;
     TOKEN_FROM_CHAR(&cbp.entity.system_id, e->loader_info.system_id);
@@ -2649,7 +2658,10 @@ reference_unknown(xml_reader_t *h, xml_reader_entity_t *e)
 {
     xml_reader_cbparam_t cbp;
 
+    // TBD flag to callback_init which location to use? if so, move curloc back to handle
+    // and just save/restore the position when new input is added or removed
     xml_reader_callback_init(h, XML_READER_CB_ENTITY_UNKNOWN, &cbp);
+    cbp.loc = h->refloc;
     cbp.entity.type = e->type;
     cbp.entity.name = e->name;
     xml_reader_callback_invoke(h, &cbp);
@@ -2774,7 +2786,7 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
             /* Parse the character referenced */
             if (h->charrefval == UCS4_NOCHAR) {
                 // Did not evaluate to a character; recover by skipping.
-                xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_CharRef),
+                xml_reader_message_ref(h, XMLERR(ERROR, XML, P_CharRef),
                         "Character reference did not evaluate to a valid "
                         "UCS-4 code point");
                 reftype = XML_READER_REF_NONE;
@@ -2782,7 +2794,7 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
             }
             if (!xml_valid_char_reference(h, h->charrefval)) {
                 // Recover by skipping invalid character.
-                xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_CharRef),
+                xml_reader_message_ref(h, XMLERR(ERROR, XML, P_CharRef),
                         "Referenced character does not match Char production");
                 reftype = XML_READER_REF_NONE;
                 continue;
@@ -2798,7 +2810,7 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         OOPS_ASSERT(e);
 
         if (e->being_parsed) {
-            xml_reader_message_lastread(h, XMLERR(ERROR, XML, WFC_NO_RECURSION),
+            xml_reader_message_ref(h, XMLERR(ERROR, XML, WFC_NO_RECURSION),
                     "Parsed entity may not contain a recursive reference to itself");
             xml_reader_message(h, &e->included, XMLERR_NOTE,
                     "This is the location of previous inclusion");
