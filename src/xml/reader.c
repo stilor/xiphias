@@ -1946,7 +1946,8 @@ xml_cb_recover(void *arg, ucs4_t cp)
     Ignore the first character (or the recovery may never advance).
 
     @param h Reader handle
-    @param stopchars Markup characters that will stop this function
+    @param stopchars Markup characters that will stop this function; NULL if no reading
+        to be performed, just complete all inputs
     @param stopafter If true, stop after the stop 
     @return Always PR_OK (either finds the stop character or reaches EOF)
 */
@@ -1955,12 +1956,14 @@ xml_read_recover(xml_reader_t *h, const char *stopchars, bool stopafter)
 {
     xml_cb_recover_state_t st;
 
-    st.stopchars = stopchars;
-    st.stopafter = stopafter;
-    st.firstchar = true;
-    if (xml_read_until(h, xml_cb_recover, &st) == XRU_STOP) {
-        // Found the stop character
-        return PR_OK;
+    if (stopchars) {
+        st.stopchars = stopchars;
+        st.stopafter = stopafter;
+        st.firstchar = true;
+        if (xml_read_until(h, xml_cb_recover, &st) == XRU_STOP) {
+            // Found the stop character
+            return PR_OK;
+        }
     }
 
     // Parsed till the end of the most recently locked input, stop char not seen
@@ -4375,6 +4378,7 @@ xml_end_internal_subset(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
 
+    // TBD add matching START_INTERNAL event?
     xml_read_string_assert(h, "]");
     xml_reader_callback_init(h, XML_READER_CB_DTD_END_INTERNAL, &cbp);
     xml_reader_callback_invoke(h, &cbp);
@@ -4430,19 +4434,19 @@ xml_parse_doctypedecl(xml_reader_t *h)
     if (xml_parse_whitespace(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_doctypedecl),
                 "Expect whitespace here");
-        return PR_FAIL;
+        return xml_read_recover(h, NULL, false); // TBD not an actual recovery - rework?
     }
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_doctypedecl),
                 "Expect root element type here");
-        return PR_FAIL;
+        return xml_read_recover(h, NULL, false); // TBD not an actual recovery - rework?
     }
     xml_tokenbuf_save(h, &h->svtk.name);
 
     if (xml_parse_whitespace(h) == PR_OK) {
         rv = xml_parse_ExternalID(h, false);
         if (rv == PR_FAIL) {
-            return PR_FAIL; // See above: no recovery
+            return xml_read_recover(h, NULL, false); // TBD not an actual recovery - rework?
         }
         else if (rv == PR_OK) {
             xml_tokenbuf_set_loader_info(h, &h->dtd_loader_info);
