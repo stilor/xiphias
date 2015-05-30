@@ -2065,12 +2065,14 @@ static prodres_t
 xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
 {
     xml_cb_string_state_t st;
+    xmlerr_loc_t startloc;
 
+    startloc = STAILQ_FIRST(&h->active_input)->curloc;
     st.cur = s;
     st.end = s + strlen(s);
     if (xml_read_until(h, xml_cb_string, &st) != XRU_STOP || st.cur != st.end) {
         if (errinfo != XMLERR_NOERROR) {
-            xml_reader_message_current(h, errinfo, "Expected string: '%s'", st.cur);
+            xml_reader_message(h, &startloc, errinfo, "Expected string: '%s'", s);
         }
         return PR_NOMATCH;
     }
@@ -4567,7 +4569,7 @@ xml_handle_closing_tag(xml_reader_t *h)
 {
     if (!xml_reader_input_unlock(h)) {
         // Error, no recovery needed
-        xml_reader_message_current(h, h->ctx->errcode, "%s", h->ctx->errmsg);
+        xml_reader_message_lastread(h, h->ctx->errcode, "%s", h->ctx->errmsg);
     }
 
     // Do not decrement nest level if already at the root level. Otherwise,
@@ -4655,10 +4657,7 @@ xml_parse_ETag(xml_reader_t *h)
 
     (void)xml_parse_whitespace(h); // optional whitespace
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag)) != PR_OK) {
-        // Not terminated properly  - try to recover by skipping until closing bracket
-        // TBD looks like it may OOPS here if the input is both unbalanced and malformed -
-        // TBD skip unlocking?
-        xml_reader_input_unlock_assert(h);
+        // Not well-formed; do not consider this a closing tag (and skip unlocking)
         return xml_read_recover(h, ">", true);
     }
 
