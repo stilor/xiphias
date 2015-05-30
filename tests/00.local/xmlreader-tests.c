@@ -5329,13 +5329,12 @@ static const testcase_t testcases_structure[] = {
             END,
         },
     },
-#if 0 // TBD
     {
         TC("Coverage for normalization checking while backtracking in CDATA parser"),
         .input = "cdata-normchecking.xml",
         .events = (const xml_reader_cbparam_t[]){
             EV(XMLDECL,
-                    LOC("cdata-normchecking.xml", 1, 1),
+                    LOC("cdata-normchecking.xml", 1, 20),
                     .encoding = NULL,
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_1,
@@ -5399,9 +5398,6 @@ static const testcase_t testcases_structure[] = {
                     LOC("entity-bad5.xml", 1, 1),
                     .root = TOK("a"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entity-bad5.xml", 1, 1)
-            ),
             EV(MESSAGE,
                     LOC("entity-bad5.xml", 2, 1),
                     .info = XMLERR(ERROR, XML, P_PEReference),
@@ -5414,11 +5410,12 @@ static const testcase_t testcases_structure[] = {
             ),
             EV(ENTITY_DEF,
                     LOC("entity-bad5.xml", 3, 1),
+                    .type = XML_READER_REF_EXTERNAL,
                     .name = TOK("x"),
-            ),
-            EV(SYSID,
-                    LOC("entity-bad5.xml", 3, 19),
                     .system_id = TOK("entity-bad5-2.xml"),
+            ),
+            E0(DTD_END_INTERNAL,
+                    LOC("entity-bad5.xml", 4, 1)
             ),
             E0(DTD_END,
                     LOC("entity-bad5.xml", 4, 3)
@@ -5451,7 +5448,6 @@ static const testcase_t testcases_structure[] = {
             END,
         },
     },
-#endif
 };
 
 static const testset_t testsets[] = {
