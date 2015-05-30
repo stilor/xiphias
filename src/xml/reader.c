@@ -4322,7 +4322,10 @@ xml_dtd_on_complete(xml_reader_t *h, const xmlerr_loc_t *loc)
     xml_reader_cbparam_t cbp;
 
     strhash_foreach(h->entities_unknown, xml_unknown_entity, h);
+
+    // Use current location in including entity
     xml_reader_callback_init(h, XML_READER_CB_DTD_END, &cbp);
+    cbp.loc = STAILQ_FIRST(&h->active_input)->curloc;
     xml_reader_callback_invoke(h, &cbp);
 }
 
