@@ -174,7 +174,7 @@ run_testcase(const void *arg)
     }
 
     xml_reader_load_document_entity(reader, NULL, tc->input);
-    xml_reader_process(reader); // Emits the events
+    xml_reader_run(reader); // Emits the events
 
     if (tc->teardown) {
         tc->teardown(reader);

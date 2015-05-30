@@ -3204,7 +3204,6 @@ static const testcase_t testcases_structure[] = {
             END,
         },
     },
-#if 0 // TBD
     {
         TC("Improper nesting of start/end tag in entity #3"),
         .input = "entities07.xml",
@@ -3251,7 +3250,7 @@ static const testcase_t testcases_structure[] = {
             EV(MESSAGE,
                     LOC("entity(x)", 1, 9),
                     .info = XMLERR(ERROR, XML, P_content),
-                    .msg = "Fails to parse: does not match content production",
+                    .msg = "Replacement text for an entity must match 'content' production",
             ),
             EV(ENTITY_PARSE_END,
                     LOC("entities07.xml", 4, 11),
@@ -3277,25 +3276,20 @@ static const testcase_t testcases_structure[] = {
                     LOC("entities08.xml", 1, 1),
                     .root = TOK("a"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entities08.xml", 1, 1)
-            ),
             EV(ENTITY_DEF,
                     LOC("entities08.xml", 2, 1),
+                    .type = XML_READER_REF_EXTERNAL,
                     .name = TOK("foo"),
-            ),
-            EV(SYSID,
-                    LOC("entities08.xml", 2, 21),
                     .system_id = TOK("entities08-2.xml"),
             ),
             EV(ENTITY_DEF,
                     LOC("entities08.xml", 3, 1),
+                    .type = XML_READER_REF_INTERNAL,
                     .name = TOK("bar"),
-            ),
-            EV(TEXT,
-                    LOC("entities08.xml", 3, 14),
                     .text = TOK("BAR"),
-                    .ws = false,
+            ),
+            E0(DTD_END_INTERNAL,
+                    LOC("entities08.xml", 4, 1)
             ),
             E0(DTD_END,
                     LOC("entities08.xml", 4, 3)
@@ -3391,6 +3385,7 @@ static const testcase_t testcases_structure[] = {
             END,
         },
     },
+#if 0 // TBD
     {
         TC("Mix of external/internal entity references"),
         .input = "entities09.xml",

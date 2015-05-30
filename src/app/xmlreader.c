@@ -199,7 +199,7 @@ main(int argc, char *argv[])
         xml_reader_set_loader(reader, xml_loader_noload, NULL);
     }
 
-    xml_reader_process(reader);
+    xml_reader_run(reader);
     xml_reader_delete(reader);
     if (gencode) {
         printf("    END,\n");

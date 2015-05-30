@@ -262,6 +262,15 @@ typedef struct {
     bool reserved;                  ///< True if this token was reserved in the buffer
 } xml_reader_saved_token_t;
 
+/// All saved tokens
+typedef struct {
+    xml_reader_saved_token_t name;      ///< Object's name
+    xml_reader_saved_token_t value;     ///< Object's value
+    xml_reader_saved_token_t sysid;     ///< Object's system ID
+    xml_reader_saved_token_t pubid;     ///< Object's public ID
+    xml_reader_saved_token_t ndata;     ///< Object's notation data
+} xml_reader_tokens_t;
+
 /// XML reader structure
 struct xml_reader_s {
     xml_reader_cb_t cb_func;        ///< Callback function
@@ -310,13 +319,7 @@ struct xml_reader_s {
     size_t tokenbuf_used;           ///< Length of saved data in token buffer
     size_t tokenbuf_len;            ///< Length of the current (unsaved) token
 
-    struct {
-        xml_reader_saved_token_t name;      ///< Object's name
-        xml_reader_saved_token_t value;     ///< Object's value
-        xml_reader_saved_token_t sysid;     ///< Object's system ID
-        xml_reader_saved_token_t pubid;     ///< Object's public ID
-        xml_reader_saved_token_t ndata;     ///< Object's notation data
-    } svtk;                         ///< Saved tokens
+    xml_reader_tokens_t svtk;       ///< All saved tokens
 
     xmlerr_loc_t prodloc;           ///< Reader's position at the start of reportable production
     xmlerr_loc_t refloc;            ///< Entity reference inclusion point
@@ -531,6 +534,7 @@ xml_reader_token_unset(xml_reader_token_t *tk)
 static void
 xml_tokenbuf_save(xml_reader_t *h, xml_reader_saved_token_t *svtk)
 {
+    OOPS_ASSERT(!svtk->reserved);
     svtk->offset = h->tokenbuf_used;
     svtk->len = h->tokenbuf_len;
     svtk->reserved = true;
@@ -542,24 +546,17 @@ xml_tokenbuf_save(xml_reader_t *h, xml_reader_saved_token_t *svtk)
     Release a previously saved token (must be the last saved token).
 
     @param h Reader handle
-    @param svtk Saved token structure. On input, contains the data stored by
-        xml_tokenbuf_save. On output, contains the data for the token being dropped
-        from the token buffer (it is valid until the next read operation).
+    @param svtk Saved token structure
     @return Nothing
 */
 static void
 xml_tokenbuf_release(xml_reader_t *h, xml_reader_saved_token_t *svtk)
 {
-    xml_reader_saved_token_t dropped;
-
     OOPS_ASSERT(h->tokenbuf_used == svtk->offset + svtk->len); // Last saved?
     OOPS_ASSERT(svtk->reserved);
-    dropped.reserved = true;
-    dropped.offset = h->tokenbuf_used;
-    dropped.len = h->tokenbuf_len;
     h->tokenbuf_used = svtk->offset;
     h->tokenbuf_len = svtk->len;
-    *svtk = dropped;
+    svtk->reserved = false;
 }
 
 /**
@@ -671,7 +668,7 @@ xml_reader_input_new(xml_reader_t *h, const char *location)
         inp->curloc.pos = 1;
     }
     else {
-        // TBD needed? If we save input in xml_reader_process, looks like this is redundant
+        // TBD needed? If we save input in xml_reader_run, looks like this is redundant
         parent = STAILQ_FIRST(&h->active_input);
         OOPS_ASSERT(parent);
         inp->curloc = parent->curloc;
@@ -878,12 +875,14 @@ xml_lookahead(xml_reader_t *h)
     xml_reader_input_t *inp;
     ucs4_t tmp[MAX_LOOKAHEAD_SIZE];
     ucs4_t *ptr = tmp;
-    utf8_t *bufptr = h->tokenbuf_start;
+    utf8_t *bufptr = h->tokenbuf_start + h->tokenbuf_used;
     size_t i, nread;
     const void *begin, *end;
 
-    OOPS_ASSERT(h->tokenbuf_size >= MAX_LOOKAHEAD_SIZE);
-    OOPS_ASSERT(h->tokenbuf_used == 0);
+    // Ensure there's enough space
+    while (h->tokenbuf_size < h->tokenbuf_used + MAX_LOOKAHEAD_SIZE) {
+        xml_tokenbuf_realloc(h);
+    }
 
     xml_reader_input_complete_notify(h);
     while (true) {
@@ -2710,14 +2709,14 @@ reference_included_charref(xml_reader_t *h, xml_reader_entity_t *e)
     @param refops Actions to perform when encountering an entity, or
         a contiguous text block; a mask of recognized entities, and
         a stop-condition detection.
-    @param arg Argument to @a func
+    @param arg Argument to @a refops->condread
     @return Status why the parser terminated
 */
 static xru_t
 xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void *arg)
 {
     enum xml_reader_reference_e reftype = XML_READER_REF_NONE; // No reference yet
-    xml_reader_saved_token_t lasttoken;
+    xml_reader_saved_token_t tk_content, tk_ref;
     xru_t stopstatus;
     xml_reader_entity_t *e;
     xml_reader_entity_t fakeent;
@@ -2727,6 +2726,10 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
     // We'll accumulate text over multiple calls to xml_read_until
     h->tokenbuf_len = 0;
     h->flags |= R_NO_TOKEN_RESET;
+
+    // Unused initially
+    tk_content.reserved = false;
+    tk_ref.reserved = false;
 
     saved_flags = h->flags;
     while (true) {
@@ -2755,26 +2758,25 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         // if it is an entity reference, is).
         saved_relevant = h->relevant;
         h->relevant = NULL;
-        xml_tokenbuf_save(h, &lasttoken);
+        xml_tokenbuf_save(h, &tk_content);
         if (xml_parse_reference(h, &reftype) != PR_OK) {
             // This may or may not be error: PR_NOMATCH may mean that it just wasn't a PE
             // reference despite having started with a percent sign.  If it is an error,
             // no recovery - just interpret anything after error as plain text.
             // No need to restore h->relevant, will be reset anyway in the above loop
-            xml_tokenbuf_release(h, &lasttoken);
+            xml_tokenbuf_release(h, &tk_content); // continue gathering content
             continue;
         }
         h->relevant = saved_relevant;
 
-        // Save current token (entity name) into lasttoken/lastlen and restore buffer
-        // to the state before parsing the reference.
-        xml_tokenbuf_release(h, &lasttoken);
+        // Save current token (entity name) into reference token
+        xml_tokenbuf_save(h, &tk_ref);
 
         e = NULL;
         switch (reftype) {
         case XML_READER_REF_GENERAL:
         case XML_READER_REF_PE:
-            if ((e = xml_entity_get(h, &lasttoken, reftype == XML_READER_REF_PE)) == NULL) {
+            if ((e = xml_entity_get(h, &tk_ref, reftype == XML_READER_REF_PE)) == NULL) {
                 goto unknown_entity;
             }
             reftype = e->type;
@@ -2783,7 +2785,7 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
         unknown_entity:
             /* Create a fake entity record */
             memset(&fakeent, 0, sizeof(fakeent));
-            xml_tokenbuf_setcbtoken(h, &lasttoken, &fakeent.name);
+            xml_tokenbuf_setcbtoken(h, &tk_ref, &fakeent.name);
             fakeent.type = reftype;
             e = &fakeent;
             break;
@@ -2797,14 +2799,14 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
                         "Character reference did not evaluate to a valid "
                         "UCS-4 code point");
                 reftype = XML_READER_REF_NONE;
-                continue;
+                break;
             }
             if (!xml_valid_char_reference(h, h->charrefval)) {
                 // Recover by skipping invalid character.
                 xml_reader_message_ref(h, XMLERR(ERROR, XML, P_CharRef),
                         "Referenced character does not match Char production");
                 reftype = XML_READER_REF_NONE;
-                continue;
+                break;
             }
             memset(&fakeent, 0, sizeof(fakeent));
             fakeent.type = XML_READER_REF_CHARACTER;
@@ -2814,9 +2816,10 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
             break;
         }
 
-        OOPS_ASSERT(e);
-
-        if (e->being_parsed) {
+        if (!e) {
+            // Do nothing; there was some previously signaled error
+        }
+        else if (e->being_parsed) {
             xml_reader_message_ref(h, XMLERR(ERROR, XML, WFC_NO_RECURSION),
                     "Parsed entity may not contain a recursive reference to itself");
             xml_reader_message(h, &e->included, XMLERR_NOTE,
@@ -2827,6 +2830,10 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
             OOPS_ASSERT(refops->hnd[e->type]);
             refops->hnd[e->type](h, e);
         }
+
+        // Release the saved tokens (dropping the reference name & continuing gathering content)
+        xml_tokenbuf_release(h, &tk_ref);
+        xml_tokenbuf_release(h, &tk_content);
     }
 }
 
@@ -3305,7 +3312,8 @@ xml_parse_decl_start(xml_reader_t *h)
 {
     // We know '<?xml' is here, but it must be followed by a whitespace
     // so that it can be distinguished from a XML PI, e.g. '<?xml-model'
-    if (h->tokenbuf_len < 6 || !xml_is_whitespace(h->tokenbuf_start[5])) {
+    if (h->tokenbuf_len < 6
+            || !xml_is_whitespace(h->tokenbuf_start[h->tokenbuf_used + 5])) {
         return PR_NOMATCH;
     }
 
@@ -4931,24 +4939,22 @@ static const xml_reader_context_t parser_decl_attributes = {
     Process entities in input queue.
 
     @param h Reader handle
-    @param ctx Context for parsing
     @return Nothing
 */
 static prodres_t
-xml_reader_process_by_ctx(xml_reader_t *h, const xml_reader_context_t *ctx)
+xml_reader_process(xml_reader_t *h)
 {
     const xml_reader_pattern_t *pat;
-    const xml_reader_context_t *saved_ctx;
+    size_t tokenbuf_reserved;
     prodres_t rv;
 
-    saved_ctx = h->ctx;
-    h->ctx = ctx;
+    tokenbuf_reserved = h->tokenbuf_used;
 
     // TBD move this func closer to xml_lookahead
     do {
         // Starting a new production, reset the tokens
         memset(&h->svtk, 0, sizeof(h->svtk));
-        h->tokenbuf_used = 0;
+        h->tokenbuf_used = tokenbuf_reserved; // preserve content below saved threshold
 
         if (!xml_lookahead(h)) {
             rv = h->ctx->eof_status;
@@ -4972,7 +4978,9 @@ xml_reader_process_by_ctx(xml_reader_t *h, const xml_reader_context_t *ctx)
     } while (rv == PR_OK && (h->flags & R_STOP) == 0);
 
     xml_reader_input_complete_notify(h);
-    h->ctx = saved_ctx;
+
+    // Restore handle state
+    h->tokenbuf_used = tokenbuf_reserved;
     return rv;
 }
 
@@ -5093,6 +5101,9 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
 {
     xml_reader_hidden_loader_arg_t *ha = h->hidden_loader_arg;
     xml_reader_entity_t *e = ha->entityref;
+    const xml_reader_context_t *saved_ctx;
+    xml_reader_tokens_t saved_svtk;
+    xmlerr_loc_t saved_prodloc;
     xml_reader_external_t *ex;
     xml_reader_input_t *inp;
     xml_reader_initial_xcode_t xc;
@@ -5189,8 +5200,21 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // go back to the including input.
     OOPS_ASSERT(h->ctx->declinfo); // External entity context must have it
     h->declinfo = h->ctx->declinfo;
-    h->flags |= R_ASCII_ONLY | R_NO_BREAK_LOCK;
-    decl_rv = xml_reader_process_by_ctx(h, &parser_decl);
+    h->flags |= R_ASCII_ONLY | R_NO_BREAK_LOCK; // TBD is XML decl locked? verify
+
+    // We're interrupting normal processing; save & restore the relevant parts
+    saved_ctx = h->ctx;
+    saved_svtk = h->svtk;
+    saved_prodloc = h->prodloc;
+
+    h->ctx = &parser_decl;
+    decl_rv = xml_reader_process(h);
+
+    /// Restore
+    h->ctx = saved_ctx;
+    h->svtk = saved_svtk;
+    h->prodloc = saved_prodloc;
+
     h->flags &= ~(R_ASCII_ONLY | R_NO_BREAK_LOCK);
     h->declinfo = NULL;
 
@@ -5309,7 +5333,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
             && strcmp(enc->name, "UTF-16")
             && strcmp(enc->name, "UTF-8")) {
         // Non-fatal: recover by using whatever encoding we detected
-        xml_reader_message_lastread(h, XMLERR(ERROR, XML, ENCODING_ERROR),
+        xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "No external encoding information, no encoding in %s, content in %s encoding",
                 h->ctx->declinfo->name, enc->name);
     }
@@ -5400,12 +5424,13 @@ xml_reader_message(xml_reader_t *h, const xmlerr_loc_t *loc, xmlerr_info_t info,
     @return Nothing
 */
 void
-xml_reader_process(xml_reader_t *h)
+xml_reader_run(xml_reader_t *h)
 {
     prodres_t rv;
 
     h->flags &= ~R_STOP; // If stopped previously, we can resume now.
-    rv = xml_reader_process_by_ctx(h, &parser_document_entity);
+    h->ctx = &parser_document_entity;
+    rv = xml_reader_process(h);
 
     // In each context, the last parser must catch all and recover
     OOPS_ASSERT(rv != PR_NOMATCH);
@@ -5423,7 +5448,7 @@ xml_reader_process(xml_reader_t *h)
 void
 xml_reader_stop(xml_reader_t *h)
 {
-    // TBD test exiting from nested xml_reader_process_by_ctx()? I.e. from XMLDecl processing loop?
+    // TBD test exiting from nested xml_reader_process()? I.e. from XMLDecl processing loop?
     // TBD looks like it should work fine, as only the last context (decl_end) makes a callback.
     h->flags |= R_STOP;
 }

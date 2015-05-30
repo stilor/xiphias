@@ -251,7 +251,7 @@ void xml_reader_load_document_entity(xml_reader_t *h, const char *pubid, const c
 void xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
         const char *location, const char *transport_encoding);
 
-void xml_reader_process(xml_reader_t *h);
+void xml_reader_run(xml_reader_t *h);
 void xml_reader_stop(xml_reader_t *h);
 
 void xml_reader_stack(xml_reader_t *h, void (*func)(void *, const xmlerr_loc_t *), void *arg);
