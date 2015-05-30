@@ -4507,7 +4507,6 @@ static const testcase_t testcases_structure[] = {
             END,
         },
     },
-#if 0 // TBD
     {
         TC("Parameter entities mix #2 (parameter entities in literal)"),
         .input = "pe2.xml",
@@ -4597,6 +4596,7 @@ static const testcase_t testcases_structure[] = {
             END,
         },
     },
+#if 0 // TBD
     {
         TC("Very long entity name"),
         .input = "huge-entity-name.xml",
