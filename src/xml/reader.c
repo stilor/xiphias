@@ -1466,25 +1466,27 @@ xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
     if (h->hidden_loader_arg) {
         // Loader didn't create an input
         h->hidden_loader_arg = NULL;
-        // Notify the app. We want to report this at the location of the loading entity,
-        // not at the last production in the loaded entity.
         xml_reader_callback_init(h, XML_READER_CB_ENTITY_NOT_LOADED, &cbp);
-        if ((inp = STAILQ_FIRST(&h->active_input)) != NULL) {
-            cbp.loc = inp->curloc;
-        }
-        else {
-            cbp.loc.src = NULL;
-            cbp.loc.line = 0;
-            cbp.loc.pos = 0;
-        }
         if (e) {
             cbp.entity.name = e->name;
             cbp.entity.type = e->type;
+            cbp.loc = e->included;
         }
         else {
             OOPS_ASSERT(ctx); // For non-entity inputs, context must be provided.
             xml_reader_token_unset(&cbp.entity.name);
             cbp.entity.type = ctx->reftype;
+            // We want to report this at the location of the loading entity,
+            // not at the last production in the loaded entity.
+            // TBD if curloc moved back to h, would this be just h->curloc - since input is removed?
+            if ((inp = STAILQ_FIRST(&h->active_input)) != NULL) {
+                cbp.loc = inp->curloc;
+            }
+            else {
+                cbp.loc.src = NULL;
+                cbp.loc.line = 0;
+                cbp.loc.pos = 0;
+            }
         }
         // TBD make loader use utf8_t (and size?)
         TOKEN_FROM_CHAR(&cbp.entity.system_id, loader_info->system_id);
@@ -1962,6 +1964,11 @@ xml_read_recover(xml_reader_t *h, const char *stopchars, bool stopafter)
     // TBD break the lock here?
     // TBD call this function upon PR_FAIL return from the parser?
     // TBD call context-specific callback to complain
+    // TBD for now, just signal completion of everything
+    xml_reader_input_t *inp;
+    while ((inp = STAILQ_FIRST(&h->active_input)) != NULL) {
+        xml_reader_input_complete(h, inp);
+    }
     return PR_STOP;
 }
 
@@ -2488,7 +2495,7 @@ reference_forbidden(xml_reader_t *h, xml_reader_entity_t *e)
     const xml_reference_info_t *ri;
 
     ri = xml_entity_type_info(e->type);
-    xml_reader_message_lastread(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
+    xml_reader_message_ref(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
             "Reference to %s is forbidden here", ri->desc);
 }
 
@@ -3620,9 +3627,8 @@ xml_parse_PI(xml_reader_t *h)
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                 "Expected PI target here");
-        xml_read_recover(h, ">", true);
         xml_reader_input_unlock_assert(h);
-        return PR_OK;
+        return xml_read_recover(h, ">", true);
     }
     xml_tokenbuf_save(h, &h->svtk.name);
     /// @todo Check for XML-reserved names ([Xx][Mm][Ll]*)
@@ -3643,9 +3649,8 @@ xml_parse_PI(xml_reader_t *h)
     }
     else if (xml_read_string(h, "?>", XMLERR(ERROR, XML, P_PI)) != PR_OK) {
         // Recover by skipping until closing angle bracket
-        xml_read_recover(h, ">", true);
         xml_reader_input_unlock_assert(h);
-        return PR_OK;
+        return xml_read_recover(h, ">", true);
     }
 
     xml_reader_callback_init(h, XML_READER_CB_PI, &cbp);
@@ -4506,9 +4511,8 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 malformed:
     // Try to recover by reading till end of opening tag. Do not lock the input
     // (as we don't know how broken the markup was).
-    xml_read_recover(h, ">", true);
     xml_reader_input_unlock_assert(h);
-    return PR_OK;
+    return xml_read_recover(h, ">", true);
 }
 
 /**
