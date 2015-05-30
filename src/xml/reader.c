@@ -1812,6 +1812,10 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
                 if ((h->flags & R_NO_INC_NORM) == 0
                         && !nfc_check_nextchar(h->norm_include, cp0)
                         && !norm_warned) {
+                    // TBD _ref or _current? _ref is where the last inclusion occurred, but
+                    // it may not be the relevant part (i.e. if the denormalization happend
+                    // in the nested include). Have refloc saved in each input when it is interrupted
+                    // by another input inclusion?
                     xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
                             "Input is not include-normalized");
                     norm_warned = true;
@@ -2644,7 +2648,7 @@ reference_error(xml_reader_t *h, xml_reader_entity_t *e)
     const xml_reference_info_t *ri;
 
     ri = xml_entity_type_info(e->type);
-    xml_reader_message_lastread(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
+    xml_reader_message_ref(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
             "%s reference here is an error", ri->desc);
 
     // Bypass the reference so that we complain where it is used, too
