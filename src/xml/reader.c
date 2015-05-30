@@ -3987,7 +3987,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
         if ((predef = eold->predef) == NULL || eold->declared.src) {
             /// @todo Would be nice to have entity name in the message. Or convert this
             /// to a non-message event and pass in UTF-8?
-            xml_reader_message(h, &cbp.loc, XMLERR(WARN, XML, ENTITY_REDECLARED),
+            xml_reader_message_lastread(h, XMLERR(WARN, XML, ENTITY_REDECLARED),
                     "Redefinition of an entity");
             xml_reader_message(h, &eold->declared, XMLERR_NOTE,
                     "This is the location of the previous definition");
@@ -4107,7 +4107,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
 
 compatible:
             // Save location, so that redefinitions of this entity trigger a warning
-            eold->declared = cbp.loc;
+            eold->declared = h->prodloc;
         }
         if (e) {
             e->rplclen = h->ucs4len * sizeof(ucs4_t);
@@ -4187,7 +4187,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
         goto malformed;
     }
     if (xml_read_Name(h) != PR_OK) {
-        xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_NotationDecl),
                 "Expect notation name here");
         goto malformed;
     }
@@ -4200,7 +4200,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
     n = xml_notation_new(h);
 
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
-        xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_NotationDecl),
                 "Expect whitespace here");
         goto malformed;
     }
