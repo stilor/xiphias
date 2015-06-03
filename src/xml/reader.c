@@ -41,8 +41,7 @@ enum {
     R_AMBIGUOUS_PERCENT = 0x0100,       ///< '%' may either start PE reference or have literal meaning
     R_NO_TOKEN_RESET    = 0x0200,       ///< Do not clear the token when starting the read
     R_NO_CHAR_CHECK     = 0x0400,       ///< When re-reading XMLDecl, disable checking restricted chars
-    R_NO_BREAK_LOCK     = 0x0800,       ///< Do not break locks on input
-    R_STOP              = 0x1000,       ///< Callback requested stop
+    R_STOP              = 0x0800,       ///< Callback requested stop
 };
 
 /// Notation information
@@ -177,6 +176,7 @@ typedef struct xml_reader_input_s {
 
     // Other fields
     uint32_t locked;                ///< Number of productions 'locking' this input
+    uint32_t saved_nestlvl;         ///< Element nesting level before this input
     bool inc_in_literal;            ///< 'included in literal' - special handling of quotes
     bool ignore_references;         ///< Ignore reference expansion in this input
     bool charref;                   ///< Input originated from a character reference
@@ -228,14 +228,17 @@ typedef struct xml_reader_context_s {
     /// Lookahead patterns
     const xml_reader_pattern_t lookahead[MAX_LA_PAIRS];
 
+    /// Recovery function for this context
+    prodres_t (*on_fail)(xml_reader_t *h);
+
+    /// End of input handler for this context
+    prodres_t (*on_end)(xml_reader_t *h);
+
     /// Expected XMLDecl/TextDecl declaration
     const struct xml_reader_xmldecl_declinfo_s *declinfo;
 
     /// What is allowed in EntityValue
     const struct xml_reference_ops_s *entity_value_parser;
-
-    /// Status returned if EOF is encountered in this context
-    prodres_t eof_status;
 
     xmlerr_info_t errcode;          ///< Error code when breaking the lock in this context
     const char *errmsg;             ///< Error message when breaking the lock in this context
@@ -311,7 +314,6 @@ struct xml_reader_s {
     nfc_t *norm_include;            ///< Normalization check handle for include normalization
 
     uint32_t nestlvl;               ///< Element nesting level
-    uint32_t brokenlocks;           ///< Number of locked inputs forcibly unlocked
     bool ws;                        ///< In some contexts, we need to know whether we saw whitespace
 
     utf8_t *tokenbuf_start;         ///< Start of the allocated token buffer
@@ -662,6 +664,7 @@ xml_reader_input_new(xml_reader_t *h, const char *location)
 
     memset(inp, 0, sizeof(xml_reader_input_t));
     inp->buf = buf;
+    inp->saved_nestlvl = h->nestlvl;
     if (location) {
         inp->curloc.src = location;
         inp->curloc.line = 1;
@@ -789,17 +792,12 @@ xml_reader_input_lock(xml_reader_t *h)
     Unlock a previously locked input.
 
     @param h Reader handle
-    @return true if unlocked successfully, false if current input is not locked
+    @return Nothing
 */
-static bool __warn_unused_result
+static void
 xml_reader_input_unlock(xml_reader_t *h)
 {
     xml_reader_input_t *inp;
-
-    if (h->brokenlocks) {
-        h->brokenlocks--;
-        return true; // Already complained
-    }
 
     /*
         Productions lock/unlock inputs in a stack-like fashion. Normally, we
@@ -812,34 +810,25 @@ xml_reader_input_unlock(xml_reader_t *h)
     if (inp->locked) {
         // Normal case
         inp->locked--;
-        return true;
     }
-
-    // Error case: find the first one to unlock.
-    STAILQ_FOREACH(inp, &h->active_input, link) {
-        if (inp->locked) {
-            inp->locked--;
-            break;
-        }
-    }
-    return false;
 }
 
 /**
-    Unlock input where we don't expect a failure regardless how malformed
-    the input is (i.e., when the production being parsed does not parse
-    any references).
+    Break lock on the current locked input.
 
     @param h Reader handle
-    @return Nothing
+    @return Input that was previously locked, or NULL if current input was not locked
 */
-static void
-xml_reader_input_unlock_assert(xml_reader_t *h)
+static xml_reader_input_t *
+xml_reader_input_break_lock(xml_reader_t *h)
 {
-    bool rv;
+    xml_reader_input_t *inp;
 
-    rv = xml_reader_input_unlock(h);
-    OOPS_ASSERT(rv);
+    if ((inp = STAILQ_FIRST(&h->active_input)) != NULL && inp->locked) {
+        inp->locked = 0;
+        return inp;
+    }
+    return NULL;
 }
 
 /**
@@ -877,7 +866,6 @@ xml_lookahead(xml_reader_t *h)
     ucs4_t *ptr = tmp;
     utf8_t *bufptr = h->tokenbuf_start + h->tokenbuf_used;
     size_t i, nread;
-    const void *begin, *end;
 
     // Ensure there's enough space
     while (h->tokenbuf_size < h->tokenbuf_used + MAX_LOOKAHEAD_SIZE) {
@@ -885,52 +873,13 @@ xml_lookahead(xml_reader_t *h)
     }
 
     xml_reader_input_complete_notify(h);
-    while (true) {
-        if ((inp = STAILQ_FIRST(&h->active_input)) == NULL) {
-            h->tokenbuf_len = 0;
-            return false;
-        }
-        nread = strbuf_lookahead(inp->buf, ptr, MAX_LOOKAHEAD_SIZE * sizeof(ucs4_t));
-        if (nread) {
-            break;
-        }
-        if (inp->locked) {
-            // We wanted more input to end an open production, but there's none.
-            // Break the lock (noting the number of the locks thus broken, to
-            // avoid complaining about them twice), issue an error message and retry.
-
-            /// @todo Consider lock tokens with callback functions with more
-            /// specific error info (i.e., which exact production locked the
-            /// input and most importantly where)
-            if (inp->entity &&
-                    (inp->entity->type == XML_READER_REF_PE_INTERNAL
-                     || inp->entity->type == XML_READER_REF_PE_EXTERNAL)) {
-                // Parameter entities in DTD are not expected to match any given
-                // production ("are well-formed by definition"). Instead, there are
-                // certain requirements on proper nesting of parameter entities.
-                xml_reader_message_current(h,
-                        XMLERR(ERROR, XML, VC_PROPER_DECL_PE_NESTING),
-                        "Fails to parse: parameter entities not properly nested");
-            }
-            else {
-                // TBD is it possible to not break locks here (i.e. as part of the lookahead)
-                // but rather have them broken explicitly in the last, catchall, lookahead
-                // token parser? In that case, it should be possible to drop errmsg/errcode
-                // from h->ctx
-                xml_reader_message_current(h, h->ctx->errcode, "%s", h->ctx->errmsg);
-            }
-
-            // If the lock is "unbreakable" (used when parsing XMLDecl/TextDecl so
-            // that we don't break the lock and possibly read the declaration from including
-            // entity), keep the input and signal EOF.
-            if (h->flags & R_NO_BREAK_LOCK) {
-                h->tokenbuf_len = 0;
-                return false;
-            }
-            h->brokenlocks += inp->locked;
-            inp->locked = 0;
-        }
-        (void)xml_reader_input_rptr(h, &begin, &end); // Just drop empty inputs
+    if ((inp = STAILQ_FIRST(&h->active_input)) == NULL) {
+        h->tokenbuf_len = 0;
+        return false;
+    }
+    if ((nread = strbuf_lookahead(inp->buf, ptr, MAX_LOOKAHEAD_SIZE * sizeof(ucs4_t))) == 0) {
+        h->tokenbuf_len = 0;
+        return false;
     }
     OOPS_ASSERT((nread & 3) == 0); // input buf must have an integral number of characters
     nread /= 4;
@@ -1683,7 +1632,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
     ucs4_t cp, cp0;
     size_t clen;
     utf8_t *bufptr;
-    xru_t rv = XRU_CONTINUE;
+    xru_t rv;
     bool norm_warned;
 
     xml_reader_input_complete_notify(h); // Process any outstanding notifications
@@ -1956,26 +1905,14 @@ xml_read_recover(xml_reader_t *h, const char *stopchars, bool stopafter)
 {
     xml_cb_recover_state_t st;
 
-    if (stopchars) {
-        st.stopchars = stopchars;
-        st.stopafter = stopafter;
-        st.firstchar = true;
-        if (xml_read_until(h, xml_cb_recover, &st) == XRU_STOP) {
-            // Found the stop character
-            return PR_OK;
-        }
+    st.stopchars = stopchars;
+    st.stopafter = stopafter;
+    st.firstchar = true;
+    if (xml_read_until(h, xml_cb_recover, &st) == XRU_STOP) {
+        // Found the stop character
+        return PR_OK;
     }
-
-    // Parsed till the end of the most recently locked input, stop char not seen
-    // TBD break the lock here?
-    // TBD call this function upon PR_FAIL return from the parser?
-    // TBD call context-specific callback to complain
-    // TBD for now, just signal completion of everything
-    xml_reader_input_t *inp;
-    while ((inp = STAILQ_FIRST(&h->active_input)) != NULL) {
-        xml_reader_input_complete(h, inp);
-    }
-    return PR_STOP;
+    return PR_FAIL;
 }
 
 /**
@@ -2085,7 +2022,8 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
     xml_cb_string_state_t st;
     xmlerr_loc_t startloc;
 
-    startloc = STAILQ_FIRST(&h->active_input)->curloc;
+    // TBD: return curloc to xml_reader_t to avoid these checks...
+    startloc = STAILQ_EMPTY(&h->active_input) ? h->prodloc : STAILQ_FIRST(&h->active_input)->curloc;
     st.cur = s;
     st.end = s + strlen(s);
     if (xml_read_until(h, xml_cb_string, &st) != XRU_STOP || st.cur != st.end) {
@@ -2394,7 +2332,7 @@ read_content:
         goto malformed;
     }
     h->flags &= ~R_NO_INC_NORM;
-    xml_reader_input_unlock_assert(h);
+    xml_reader_input_unlock(h);
     return PR_OK;
 
 literal_percent:
@@ -2402,7 +2340,7 @@ literal_percent:
     // an input with percent sign; mark it as reference-ignoring so that
     // we don't try to interpret this as a PE reference again
     h->flags &= ~R_NO_INC_NORM;
-    xml_reader_input_unlock_assert(h);
+    xml_reader_input_unlock(h);
     inp = xml_reader_input_new(h, "literal percent sign");
     strbuf_set_input(inp->buf, rplc_percent, sizeof(rplc_percent));
     inp->ignore_references = true;
@@ -2413,7 +2351,7 @@ malformed:
     ri = xml_entity_type_info(*reftype);
     xml_reader_message_ref(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
             "Malformed %s reference", ri->desc);
-    xml_reader_input_unlock_assert(h);
+    xml_reader_input_unlock(h);
     return PR_FAIL;
 }
 
@@ -3107,11 +3045,11 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
                     "Unterminated literal");
             // Quote character loses its meaning if entity is included
             // in literal
-            xml_reader_input_unlock_assert(h);
+            xml_reader_input_unlock(h);
         }
         return PR_FAIL;
     }
-    xml_reader_input_unlock_assert(h);
+    xml_reader_input_unlock(h);
     return PR_OK;
 }
 
@@ -3420,7 +3358,7 @@ xml_parse_decl_attr(xml_reader_t *h)
     return PR_OK;
 
 malformed:
-    xml_reader_input_unlock_assert(h);
+    xml_reader_input_unlock(h);
     return PR_FAIL;
 }
 
@@ -3458,7 +3396,7 @@ xml_parse_decl_end(xml_reader_t *h)
     cbp.xmldecl.version = h->current_external->version;
     cbp.xmldecl.standalone = h->standalone;
     xml_reader_callback_invoke(h, &cbp);
-    xml_reader_input_unlock_assert(h);
+    xml_reader_input_unlock(h);
     h->declattr = NULL;
     return PR_STOP;
 }
@@ -3592,7 +3530,7 @@ xml_parse_Comment(xml_reader_t *h)
         // no need to recover (EOF)
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_Comment),
                 "Unterminated comment");
-        xml_reader_input_unlock_assert(h);
+        xml_reader_input_unlock(h);
         return PR_STOP;
     }
     xml_tokenbuf_save(h, &h->svtk.value);
@@ -3601,7 +3539,7 @@ xml_parse_Comment(xml_reader_t *h)
     xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.comment.text);
     xml_reader_callback_invoke(h, &cbp);
 
-    xml_reader_input_unlock_assert(h);
+    xml_reader_input_unlock(h);
     return PR_OK;
 }
 
@@ -3642,7 +3580,7 @@ xml_parse_PI(xml_reader_t *h)
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                 "Expected PI target here");
-        xml_reader_input_unlock_assert(h);
+        xml_reader_input_unlock(h);
         return xml_read_recover(h, ">", true);
     }
     xml_tokenbuf_save(h, &h->svtk.name);
@@ -3658,13 +3596,13 @@ xml_parse_PI(xml_reader_t *h)
             // no need to recover (EOF)
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                     "Unterminated processing instruction");
-            xml_reader_input_unlock_assert(h);
+            xml_reader_input_unlock(h);
             return PR_STOP;
         }
     }
     else if (xml_read_string(h, "?>", XMLERR(ERROR, XML, P_PI)) != PR_OK) {
         // Recover by skipping until closing angle bracket
-        xml_reader_input_unlock_assert(h);
+        xml_reader_input_unlock(h);
         return xml_read_recover(h, ">", true);
     }
 
@@ -3682,7 +3620,7 @@ xml_parse_PI(xml_reader_t *h)
 
     // We could only have closing ?> if there's no whitespace after PI target.
     // There is no content in this case.
-    xml_reader_input_unlock_assert(h);
+    xml_reader_input_unlock(h);
     return PR_OK;
 }
 
@@ -3770,7 +3708,7 @@ xml_parse_CDSect(xml_reader_t *h)
         /// @todo Test unterminated comments/PIs/CDATA in entities - is PR_STOP proper here?
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_CDSect),
                 "Unterminated CDATA section");
-        xml_reader_input_unlock_assert(h);
+        xml_reader_input_unlock(h);
         h->flags &= ~R_NO_INC_NORM; // Set in callback when parsing closing markup
         h->relevant = NULL;
         return PR_STOP;
@@ -3784,7 +3722,7 @@ xml_parse_CDSect(xml_reader_t *h)
     cbp.text.ws = false;
     xml_reader_callback_invoke(h, &cbp);
 
-    xml_reader_input_unlock_assert(h);
+    xml_reader_input_unlock(h);
     return PR_OK;
 }
 
@@ -4280,12 +4218,6 @@ xml_parse_whitespace_peref_or_recover(xml_reader_t *h)
     xml_reader_message_current(h, XMLERR(ERROR, XML, P_DeclSep),
             "Invalid content in DTD");
 
-    // Recover by skipping to the next angle bracket. If we are already at the
-    // angle bracket, then skip to the next one (we didn't recognize the production
-    // starting with that angle bracket)
-    if (ucs4_cheq(h->rejected, '<')) {
-        xml_read_recover(h, ">", true);
-    }
     return xml_read_recover(h, "]<", false);
 }
 
@@ -4434,19 +4366,19 @@ xml_parse_doctypedecl(xml_reader_t *h)
     if (xml_parse_whitespace(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_doctypedecl),
                 "Expect whitespace here");
-        return xml_read_recover(h, NULL, false); // TBD not an actual recovery - rework?
+        return PR_FAIL;
     }
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_doctypedecl),
                 "Expect root element type here");
-        return xml_read_recover(h, NULL, false); // TBD not an actual recovery - rework?
+        return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.name);
 
     if (xml_parse_whitespace(h) == PR_OK) {
         rv = xml_parse_ExternalID(h, false);
         if (rv == PR_FAIL) {
-            return xml_read_recover(h, NULL, false); // TBD not an actual recovery - rework?
+            return PR_FAIL;
         }
         else if (rv == PR_OK) {
             xml_tokenbuf_set_loader_info(h, &h->dtd_loader_info);
@@ -4524,13 +4456,12 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     // attribute-parsing context
     h->ws = xml_parse_whitespace(h) == PR_OK;
     h->ctx = &parser_attributes;
-    h->nestlvl++; // Opened element
     return PR_OK;
 
 malformed:
     // Try to recover by reading till end of opening tag. Do not lock the input
     // (as we don't know how broken the markup was).
-    xml_reader_input_unlock_assert(h);
+    xml_reader_input_unlock(h);
     return xml_read_recover(h, ">", true);
 }
 
@@ -4555,26 +4486,26 @@ xml_parse_attribute(xml_reader_t *h)
         // Try to recover by reading till end of opening tag
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
                 "Expect whitespace, or >, or /> here");
-        goto malformed;
+        return PR_FAIL;
     }
 
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
                 "Expect attribute name here");
-        goto malformed;
+        return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.name);
 
     (void)xml_parse_whitespace(h);
     if (xml_read_string(h, "=", XMLERR(ERROR, XML, P_Attribute)) != PR_OK) {
         // Already complained
-        goto malformed;
+        return PR_FAIL;
     }
     (void)xml_parse_whitespace(h);
 
     if (xml_parse_literal(h, &reference_ops_AttValue) != PR_OK) {
         // Already complained
-        goto malformed;
+        return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.value);
 
@@ -4586,36 +4517,6 @@ xml_parse_attribute(xml_reader_t *h)
     // Prepare for the next parser
     h->ws = xml_parse_whitespace(h) == PR_OK;
     return PR_OK;
-
-malformed:
-    // Error message printed above
-    return xml_read_recover(h, ">/", false);
-}
-
-/**
-    Handle closing of an element, either explicit (via ETag production)
-    or implicit (via EmptyElemTag).
-
-    @param h Reader handle
-    @return Nothing
-*/
-static void
-xml_handle_closing_tag(xml_reader_t *h)
-{
-    if (!xml_reader_input_unlock(h)) {
-        // Error, no recovery needed
-        xml_reader_message_lastread(h, h->ctx->errcode, "%s", h->ctx->errmsg);
-    }
-
-    // Do not decrement nest level if already at the root level. Otherwise,
-    // check if this closure puts us at the root level or inside the content.
-    if (!h->nestlvl || --h->nestlvl == 0) {
-        // Returned to top level
-        h->ctx = &parser_document_entity;
-    }
-    else {
-        h->ctx = &parser_content;
-    }
 }
 
 /**
@@ -4634,7 +4535,7 @@ xml_parse_closing_STag(xml_reader_t *h)
     // Just read the mark-up and restore the context. Since we just opened
     // a tag, nest level is non-zero - so we're in the content context.
     xml_read_string_assert(h, ">");
-    OOPS_ASSERT(h->nestlvl);
+    h->nestlvl++; // Opened element
     h->ctx = &parser_content;
     return PR_OK;
 }
@@ -4658,7 +4559,8 @@ xml_parse_closing_EmptyElemTag(xml_reader_t *h)
     xml_read_string_assert(h, "/>");
     xml_reader_callback_init(h, XML_READER_CB_ETAG, &cbp);
     xml_reader_callback_invoke(h, &cbp);
-    xml_handle_closing_tag(h);
+    xml_reader_input_unlock(h);
+    h->ctx = h->nestlvl ? &parser_content : &parser_document_entity;
     return PR_OK;
 }
 
@@ -4678,6 +4580,7 @@ static prodres_t
 xml_parse_ETag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
+    xml_reader_input_t *inp;
 
     xml_read_string_assert(h, "</");
     // Locked by STag
@@ -4686,20 +4589,32 @@ xml_parse_ETag(xml_reader_t *h)
         // Does not look like a closing tag, so do not unlock the input.
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_ETag),
                 "Expected element type");
-        return xml_read_recover(h, ">", true);
+        return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.name);
 
     (void)xml_parse_whitespace(h); // optional whitespace
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_ETag)) != PR_OK) {
         // Not well-formed; do not consider this a closing tag (and skip unlocking)
-        return xml_read_recover(h, ">", true);
+        return PR_FAIL;
     }
 
     xml_reader_callback_init(h, XML_READER_CB_ETAG, &cbp);
     xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.tag.name);
     xml_reader_callback_invoke(h, &cbp);
-    xml_handle_closing_tag(h);
+    xml_reader_input_unlock(h);
+    inp = STAILQ_FIRST(&h->active_input);
+    OOPS_ASSERT(inp);
+    if (h->nestlvl != inp->saved_nestlvl) {
+        // Do not decrement nest level if already at the same level as before
+        // the current input
+        h->nestlvl--;
+    }
+    else {
+        xml_reader_message_lastread(h, h->ctx->errcode, "%s", h->ctx->errmsg);
+    }
+
+    h->ctx = h->nestlvl ? &parser_content : &parser_document_entity;
     return PR_OK;
 }
 
@@ -4724,6 +4639,209 @@ xml_parse_whitespace_or_recover(xml_reader_t *h)
     xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
             "Invalid content at root level");
     return xml_read_recover(h, "<", false);
+}
+
+
+// TBD For now, generic handler copied from previous xml_lookahead code; will
+// be replaced in each context with appropriate handling of EOF (i.e., attribute
+// parser may need to revert back to the general content/document context).
+static prodres_t
+TBD_on_end(xml_reader_t *h)
+{
+    xml_reader_input_t *inp;
+
+    // TBD change break_lock to return void once this function is gone
+    if ((inp = xml_reader_input_break_lock(h)) != NULL) {
+        // We wanted more input to end an open production, but there's none.
+        // Break the lock (noting the number of the locks thus broken, to
+        // avoid complaining about them twice), issue an error message and retry.
+
+        /// @todo Consider lock tokens with callback functions with more
+        /// specific error info (i.e., which exact production locked the
+        /// input and most importantly where)
+        if (inp->entity &&
+                (inp->entity->type == XML_READER_REF_PE_INTERNAL
+                 || inp->entity->type == XML_READER_REF_PE_EXTERNAL)) {
+            // Parameter entities in DTD are not expected to match any given
+            // production ("are well-formed by definition"). Instead, there are
+            // certain requirements on proper nesting of parameter entities.
+            xml_reader_message_current(h,
+                    XMLERR(ERROR, XML, VC_PROPER_DECL_PE_NESTING),
+                    "Fails to parse: parameter entities not properly nested");
+        }
+        else {
+            xml_reader_message_current(h, h->ctx->errcode, "%s", h->ctx->errmsg);
+        }
+
+    }
+    // Restore element nesting level; complained above
+    // TBD need to reset context according to nest level before error message
+    // so that document entity correctly refers to 'document' rather than 'content'
+    inp = STAILQ_FIRST(&h->active_input);
+    h->nestlvl = inp ? inp->saved_nestlvl : 0;
+    return PR_OK; // Continue parsing the remaining inputs
+}
+
+/// TBD For context that do not have recovery yet, just return PR_FAIL again
+static prodres_t
+TBD_on_fail(xml_reader_t *h)
+{
+    return PR_FAIL;
+}
+
+/**
+    Handler for contexts where EOF is acceptable (i.e. document entity or XMLDecl/TextDecl
+    before the declaration start has been read).
+
+    @param h Reader handle
+    @return Always PR_STOP
+*/
+static prodres_t
+on_end_stop(xml_reader_t *h)
+{
+    return PR_STOP;
+}
+
+/**
+    Handler for EOF while reading the XMLDecl/TextDecl. This is immediate failure,
+    as we don't want to end up reading the declaration, in whole or in part, from the
+    including entity.
+
+    @param h Reader handle
+    @return Always PR_FAIL
+*/
+static prodres_t
+on_end_fail(xml_reader_t *h)
+{
+    xml_reader_message_current(h, h->ctx->errcode, "%s", h->ctx->errmsg);
+    return PR_FAIL;
+}
+
+/**
+    Handler for EOF in the internal subset.
+
+    @param h Reader handle
+    @param PR_FAIL (internal subset is part of document entity - EOF means
+        end of parsing)
+*/
+static prodres_t
+on_end_dtd_internal(xml_reader_t *h)
+{
+    xml_reader_message_current(h, XMLERR(ERROR, XML, P_intSubset),
+            "Missing closing ] for internal subset");
+    return PR_FAIL;
+}
+
+/**
+    Handler for EOF while parsing tags.
+
+    @param h Reader handle
+    @return PR_OK
+*/
+static prodres_t
+on_end_tag(xml_reader_t *h)
+{
+    xml_reader_input_t *inp;
+    uint32_t expected_nestlvl;
+
+    // Should've switched back to content/document due to closing markup
+    inp = STAILQ_FIRST(&h->active_input);
+    expected_nestlvl = inp ? inp->saved_nestlvl : 0;
+    h->ctx = expected_nestlvl ? &parser_content : &parser_document_entity;
+    if (h->nestlvl != expected_nestlvl) {
+        // TBD reword the message, e.g. 'Unbalanced start/end tags'
+        xml_reader_message_current(h, h->ctx->errcode, "%s", h->ctx->errmsg);
+        xml_reader_input_break_lock(h);
+        h->nestlvl = expected_nestlvl;
+    }
+    return PR_OK;
+}
+
+/**
+    Handler for EOF while reading attributes in STag/EmptyElemTag production.
+    Return to content/document parser and forcibly break locks on a locked
+    input.
+
+    @param h Reader handle
+    @return PR_OK (recovers to content/document parser)
+*/
+static prodres_t
+on_end_attr(xml_reader_t *h)
+{
+    // Should've switched back to content/document due to closing markup
+    xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
+            "Expect %s, or >, or /> here",
+            h->ws ? "attribute name" : "whitespace");
+
+    // Revert to document/content parsing. Assume it was STag (because it's easier
+    // and in absence of closing markup, we don't know for sure anyway.
+    h->ctx = h->nestlvl ? &parser_content : &parser_document_entity;
+    xml_reader_input_break_lock(h);
+    return PR_OK; // Parse the remainder
+}
+
+/**
+    Failure while parsing a declaration in the internal subset.
+
+    @param h Reader handle
+    @return Always PR_FAIL
+*/
+static prodres_t
+on_fail_dtd_internal(xml_reader_t *h)
+{
+    return TBD_on_fail(h);
+}
+
+/**
+    Recovery function if parsing an attribute fails.
+
+    @param h Reader handle
+    @return PR_OK if recovery succeeded
+*/
+static prodres_t
+on_fail_tag(xml_reader_t *h)
+{
+    // Recovery: stop after closing bracket or before the opening one. Ok if
+    // the closing bracket followed right away - xml_read_recover() will skip it
+    // so check this condition first
+    if (xml_read_string(h, ">", XMLERR_NOERROR) == PR_OK) {
+        // Do nothing; this was the recovery
+    }
+    else if (xml_read_recover(h, "><", false) == PR_OK) {
+        if (ucs4_cheq(h->rejected, '>')) {
+            (void)xml_read_string(h, ">", XMLERR_NOERROR);
+        }
+    }
+
+    // Consider this a successful recovery: if xml_read_recover did not
+    // find a bracket (i.e. hit the end of input), we'll check the end-of-input
+    // next.
+    return PR_OK;
+}
+
+/**
+    Recovery function if parsing an attribute fails.
+
+    @param h Reader handle
+    @return PR_OK if recovery succeeded
+*/
+static prodres_t
+on_fail_attr(xml_reader_t *h)
+{
+    xml_reader_input_t *inp;
+
+    if (xml_read_recover(h, ">/", false) == PR_OK) {
+        return PR_OK; // Found what appears to be the end of STag/EmptyElemTag
+    }
+
+    // Failed and cannot advance while recovering. Switch back to content/document
+    // context, without error (already complained when the failure was detected).
+    // Since we cannot advance, it is because the input was locked by start of the
+    // tag - so unlock it.
+    inp = xml_reader_input_break_lock(h);
+    OOPS_ASSERT(inp);
+    h->ctx = h->nestlvl ? &parser_content : &parser_document_entity;
+    return PR_OK;
 }
 
 /**
@@ -4757,10 +4875,11 @@ static const xml_reader_context_t parser_internal_subset = {
         LOOKAHEAD("]", xml_end_internal_subset),
         LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
     },
+    .on_fail = on_fail_dtd_internal,
+    .on_end = on_end_dtd_internal,
     .declinfo = NULL,                   // Not used for reading any external entity
     .reftype = XML_READER_REF_NONE,     // Not an external entity
     .entity_value_parser = &reference_ops_EntityValue_internal,
-    .eof_status = PR_FAIL,              // Non-terminal context, must close explicitly
     .errcode = XMLERR(ERROR, XML, P_intSubset),
     .errmsg = "Missing closing ] for internal subset",
 };
@@ -4801,10 +4920,11 @@ static const xml_reader_context_t parser_external_subset = {
         LOOKAHEAD("<!--", xml_parse_Comment),
         LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
     },
+    .on_fail = TBD_on_fail,
+    .on_end = TBD_on_end,
     .declinfo = &declinfo_textdecl,
     .reftype = XML_READER_REF_EXT_SUBSET, // If not parameter entity, this is external DTD
     .entity_value_parser = &reference_ops_EntityValue_external,
-    .eof_status = PR_FAIL,              // Non-terminal context, must return to other entity
 };
 
 /**
@@ -4841,9 +4961,10 @@ static const xml_reader_context_t parser_content = {
         LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
         LOOKAHEAD("", xml_parse_CharData),
     },
+    .on_fail = on_fail_tag,
+    .on_end = on_end_tag,
     .declinfo = &declinfo_textdecl,
     .reftype = XML_READER_REF_NONE, // Can only be loaded via entity
-    .eof_status = PR_FAIL,              // Non-terminal context, must return to other entity
     .errcode = XMLERR(ERROR, XML, P_content),
     .errmsg = "Replacement text for an entity must match 'content' production",
 };
@@ -4876,9 +4997,10 @@ static const xml_reader_context_t parser_document_entity = {
         LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
         LOOKAHEAD("", xml_parse_whitespace_or_recover),
     },
+    .on_fail = on_fail_tag,
+    .on_end = on_end_tag,
     .declinfo = &declinfo_xmldecl,
     .reftype = XML_READER_REF_DOCUMENT, // Document entity
-    .eof_status = PR_STOP,              // Terminal context, may exit successfully
     .errcode = XMLERR(ERROR, XML, P_document),
     .errmsg = "Document entity must match 'document' production",
 };
@@ -4901,8 +5023,9 @@ static const xml_reader_context_t parser_attributes = {
         LOOKAHEAD(">", xml_parse_closing_STag),
         LOOKAHEAD("", xml_parse_attribute),
     },
+    .on_fail = on_fail_attr,
+    .on_end = on_end_attr,
     .reftype = XML_READER_REF_NONE, // not an external entity
-    .eof_status = PR_FAIL,          // must exit via closing markup
     // TBD change errcode/errmsg to a callback function so that it can distinguish
     // whether whitespace or attribute name was expected. Rename to on_lock_break
     // (since it would not be usable on any other error)
@@ -4923,8 +5046,9 @@ static const xml_reader_context_t parser_decl = {
         LOOKAHEAD("<?xml", xml_parse_decl_start),
         LOOKAHEAD("", xml_parse_nomatch),
     },
+    .on_fail = TBD_on_fail,
+    .on_end = on_end_stop,
     .reftype = XML_READER_REF_NONE, // not an external entity
-    .eof_status = PR_NOMATCH,       // only in case of empty XML
 };
 
 /**
@@ -4940,8 +5064,9 @@ static const xml_reader_context_t parser_decl_attributes = {
         LOOKAHEAD("?>", xml_parse_decl_end),
         LOOKAHEAD("", xml_parse_decl_attr),
     },
+    .on_fail = TBD_on_fail,
+    .on_end = on_end_fail,
     .reftype = XML_READER_REF_NONE, // not an external entity
-    .eof_status = PR_FAIL,          // must exit via closing markup
     .errcode = XMLERR(ERROR, XML, P_XMLDecl),
     .errmsg = "Expect pseudo-attribute or ?> here",
 };
@@ -4955,6 +5080,7 @@ static const xml_reader_context_t parser_decl_attributes = {
 static prodres_t
 xml_reader_process(xml_reader_t *h)
 {
+    const void *begin, *end;
     const xml_reader_pattern_t *pat;
     size_t tokenbuf_reserved;
     prodres_t rv;
@@ -4968,7 +5094,11 @@ xml_reader_process(xml_reader_t *h)
         h->tokenbuf_used = tokenbuf_reserved; // preserve content below saved threshold
 
         if (!xml_lookahead(h)) {
-            rv = h->ctx->eof_status;
+            // Handle end-of-input and collect any completed inputs
+            rv = h->ctx->on_end(h);
+            if (xml_reader_input_rptr(h, &begin, &end) == XRU_EOF) {
+                break;
+            }
         }
         else {
             // Look for matching production in this context.
@@ -4984,6 +5114,10 @@ xml_reader_process(xml_reader_t *h)
                     rv = pat->func(h);
                     break;
                 }
+            }
+            if (rv == PR_FAIL) {
+                // Attempt to recover
+                rv = h->ctx->on_fail(h);
             }
         }
     } while (rv == PR_OK && (h->flags & R_STOP) == 0);
@@ -5211,7 +5345,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // go back to the including input.
     OOPS_ASSERT(h->ctx->declinfo); // External entity context must have it
     h->declinfo = h->ctx->declinfo;
-    h->flags |= R_ASCII_ONLY | R_NO_BREAK_LOCK; // TBD is XML decl locked? verify
+    h->flags |= R_ASCII_ONLY;
 
     // We're interrupting normal processing; save & restore the relevant parts
     saved_ctx = h->ctx;
@@ -5226,7 +5360,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     h->svtk = saved_svtk;
     h->prodloc = saved_prodloc;
 
-    h->flags &= ~(R_ASCII_ONLY | R_NO_BREAK_LOCK);
+    h->flags &= ~R_ASCII_ONLY;
     h->declinfo = NULL;
 
     if (decl_rv == PR_FAIL) {
