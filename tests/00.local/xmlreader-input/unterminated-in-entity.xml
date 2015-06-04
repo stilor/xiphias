@@ -1,0 +1,5 @@
+<!DOCTYPE a [
+<!ENTITY x "<!-- unterminated comment">
+<!ENTITY y "<?unterminated pi?">
+]>
+<x>&x;&y;</x>

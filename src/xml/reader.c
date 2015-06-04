@@ -872,7 +872,6 @@ xml_lookahead(xml_reader_t *h)
         xml_tokenbuf_realloc(h);
     }
 
-    xml_reader_input_complete_notify(h);
     if ((inp = STAILQ_FIRST(&h->active_input)) == NULL) {
         h->tokenbuf_len = 0;
         return false;
@@ -1859,8 +1858,6 @@ xml_parse_whitespace(xml_reader_t *h)
 /// Recovery state
 typedef struct {
     const char *stopchars;  ///< Stop characters
-    bool stopafter;         ///< Stop after seeing a stop character, if true
-    bool firstchar;         ///< First character in recovery sequence
 } xml_cb_recover_state_t;
 
 /**
@@ -1877,42 +1874,32 @@ xml_cb_recover(void *arg, ucs4_t cp)
     xml_cb_recover_state_t *st = arg;
     const char *p;
 
-    if (st->firstchar && !st->stopafter) {
-        st->firstchar = false; // Skip first char, or the recovery may never advance
-    }
-    else {
-        for (p = st->stopchars; *p; p++) {
-            if (ucs4_cheq(cp, *p)) {
-                return st->stopafter ? (UCS4_NOCHAR | UCS4_LASTCHAR) : UCS4_STOPCHAR;
-            }
+    for (p = st->stopchars; *p; p++) {
+        if (ucs4_cheq(cp, *p)) {
+            return UCS4_STOPCHAR;
         }
     }
     return UCS4_NOCHAR;
 }
 
 /**
-    Recovery function: read until (and including) the next stop character.
-    Ignore the first character (or the recovery may never advance).
+    Recovery function: read until the next stop character.
 
     @param h Reader handle
-    @param stopchars Markup characters that will stop this function; NULL if no reading
-        to be performed, just complete all inputs
-    @param stopafter If true, stop after the stop 
-    @return Always PR_OK (either finds the stop character or reaches EOF)
+    @param stopchars Markup characters that will stop this function; not consumed.
+    @return Always PR_OK if reached one of the stop characters, PR_NOMATCH otherwise
 */
 static prodres_t
-xml_read_recover(xml_reader_t *h, const char *stopchars, bool stopafter)
+xml_read_recover(xml_reader_t *h, const char *stopchars)
 {
     xml_cb_recover_state_t st;
 
     st.stopchars = stopchars;
-    st.stopafter = stopafter;
-    st.firstchar = true;
     if (xml_read_until(h, xml_cb_recover, &st) == XRU_STOP) {
         // Found the stop character
         return PR_OK;
     }
-    return PR_FAIL;
+    return PR_NOMATCH;
 }
 
 /**
@@ -3531,7 +3518,7 @@ xml_parse_Comment(xml_reader_t *h)
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_Comment),
                 "Unterminated comment");
         xml_reader_input_unlock(h);
-        return PR_STOP;
+        return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.value);
 
@@ -3581,7 +3568,7 @@ xml_parse_PI(xml_reader_t *h)
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                 "Expected PI target here");
         xml_reader_input_unlock(h);
-        return xml_read_recover(h, ">", true);
+        return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.name);
     /// @todo Check for XML-reserved names ([Xx][Mm][Ll]*)
@@ -3593,17 +3580,16 @@ xml_parse_PI(xml_reader_t *h)
             xml_tokenbuf_save(h, &h->svtk.value);
         }
         else {
-            // no need to recover (EOF)
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                     "Unterminated processing instruction");
             xml_reader_input_unlock(h);
-            return PR_STOP;
+            return PR_FAIL;
         }
     }
     else if (xml_read_string(h, "?>", XMLERR(ERROR, XML, P_PI)) != PR_OK) {
         // Recover by skipping until closing angle bracket
         xml_reader_input_unlock(h);
-        return xml_read_recover(h, ">", true);
+        return PR_FAIL;
     }
 
     xml_reader_callback_init(h, XML_READER_CB_PI, &cbp);
@@ -3704,8 +3690,6 @@ xml_parse_CDSect(xml_reader_t *h)
     // Starting CData - which is relevant construct
     h->relevant = "CData";
     if (xml_read_termstring(h, &termstring_cdata, cb_matchpos_cdata, h) != PR_OK) {
-        // no need to recover (EOF)
-        /// @todo Test unterminated comments/PIs/CDATA in entities - is PR_STOP proper here?
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_CDSect),
                 "Unterminated CDATA section");
         xml_reader_input_unlock(h);
@@ -3815,7 +3799,8 @@ static prodres_t
 xml_parse_elementdecl(xml_reader_t *h)
 {
     /// @todo Implement
-    xml_read_recover(h, ">", true);
+    xml_read_recover(h, ">");
+    xml_read_string(h, ">", XMLERR_NOERROR);
     return PR_OK;
 }
 
@@ -3842,7 +3827,8 @@ static prodres_t
 xml_parse_AttlistDecl(xml_reader_t *h)
 {
     /// @todo Implement
-    xml_read_recover(h, ">", true);
+    xml_read_recover(h, ">");
+    xml_read_string(h, ">", XMLERR_NOERROR);
     return PR_OK;
 }
 
@@ -4094,7 +4080,7 @@ malformed:
         // Remove the entity from the hash
         xml_entity_delete(h, e);
     }
-    return xml_read_recover(h, ">", true);
+    return PR_FAIL;
 }
 
 /**
@@ -4177,7 +4163,7 @@ malformed:
         // Remove the notation from the hash
         xml_notation_delete(h, n);
     }
-    return xml_read_recover(h, ">", true);
+    return PR_FAIL;
 }
 
 /**
@@ -4194,7 +4180,6 @@ xml_parse_conditionalSect(xml_reader_t *h)
 
 /**
     Parse declaration separator (DeclSep) which is whitespace or PE reference.
-    If unsuccessful, recover by 
 
     @verbatim
     DeclSep ::= PEReference | S
@@ -4215,10 +4200,14 @@ xml_parse_whitespace_peref_or_recover(xml_reader_t *h)
         return rv;
     }
 
+    // Consume the opening bracket, if any, before signaling the error: if there
+    // is some <>-enclosed markup that we didn't recognize, make sure the recovery
+    // advances when it resyncs to opening/closing bracket (DTD parser context do
+    // not have lookahead patterns for just the bracket).
     xml_reader_message_current(h, XMLERR(ERROR, XML, P_DeclSep),
             "Invalid content in DTD");
-
-    return xml_read_recover(h, "]<", false);
+    (void)xml_read_string(h, "<", XMLERR_NOERROR);
+    return PR_FAIL;
 }
 
 /**
@@ -4278,7 +4267,7 @@ xml_parse_dtd_end(xml_reader_t *h)
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
         // The only case we're attempting recovery in doctypedecl. Restore
         // context for future entities.
-        return xml_read_recover(h, ">", true);
+        return PR_FAIL;
     }
 
     // We know there's input in the queue, we've just read from it
@@ -4443,7 +4432,8 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
         // No valid name - try to recover by skipping until closing bracket
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
                 "Expected element type");
-        goto malformed;
+        xml_reader_input_unlock(h);
+        return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.name);
 
@@ -4457,12 +4447,6 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     h->ws = xml_parse_whitespace(h) == PR_OK;
     h->ctx = &parser_attributes;
     return PR_OK;
-
-malformed:
-    // Try to recover by reading till end of opening tag. Do not lock the input
-    // (as we don't know how broken the markup was).
-    xml_reader_input_unlock(h);
-    return xml_read_recover(h, ">", true);
 }
 
 /**
@@ -4638,7 +4622,7 @@ xml_parse_whitespace_or_recover(xml_reader_t *h)
     // Recover by skipping to the next angle bracket
     xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
             "Invalid content at root level");
-    return xml_read_recover(h, "<", false);
+    return PR_FAIL;
 }
 
 
@@ -4680,9 +4664,14 @@ on_end_fail(xml_reader_t *h)
 static prodres_t
 on_end_dtd_internal(xml_reader_t *h)
 {
-    xml_reader_message_current(h, XMLERR(ERROR, XML, P_intSubset),
-            "Missing closing ] for internal subset");
-    return PR_FAIL;
+    // Only raise the error on completion of the document entity - which we know
+    // is the last in the stack.
+    if (STAILQ_EMPTY(&h->active_input)) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_intSubset),
+                "Missing closing ] for internal subset");
+        return PR_FAIL;
+    }
+    return PR_OK;
 }
 
 /**
@@ -4778,10 +4767,7 @@ on_fail_resync_bracket(xml_reader_t *h)
     // Recovery: stop after closing bracket or before the opening one. Ok if
     // the closing bracket followed right away - xml_read_recover() will skip it
     // so check this condition first
-    if (xml_read_string(h, ">", XMLERR_NOERROR) == PR_OK) {
-        // Do nothing; this was the recovery
-    }
-    else if (xml_read_recover(h, "><", false) == PR_OK) {
+    if (xml_read_recover(h, "><") == PR_OK) {
         if (ucs4_cheq(h->rejected, '>')) {
             (void)xml_read_string(h, ">", XMLERR_NOERROR);
         }
@@ -4804,7 +4790,11 @@ on_fail_attr(xml_reader_t *h)
 {
     xml_reader_input_t *inp;
 
-    if (xml_read_recover(h, ">/", false) == PR_OK) {
+    // Consume '/' if any: if we got here, it means we didn't match the lookahead for
+    // closing EmptyElemTag - i.e., '/' was not followed by '>'. In that case, consume
+    // the slash so as not to stall the recovery.
+    (void)xml_read_string(h, "/", XMLERR_NOERROR);
+    if (xml_read_recover(h, ">/") == PR_OK) {
         return PR_OK; // Found what appears to be the end of STag/EmptyElemTag
     }
 
@@ -5075,6 +5065,7 @@ xml_reader_process(xml_reader_t *h)
             }
         }
         else {
+            xml_reader_input_complete_notify(h);
             // Look for matching production in this context.
             // xml_lookahead removed completed inputs; can now save location for production start.
             h->prodloc = STAILQ_FIRST(&h->active_input)->curloc;
@@ -5416,6 +5407,8 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     /// xml_lookahead will not read more than it actually needs to recognize the token.
     if (decl_rv == PR_STOP) {
         h->flags |= R_NO_CHAR_CHECK;
+        // TBD if not tracking location - this will fail! Need to get the machinery for
+        // generating the DGA and do strbuf_radvance(..., xc.la_offs)
         decl_rv = xml_read_to_position(h);
         h->flags &= ~R_NO_CHAR_CHECK;
         OOPS_ASSERT(decl_rv == PR_OK);
