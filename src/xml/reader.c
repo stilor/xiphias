@@ -4642,53 +4642,6 @@ xml_parse_whitespace_or_recover(xml_reader_t *h)
 }
 
 
-// TBD For now, generic handler copied from previous xml_lookahead code; will
-// be replaced in each context with appropriate handling of EOF (i.e., attribute
-// parser may need to revert back to the general content/document context).
-static prodres_t
-TBD_on_end(xml_reader_t *h)
-{
-    xml_reader_input_t *inp;
-
-    // TBD change break_lock to return void once this function is gone
-    if ((inp = xml_reader_input_break_lock(h)) != NULL) {
-        // We wanted more input to end an open production, but there's none.
-        // Break the lock (noting the number of the locks thus broken, to
-        // avoid complaining about them twice), issue an error message and retry.
-
-        /// @todo Consider lock tokens with callback functions with more
-        /// specific error info (i.e., which exact production locked the
-        /// input and most importantly where)
-        if (inp->entity &&
-                (inp->entity->type == XML_READER_REF_PE_INTERNAL
-                 || inp->entity->type == XML_READER_REF_PE_EXTERNAL)) {
-            // Parameter entities in DTD are not expected to match any given
-            // production ("are well-formed by definition"). Instead, there are
-            // certain requirements on proper nesting of parameter entities.
-            xml_reader_message_current(h,
-                    XMLERR(ERROR, XML, VC_PROPER_DECL_PE_NESTING),
-                    "Fails to parse: parameter entities not properly nested");
-        }
-        else {
-            xml_reader_message_current(h, h->ctx->errcode, "%s", h->ctx->errmsg);
-        }
-
-    }
-    // Restore element nesting level; complained above
-    // TBD need to reset context according to nest level before error message
-    // so that document entity correctly refers to 'document' rather than 'content'
-    inp = STAILQ_FIRST(&h->active_input);
-    h->nestlvl = inp ? inp->saved_nestlvl : 0;
-    return PR_OK; // Continue parsing the remaining inputs
-}
-
-/// TBD For context that do not have recovery yet, just return PR_FAIL again
-static prodres_t
-TBD_on_fail(xml_reader_t *h)
-{
-    return PR_FAIL;
-}
-
 /**
     Handler for contexts where EOF is acceptable (i.e. document entity or XMLDecl/TextDecl
     before the declaration start has been read).
@@ -4730,6 +4683,26 @@ on_end_dtd_internal(xml_reader_t *h)
     xml_reader_message_current(h, XMLERR(ERROR, XML, P_intSubset),
             "Missing closing ] for internal subset");
     return PR_FAIL;
+}
+
+/**
+    Handler for EOF while parsing external subset or external parameter entity.
+
+    @param h Reader handle
+    @return PR_OK
+*/
+static prodres_t
+on_end_dtd_external(xml_reader_t *h)
+{
+#if 0 // TBD: check conditional sections, check nesting PEs inside a declaration once they're locking
+    // Parameter entities in DTD are not expected to match any given
+    // production ("are well-formed by definition"). Instead, there are
+    // certain requirements on proper nesting of parameter entities.
+    xml_reader_message_current(h,
+            XMLERR(ERROR, XML, VC_PROPER_DECL_PE_NESTING),
+            "Fails to parse: parameter entities not properly nested");
+#endif
+    return PR_OK;
 }
 
 /**
@@ -4781,25 +4754,26 @@ on_end_attr(xml_reader_t *h)
 }
 
 /**
-    Failure while parsing a declaration in the internal subset.
+    Trivial function: no recovery, this failure is semi-fatal (current entity
+    fails to parse).
 
     @param h Reader handle
     @return Always PR_FAIL
 */
 static prodres_t
-on_fail_dtd_internal(xml_reader_t *h)
+on_fail_fail(xml_reader_t *h)
 {
-    return TBD_on_fail(h);
+    return PR_FAIL;
 }
 
 /**
-    Recovery function if parsing an attribute fails.
+    Recovery function searching for closing/opening angle bracket to resync.
 
     @param h Reader handle
     @return PR_OK if recovery succeeded
 */
 static prodres_t
-on_fail_tag(xml_reader_t *h)
+on_fail_resync_bracket(xml_reader_t *h)
 {
     // Recovery: stop after closing bracket or before the opening one. Ok if
     // the closing bracket followed right away - xml_read_recover() will skip it
@@ -4875,7 +4849,7 @@ static const xml_reader_context_t parser_internal_subset = {
         LOOKAHEAD("]", xml_end_internal_subset),
         LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
     },
-    .on_fail = on_fail_dtd_internal,
+    .on_fail = on_fail_resync_bracket,
     .on_end = on_end_dtd_internal,
     .declinfo = NULL,                   // Not used for reading any external entity
     .reftype = XML_READER_REF_NONE,     // Not an external entity
@@ -4920,8 +4894,8 @@ static const xml_reader_context_t parser_external_subset = {
         LOOKAHEAD("<!--", xml_parse_Comment),
         LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
     },
-    .on_fail = TBD_on_fail,
-    .on_end = TBD_on_end,
+    .on_fail = on_fail_resync_bracket,
+    .on_end = on_end_dtd_external,
     .declinfo = &declinfo_textdecl,
     .reftype = XML_READER_REF_EXT_SUBSET, // If not parameter entity, this is external DTD
     .entity_value_parser = &reference_ops_EntityValue_external,
@@ -4961,7 +4935,7 @@ static const xml_reader_context_t parser_content = {
         LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
         LOOKAHEAD("", xml_parse_CharData),
     },
-    .on_fail = on_fail_tag,
+    .on_fail = on_fail_resync_bracket,
     .on_end = on_end_tag,
     .declinfo = &declinfo_textdecl,
     .reftype = XML_READER_REF_NONE, // Can only be loaded via entity
@@ -4997,7 +4971,7 @@ static const xml_reader_context_t parser_document_entity = {
         LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
         LOOKAHEAD("", xml_parse_whitespace_or_recover),
     },
-    .on_fail = on_fail_tag,
+    .on_fail = on_fail_resync_bracket,
     .on_end = on_end_tag,
     .declinfo = &declinfo_xmldecl,
     .reftype = XML_READER_REF_DOCUMENT, // Document entity
@@ -5046,7 +5020,7 @@ static const xml_reader_context_t parser_decl = {
         LOOKAHEAD("<?xml", xml_parse_decl_start),
         LOOKAHEAD("", xml_parse_nomatch),
     },
-    .on_fail = TBD_on_fail,
+    .on_fail = on_fail_fail,
     .on_end = on_end_stop,
     .reftype = XML_READER_REF_NONE, // not an external entity
 };
@@ -5064,7 +5038,7 @@ static const xml_reader_context_t parser_decl_attributes = {
         LOOKAHEAD("?>", xml_parse_decl_end),
         LOOKAHEAD("", xml_parse_decl_attr),
     },
-    .on_fail = TBD_on_fail,
+    .on_fail = on_fail_fail,
     .on_end = on_end_fail,
     .reftype = XML_READER_REF_NONE, // not an external entity
     .errcode = XMLERR(ERROR, XML, P_XMLDecl),
