@@ -320,7 +320,9 @@ struct xml_reader_s {
     nfc_t *norm_include;            ///< Normalization check handle for include normalization
 
     uint32_t nestlvl;               ///< Element nesting level
-    bool ws;                        ///< In some contexts, we need to know whether we saw whitespace
+
+    bool cdata_ws;                  ///< Seen only whitespace in CharData/CDATA
+    bool attr_ws;                   ///< Attribute parser: seen w/s at the end of preceding token
 
     utf8_t *tokenbuf_start;         ///< Start of the allocated token buffer
     size_t tokenbuf_size;           ///< Size of the token buffer
@@ -642,9 +644,8 @@ xml_tokenbuf_flush_text(xml_reader_t *h)
         xml_tokenbuf_setcbtoken(h, &tk_cdata, &cbp.text.text);
         // TBD test for whitespace rules - entity with charrefs is whitespace while 
         // entity with references to charrefs (double-escaped) is not.
-        cbp.text.ws = h->ws;
+        cbp.text.ws = h->cdata_ws;
         xml_reader_callback_invoke(h, &cbp);
-        h->ws = true;
     }
 }
 
@@ -3273,7 +3274,7 @@ xml_parse_decl_start(xml_reader_t *h)
     xml_reader_input_lock(h);
     h->declattr = h->declinfo->attrlist; // Currently expected attribute
     (void)xml_parse_whitespace(h); // checked above
-    h->ws = true;
+    h->attr_ws = true;
     h->ctx = &parser_decl_attributes;
     return PR_OK;
 }
@@ -3302,7 +3303,7 @@ xml_parse_decl_attr(xml_reader_t *h)
     const xml_reader_xmldecl_attrdesc_t *attr;
     utf8_t *name;
 
-    if (!h->ws) {
+    if (!h->attr_ws) {
         xml_reader_message_current(h, h->declinfo->errcode,
                 "Malformed %s: expect whitespace or ?> here",
                 h->declinfo->name);
@@ -3361,7 +3362,7 @@ xml_parse_decl_attr(xml_reader_t *h)
     else {
         h->declattr = attr; // Expect nothing else, stay at the end marker
     }
-    h->ws = xml_parse_whitespace(h) == PR_OK;
+    h->attr_ws = xml_parse_whitespace(h) == PR_OK;
     return PR_OK;
 
 malformed:
@@ -3422,8 +3423,8 @@ xml_cb_CharData(void *arg, ucs4_t cp)
 
     // TBD: need to check if the content matches ']]>' token and raise an error if it does
     if (!ucs4_cheq(cp, '<') || STAILQ_FIRST(&h->active_input)->charref) {
-        if (h->ws && !xml_is_whitespace(cp)) {
-            h->ws = false;
+        if (h->cdata_ws && !xml_is_whitespace(cp)) {
+            h->cdata_ws = false;
         }
         return cp;
     }
@@ -3707,7 +3708,7 @@ xml_parse_CDSect(xml_reader_t *h)
     }
     h->flags &= ~R_NO_INC_NORM; // Set in callback when parsing closing markup
     h->relevant = NULL;
-    h->ws = false;
+    h->cdata_ws = false; // CDATA is never considered matching S non-terminal
 
     xml_reader_input_unlock(h);
     return PR_OK;
@@ -4447,7 +4448,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 
     // Consume whitespace, if any, and pass that info to further parsers in the
     // attribute-parsing context
-    h->ws = xml_parse_whitespace(h) == PR_OK;
+    h->attr_ws = xml_parse_whitespace(h) == PR_OK;
     h->ctx = &parser_attributes;
     return PR_OK;
 }
@@ -4469,7 +4470,7 @@ xml_parse_attribute(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
 
-    if (!h->ws) {
+    if (!h->attr_ws) {
         // Try to recover by reading till end of opening tag
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
                 "Expect whitespace, or >, or /> here");
@@ -4502,7 +4503,7 @@ xml_parse_attribute(xml_reader_t *h)
     xml_reader_callback_invoke(h, &cbp);
 
     // Prepare for the next parser
-    h->ws = xml_parse_whitespace(h) == PR_OK;
+    h->attr_ws = xml_parse_whitespace(h) == PR_OK;
     return PR_OK;
 }
 
@@ -4736,7 +4737,7 @@ on_end_attr(xml_reader_t *h)
     // Should've switched back to content/document due to closing markup
     xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
             "Expect %s, or >, or /> here",
-            h->ws ? "attribute name" : "whitespace");
+            h->attr_ws ? "attribute name" : "whitespace");
 
     // Revert to document/content parsing. Assume it was STag (because it's easier
     // and in absence of closing markup, we don't know for sure anyway.
@@ -5081,8 +5082,9 @@ xml_reader_process(xml_reader_t *h)
                         xml_tokenbuf_flush_text(h);
                     }
                     if (!h->tokenbuf_len) {
-                        // Starting a new production, set location
+                        // Starting a new production, set location & prepare
                         h->prodloc = STAILQ_FIRST(&h->active_input)->curloc;
+                        h->cdata_ws = true;
                     }
                     rv = pat->func(h);
                     break;
