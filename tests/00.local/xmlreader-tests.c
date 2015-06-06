@@ -2567,22 +2567,7 @@ static const testcase_t testcases_structure[] = {
             ),
             EV(TEXT,
                     LOC("cdata.xml", 1, 4),
-                    .text = TOK("A "),
-                    .ws = false,
-            ),
-            EV(TEXT,
-                    LOC("cdata.xml", 1, 6),
-                    .text = TOK("section < with & special ]] characters inside"),
-                    .ws = false,
-            ),
-            EV(TEXT,
-                    LOC("cdata.xml", 1, 75),
-                    .text = TOK(" "),
-                    .ws = false,
-            ),
-            EV(TEXT,
-                    LOC("cdata.xml", 1, 88),
-                    .text = TOK("."),
+                    .text = TOK("A section < with & special ]] characters inside ."),
                     .ws = false,
             ),
             EV(ETAG,
@@ -2602,7 +2587,7 @@ static const testcase_t testcases_structure[] = {
             ),
             EV(TEXT,
                     LOC("unterminated-cdata.xml", 1, 4),
-                    .text = TOK("Unterminated "),
+                    .text = TOK("Unterminated section\n"),
                     .ws = false,
             ),
             EV(MESSAGE,
@@ -2610,7 +2595,11 @@ static const testcase_t testcases_structure[] = {
                     .info = XMLERR(ERROR, XML, P_CDSect),
                     .msg = "Unterminated CDATA section",
             ),
-            // TBD here too, it should also raise an error about not matching 'content'
+            EV(MESSAGE,
+                    LOC("unterminated-cdata.xml", 2, 1),
+                    .info = XMLERR(ERROR, XML, P_document),
+                    .msg = "Document entity must match 'document' production",
+            ),
             END,
         },
     },
@@ -4068,23 +4057,6 @@ static const testcase_t testcases_structure[] = {
                     .type = XML_READER_REF_INTERNAL,
                     .name = TOK("ccedil"),
             ),
-            EV(TEXT,
-                    LOC("denorm-w3c.xml", 8, 4),
-                    .text = TOK("\n"
-                    "su\xC3\xA7on\n"
-                    "sub\xCC\xA7on\n"
-                    "su\xC3\xA7on\n"
-                    "sub\xCC\xA7on\n"
-                    "sub\xCC\xA7on\n"
-                    "su\xC3\xA7on\n"
-                    "su"),
-                    .ws = false,
-            ),
-            EV(TEXT,
-                    LOC("denorm-w3c.xml", 15, 3),
-                    .text = TOK("\xC3\xA7on"),
-                    .ws = false,
-            ),
             EV(ENTITY_PARSE_START,
                     LOC("denorm-w3c.xml", 16, 3),
                     .type = XML_READER_REF_INTERNAL,
@@ -4116,8 +4088,15 @@ static const testcase_t testcases_structure[] = {
                     .name = TOK("cedilla"),
             ),
             EV(TEXT,
-                    LOC("denorm-w3c.xml", 15, 18),
+                    LOC("denorm-w3c.xml", 8, 4),
                     .text = TOK("\n"
+                    "su\xC3\xA7on\n"
+                    "sub\xCC\xA7on\n"
+                    "su\xC3\xA7on\n"
+                    "sub\xCC\xA7on\n"
+                    "sub\xCC\xA7on\n"
+                    "su\xC3\xA7on\n"
+                    "su\xC3\xA7on\n"
                     "sub\xCC\xA7on\n"
                     "sub\xCC\xA7on\n"
                     "suc"),
@@ -4220,20 +4199,10 @@ static const testcase_t testcases_structure[] = {
                     .info = XMLERR(WARN, XML, NORMALIZATION),
                     .msg = "Relevant construct (CharData) begins with a composing character",
             ),
-            EV(TEXT,
-                    LOC("denorm-w3c.xml", 23, 18),
-                    .text = TOK("\xCC\xA7on\nsub"),
-                    .ws = false,
-            ),
             EV(MESSAGE,
                     LOC("denorm-w3c.xml", 24, 13),
                     .info = XMLERR(WARN, XML, NORMALIZATION),
                     .msg = "Relevant construct (CData) begins with a composing character",
-            ),
-            EV(TEXT,
-                    LOC("denorm-w3c.xml", 24, 4),
-                    .text = TOK("\xCC\xA7on"),
-                    .ws = false,
             ),
             EV(ENTITY_PARSE_START,
                     LOC("denorm-w3c.xml", 25, 3),
@@ -4275,35 +4244,10 @@ static const testcase_t testcases_structure[] = {
                     .type = XML_READER_REF_INTERNAL,
                     .name = TOK("cedilla"),
             ),
-            EV(TEXT,
-                    LOC("denorm-w3c.xml", 24, 18),
-                    .text = TOK("\n"
-                    "suc\xCC\xA7on\n"
-                    "suc\xCC\xA7on\n"
-                    "suc\xCC\xA7on\n"
-                    "suc\xCC\xA7on\n"
-                    "suc"),
-                    .ws = false,
-            ),
             EV(MESSAGE,
                     LOC("denorm-w3c.xml", 29, 13),
                     .info = XMLERR(WARN, XML, NORMALIZATION),
                     .msg = "Input is not include-normalized",
-            ),
-            EV(TEXT,
-                    LOC("denorm-w3c.xml", 29, 4),
-                    .text = TOK("\xCC\xA7on"),
-                    .ws = false,
-            ),
-            EV(TEXT,
-                    LOC("denorm-w3c.xml", 29, 18),
-                    .text = TOK("\nsu"),
-                    .ws = false,
-            ),
-            EV(TEXT,
-                    LOC("denorm-w3c.xml", 30, 3),
-                    .text = TOK("c"),
-                    .ws = false,
             ),
             EV(MESSAGE,
                     LOC("denorm-w3c.xml", 30, 16),
@@ -4316,8 +4260,17 @@ static const testcase_t testcases_structure[] = {
                     .msg = "Input is not Unicode-normalized",
             ),
             EV(TEXT,
-                    LOC("denorm-w3c.xml", 30, 16),
-                    .text = TOK("\xCC\xA7on\nsuc\xCC\xA7on\nsu\xC3\xA7"),
+                    LOC("denorm-w3c.xml", 23, 18),
+                    .text = TOK("\xCC\xA7on\n"
+                    "sub\xCC\xA7on\n"
+                    "suc\xCC\xA7on\n"
+                    "suc\xCC\xA7on\n"
+                    "suc\xCC\xA7on\n"
+                    "suc\xCC\xA7on\n"
+                    "suc\xCC\xA7on\n"
+                    "suc\xCC\xA7on\n"
+                    "suc\xCC\xA7on\n"
+                    "su\xC3\xA7"),
                     .ws = false,
             ),
             EV(STAG,

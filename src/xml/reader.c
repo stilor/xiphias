@@ -30,18 +30,17 @@
 
 /// Reader flags
 enum {
-    R_RECOGNIZE_REF     = 0x0001,       ///< Reading next token will expand Reference production
-    R_RECOGNIZE_PEREF   = 0x0002,       ///< Reading next token will expand PEReference production
-    R_ASCII_ONLY        = 0x0004,       ///< Only ASCII characters allowed while reading declaration
-    R_LOCTRACK          = 0x0008,       ///< Track the current position for error reporting
-    R_SAVE_UCS4         = 0x0010,       ///< Also save UCS-4 codepoints
-    R_NO_INC_NORM       = 0x0020,       ///< No checking of include normalization
-    R_HAS_ROOT          = 0x0040,       ///< Root element seen
-    R_HAS_DTD           = 0x0080,       ///< Document declaration seen
-    R_AMBIGUOUS_PERCENT = 0x0100,       ///< '%' may either start PE reference or have literal meaning
-    R_NO_TOKEN_RESET    = 0x0200,       ///< Do not clear the token when starting the read
-    R_NO_CHAR_CHECK     = 0x0400,       ///< When re-reading XMLDecl, disable checking restricted chars
-    R_STOP              = 0x0800,       ///< Callback requested stop
+    R_RECOGNIZE_REF     = 0x0001,   ///< Reading next token will expand Reference production
+    R_RECOGNIZE_PEREF   = 0x0002,   ///< Reading next token will expand PEReference production
+    R_ASCII_ONLY        = 0x0004,   ///< Only ASCII characters allowed while reading declaration
+    R_LOCTRACK          = 0x0008,   ///< Track the current position for error reporting
+    R_SAVE_UCS4         = 0x0010,   ///< Also save UCS-4 codepoints
+    R_NO_INC_NORM       = 0x0020,   ///< No checking of include normalization
+    R_HAS_ROOT          = 0x0040,   ///< Root element seen
+    R_HAS_DTD           = 0x0080,   ///< Document declaration seen
+    R_AMBIGUOUS_PERCENT = 0x0100,   ///< '%' may either start PE reference or have literal meaning
+    R_NO_CHAR_CHECK     = 0x0200,   ///< When re-reading XMLDecl, disable checking restricted chars
+    R_STOP              = 0x0400,   ///< Callback requested stop
 };
 
 /// Notation information
@@ -201,20 +200,27 @@ typedef prodres_t (*prodparser_t)(xml_reader_t *);
 /// Maximum number of characters we need to look ahead: '<!NOTATION'
 #define MAX_PATTERN     10
 
+/// Flags for the pattern
+enum {
+    L_NOFLUSHTEXT       = 0x0001,       ///< Do not flush text in token buffer
+};
+
 /// Lookahead pattern/handler pairs
 typedef struct {
     const utf8_t pattern[MAX_PATTERN];  ///< Lookahead pattern to look for
     size_t patlen;                      ///< Length of the recognized pattern
     prodparser_t func;                  ///< Function to call for this pattern
+    uint32_t flags;                     ///< Additional actions for this pattern
 } xml_reader_pattern_t;
 
 /// Lookahead initializer
 /// @todo Construct a DFA instead of an array? If so, manually or by a constructor?
-#define LOOKAHEAD(s, f) \
+#define LOOKAHEAD(s, f, fl) \
 { \
     .pattern = U_ARRAY s, \
     .patlen = sizeof(s) - 1, \
     .func = f, \
+    .flags = fl, \
 }
 
 /// Maximum number of lookahead pairs
@@ -320,6 +326,9 @@ struct xml_reader_s {
     size_t tokenbuf_size;           ///< Size of the token buffer
     size_t tokenbuf_used;           ///< Length of saved data in token buffer
     size_t tokenbuf_len;            ///< Length of the current (unsaved) token
+
+    utf8_t labuf_start[MAX_LOOKAHEAD_SIZE];         ///< Lookahead buffer
+    size_t labuf_len;                               ///< Amount of looked ahead data
 
     xml_reader_tokens_t svtk;       ///< All saved tokens
 
@@ -600,7 +609,7 @@ xml_tokenbuf_release(xml_reader_t *h, xml_reader_saved_token_t *svtk)
     @return Nothing
 */
 static void
-xml_tokenbuf_setcbtoken(xml_reader_t *h, const xml_reader_saved_token_t *svtk,
+xml_tokenbuf_setcbtoken(xml_reader_t *h, xml_reader_saved_token_t *svtk,
         xml_reader_token_t *tk)
 {
     if (svtk->reserved) {
@@ -625,18 +634,18 @@ static void
 xml_tokenbuf_flush_text(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
+    xml_reader_saved_token_t tk_cdata = { .reserved = false };
 
     if (h->tokenbuf_len) {
-        xml_tokenbuf_save(h, &h->svtk.value);
+        xml_tokenbuf_save(h, &tk_cdata);
         xml_reader_callback_init(h, XML_READER_CB_TEXT, &cbp);
-        xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.text.text);
+        xml_tokenbuf_setcbtoken(h, &tk_cdata, &cbp.text.text);
         // TBD test for whitespace rules - entity with charrefs is whitespace while 
         // entity with references to charrefs (double-escaped) is not.
         cbp.text.ws = h->ws;
         xml_reader_callback_invoke(h, &cbp);
+        h->ws = true;
     }
-    h->tokenbuf_len = 0;
-    h->ws = true;
 }
 
 /**
@@ -922,20 +931,15 @@ xml_lookahead(xml_reader_t *h)
     xml_reader_input_t *inp;
     ucs4_t tmp[MAX_LOOKAHEAD_SIZE];
     ucs4_t *ptr = tmp;
-    utf8_t *bufptr = h->tokenbuf_start + h->tokenbuf_used;
+    utf8_t *bufptr = h->labuf_start;
     size_t i, nread;
 
-    // Ensure there's enough space
-    while (h->tokenbuf_size < h->tokenbuf_used + MAX_LOOKAHEAD_SIZE) {
-        xml_tokenbuf_realloc(h);
-    }
-
     if ((inp = STAILQ_FIRST(&h->active_input)) == NULL) {
-        h->tokenbuf_len = 0;
+        h->labuf_len = 0;
         return false;
     }
     if ((nread = strbuf_lookahead(inp->buf, ptr, MAX_LOOKAHEAD_SIZE * sizeof(ucs4_t))) == 0) {
-        h->tokenbuf_len = 0;
+        h->labuf_len = 0;
         return false;
     }
     OOPS_ASSERT((nread & 3) == 0); // input buf must have an integral number of characters
@@ -946,7 +950,7 @@ xml_lookahead(xml_reader_t *h)
         }
         *bufptr++ = *ptr++;
     }
-    h->tokenbuf_len = ptr - tmp;
+    h->labuf_len = ptr - tmp;
     return true; // Even if we didn't put anything into token buffer, there's data to process
 }
 
@@ -1664,15 +1668,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 
     xml_reader_input_complete_notify(h); // Process any outstanding notifications
 
-    // TBD remove R_NO_TOKEN_RESET - instead, do explicit clear (h->tokenbuf_len = 0) where needed
-    // (will enable merging of TEXT and CDATA callbacks)
-    bufptr = h->tokenbuf_start + h->tokenbuf_used;
-    if (h->flags & R_NO_TOKEN_RESET) {
-        bufptr += h->tokenbuf_len;
-    }
-    else {
-        h->tokenbuf_len = 0;
-    }
+    bufptr = h->tokenbuf_start + h->tokenbuf_used + h->tokenbuf_len;
     h->rejected = UCS4_NOCHAR; // Avoid stale data if we exit without looking at next char
 
     do {
@@ -2683,10 +2679,6 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
     const char *saved_relevant;
     uint32_t saved_flags;
 
-    // We'll accumulate text over multiple calls to xml_read_until
-    h->tokenbuf_len = 0;
-    h->flags |= R_NO_TOKEN_RESET;
-
     // Unused initially
     tk_content.reserved = false;
     tk_ref.reserved = false;
@@ -2709,7 +2701,6 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
 
         if (stopstatus != XRU_REFERENCE) {
             h->relevant = NULL;
-            h->flags &= ~R_NO_TOKEN_RESET;
             return stopstatus; // Saw the terminating condition or EOF
         }
 
@@ -3083,8 +3074,8 @@ static void
 check_VersionInfo(xml_reader_t *h)
 {
     xml_reader_external_t *ex = h->current_external;
-    const utf8_t *str = h->tokenbuf_start + h->tokenbuf_used;
-    size_t sz = h->tokenbuf_len;
+    const utf8_t *str = h->tokenbuf_start + h->svtk.value.offset;
+    size_t sz = h->svtk.value.len;
     size_t i;
 
     if (sz == 3) {
@@ -3142,9 +3133,9 @@ static void
 check_EncName(xml_reader_t *h)
 {
     xml_reader_external_t *ex = h->current_external;
-    const utf8_t *str = h->tokenbuf_start + h->tokenbuf_used;
+    const utf8_t *str = h->tokenbuf_start + h->svtk.value.offset;
+    size_t sz = h->svtk.value.len;
     const utf8_t *s;
-    size_t sz = h->tokenbuf_len;
     size_t i;
 
     for (i = 0, s = str; i < sz; i++, s++) {
@@ -3186,8 +3177,8 @@ bad_encoding:
 static void
 check_SD_YesNo(xml_reader_t *h)
 {
-    const utf8_t *str = h->tokenbuf_start + h->tokenbuf_used;
-    size_t sz = h->tokenbuf_len;
+    const utf8_t *str = h->tokenbuf_start + h->svtk.value.offset;
+    size_t sz = h->svtk.value.len;
 
     // Standalone status applies to the whole document and can only be set
     // in XMLDecl (i.e., in document entity).
@@ -3272,8 +3263,7 @@ xml_parse_decl_start(xml_reader_t *h)
 {
     // We know '<?xml' is here, but it must be followed by a whitespace
     // so that it can be distinguished from a XML PI, e.g. '<?xml-model'
-    if (h->tokenbuf_len < 6
-            || !xml_is_whitespace(h->tokenbuf_start[h->tokenbuf_used + 5])) {
+    if (h->labuf_len < 6 || !xml_is_whitespace(h->labuf_start[5])) {
         return PR_NOMATCH;
     }
 
@@ -3325,13 +3315,14 @@ xml_parse_decl_attr(xml_reader_t *h)
                 h->declinfo->name);
         goto malformed;
     }
+    xml_tokenbuf_save(h, &h->svtk.name);
 
     // Go through the remaining attributes and see if this one is known
     // (and if we skipped any mandatory attributes while advancing).
-    name = h->tokenbuf_start + h->tokenbuf_used;
+    name = h->tokenbuf_start + h->svtk.name.offset;
     for (attr = h->declattr; attr->name; attr++) {
-        if (h->tokenbuf_len == strlen(attr->name)
-                && utf8_eqn(name, attr->name, h->tokenbuf_len)) {
+        if (h->svtk.name.len == strlen(attr->name)
+                && utf8_eqn(name, attr->name, h->svtk.name.len)) {
             break; // Yes, that is what we expect
         }
         if (attr->mandatory) {
@@ -3361,6 +3352,7 @@ xml_parse_decl_attr(xml_reader_t *h)
         // Already complained
         goto malformed;
     }
+    xml_tokenbuf_save(h, &h->svtk.value);
 
     if (attr->name) {
         attr->check(h);
@@ -3468,9 +3460,7 @@ static const xml_reference_ops_t reference_ops_CharData = {
 static prodres_t
 xml_parse_CharData(xml_reader_t *h)
 {
-    h->ws = true; // TBD remove
     (void)xml_read_until_parseref(h, &reference_ops_CharData, h);
-    xml_tokenbuf_flush_text(h); // TBD remove
     return PR_OK;
 }
 
@@ -3707,17 +3697,17 @@ xml_parse_CDSect(xml_reader_t *h)
     // Starting CData - which is relevant construct
     h->relevant = "CData";
     if (xml_read_termstring(h, &termstring_cdata, cb_matchpos_cdata, h) != PR_OK) {
+        xml_tokenbuf_flush_text(h); // Salvage as much already read text as possible
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_CDSect),
                 "Unterminated CDATA section");
         xml_reader_input_unlock(h);
         h->flags &= ~R_NO_INC_NORM; // Set in callback when parsing closing markup
         h->relevant = NULL;
-        return PR_STOP;
+        return PR_FAIL;
     }
     h->flags &= ~R_NO_INC_NORM; // Set in callback when parsing closing markup
     h->relevant = NULL;
     h->ws = false;
-    xml_tokenbuf_flush_text(h); // TBD remove
 
     xml_reader_input_unlock(h);
     return PR_OK;
@@ -4843,14 +4833,14 @@ on_fail_attr(xml_reader_t *h)
 */
 static const xml_reader_context_t parser_internal_subset = {
     .lookahead = {
-        LOOKAHEAD("<!ELEMENT", xml_parse_elementdecl),
-        LOOKAHEAD("<!ATTLIST", xml_parse_AttlistDecl),
-        LOOKAHEAD("<!ENTITY", xml_parse_EntityDecl),
-        LOOKAHEAD("<!NOTATION", xml_parse_NotationDecl),
-        LOOKAHEAD("<?", xml_parse_PI),
-        LOOKAHEAD("<!--", xml_parse_Comment),
-        LOOKAHEAD("]", xml_end_internal_subset),
-        LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
+        LOOKAHEAD("<!ELEMENT", xml_parse_elementdecl, 0),
+        LOOKAHEAD("<!ATTLIST", xml_parse_AttlistDecl, 0),
+        LOOKAHEAD("<!ENTITY", xml_parse_EntityDecl, 0),
+        LOOKAHEAD("<!NOTATION", xml_parse_NotationDecl, 0),
+        LOOKAHEAD("<?", xml_parse_PI, 0),
+        LOOKAHEAD("<!--", xml_parse_Comment, 0),
+        LOOKAHEAD("]", xml_end_internal_subset, 0),
+        LOOKAHEAD("", xml_parse_whitespace_peref_or_recover, 0),
     },
     .on_fail = on_fail_resync_bracket,
     .on_end = on_end_dtd_internal,
@@ -4888,14 +4878,14 @@ static const xml_reader_context_t parser_internal_subset = {
 */
 static const xml_reader_context_t parser_external_subset = {
     .lookahead = {
-        LOOKAHEAD("<!ELEMENT", xml_parse_elementdecl),
-        LOOKAHEAD("<!ATTLIST", xml_parse_AttlistDecl),
-        LOOKAHEAD("<!ENTITY", xml_parse_EntityDecl),
-        LOOKAHEAD("<!NOTATION", xml_parse_NotationDecl),
-        LOOKAHEAD("<![", xml_parse_conditionalSect),
-        LOOKAHEAD("<?", xml_parse_PI),
-        LOOKAHEAD("<!--", xml_parse_Comment),
-        LOOKAHEAD("", xml_parse_whitespace_peref_or_recover),
+        LOOKAHEAD("<!ELEMENT", xml_parse_elementdecl, 0),
+        LOOKAHEAD("<!ATTLIST", xml_parse_AttlistDecl, 0),
+        LOOKAHEAD("<!ENTITY", xml_parse_EntityDecl, 0),
+        LOOKAHEAD("<!NOTATION", xml_parse_NotationDecl, 0),
+        LOOKAHEAD("<![", xml_parse_conditionalSect, 0),
+        LOOKAHEAD("<?", xml_parse_PI, 0),
+        LOOKAHEAD("<!--", xml_parse_Comment, 0),
+        LOOKAHEAD("", xml_parse_whitespace_peref_or_recover, 0),
     },
     .on_fail = on_fail_resync_bracket,
     .on_end = on_end_dtd_external,
@@ -4931,12 +4921,12 @@ static const xml_reader_context_t parser_external_subset = {
 */
 static const xml_reader_context_t parser_content = {
     .lookahead = {
-        LOOKAHEAD("<![CDATA[", xml_parse_CDSect),
-        LOOKAHEAD("<?", xml_parse_PI),
-        LOOKAHEAD("<!--", xml_parse_Comment),
-        LOOKAHEAD("</", xml_parse_ETag),
-        LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
-        LOOKAHEAD("", xml_parse_CharData),
+        LOOKAHEAD("<![CDATA[", xml_parse_CDSect, L_NOFLUSHTEXT),
+        LOOKAHEAD("<?", xml_parse_PI, 0),
+        LOOKAHEAD("<!--", xml_parse_Comment, 0),
+        LOOKAHEAD("</", xml_parse_ETag, 0),
+        LOOKAHEAD("<", xml_parse_STag_EmptyElemTag, 0),
+        LOOKAHEAD("", xml_parse_CharData, L_NOFLUSHTEXT),
     },
     .on_fail = on_fail_resync_bracket,
     .on_end = on_end_tag,
@@ -4967,12 +4957,12 @@ static const xml_reader_context_t parser_content = {
 */
 static const xml_reader_context_t parser_document_entity = {
     .lookahead = {
-        LOOKAHEAD("<!DOCTYPE", xml_parse_doctypedecl),
-        LOOKAHEAD("<?", xml_parse_PI),
-        LOOKAHEAD("<!--", xml_parse_Comment),
-        LOOKAHEAD("</", xml_parse_ETag),
-        LOOKAHEAD("<", xml_parse_STag_EmptyElemTag),
-        LOOKAHEAD("", xml_parse_whitespace_or_recover),
+        LOOKAHEAD("<!DOCTYPE", xml_parse_doctypedecl, 0),
+        LOOKAHEAD("<?", xml_parse_PI, 0),
+        LOOKAHEAD("<!--", xml_parse_Comment, 0),
+        LOOKAHEAD("</", xml_parse_ETag, 0),
+        LOOKAHEAD("<", xml_parse_STag_EmptyElemTag, 0),
+        LOOKAHEAD("", xml_parse_whitespace_or_recover, 0),
     },
     .on_fail = on_fail_resync_bracket,
     .on_end = on_end_tag,
@@ -4996,9 +4986,9 @@ static const xml_reader_context_t parser_document_entity = {
 */
 static const xml_reader_context_t parser_attributes = {
     .lookahead = {
-        LOOKAHEAD("/>", xml_parse_closing_EmptyElemTag),
-        LOOKAHEAD(">", xml_parse_closing_STag),
-        LOOKAHEAD("", xml_parse_attribute),
+        LOOKAHEAD("/>", xml_parse_closing_EmptyElemTag, 0),
+        LOOKAHEAD(">", xml_parse_closing_STag, 0),
+        LOOKAHEAD("", xml_parse_attribute, 0),
     },
     .on_fail = on_fail_attr,
     .on_end = on_end_attr,
@@ -5020,8 +5010,8 @@ static const xml_reader_context_t parser_attributes = {
 */
 static const xml_reader_context_t parser_decl = {
     .lookahead = {
-        LOOKAHEAD("<?xml", xml_parse_decl_start),
-        LOOKAHEAD("", xml_parse_nomatch),
+        LOOKAHEAD("<?xml", xml_parse_decl_start, 0),
+        LOOKAHEAD("", xml_parse_nomatch, 0),
     },
     .on_fail = on_fail_fail,
     .on_end = on_end_stop,
@@ -5038,8 +5028,8 @@ static const xml_reader_context_t parser_decl = {
 */
 static const xml_reader_context_t parser_decl_attributes = {
     .lookahead = {
-        LOOKAHEAD("?>", xml_parse_decl_end),
-        LOOKAHEAD("", xml_parse_decl_attr),
+        LOOKAHEAD("?>", xml_parse_decl_end, 0),
+        LOOKAHEAD("", xml_parse_decl_attr, 0),
     },
     .on_fail = on_fail_fail,
     .on_end = on_end_fail,
@@ -5066,12 +5056,11 @@ xml_reader_process(xml_reader_t *h)
 
     // TBD move this func closer to xml_lookahead
     do {
-        // Starting a new production, reset the tokens
         memset(&h->svtk, 0, sizeof(h->svtk));
-        h->tokenbuf_used = tokenbuf_reserved; // preserve content below saved threshold
-
+        h->tokenbuf_used = tokenbuf_reserved;
         if (!xml_lookahead(h)) {
             // Handle end-of-input and collect any completed inputs
+            xml_tokenbuf_flush_text(h);
             rv = h->ctx->on_end(h);
             if (xml_reader_input_rptr(h, &begin, &end) == XRU_EOF) {
                 break;
@@ -5081,20 +5070,27 @@ xml_reader_process(xml_reader_t *h)
             xml_reader_input_complete_notify(h);
             // Look for matching production in this context.
             // xml_lookahead removed completed inputs; can now save location for production start.
-            h->prodloc = STAILQ_FIRST(&h->active_input)->curloc;
             rv = PR_NOMATCH;
             for (pat = h->ctx->lookahead;; pat++) {
                 // Last pattern must accept the input
                 OOPS_ASSERT(pat < h->ctx->lookahead + MAX_LA_PAIRS);
                 OOPS_ASSERT(pat->func);
-                if (!pat->patlen || (pat->patlen <= h->tokenbuf_len
-                            && !memcmp(h->tokenbuf_start, pat->pattern, pat->patlen))) {
+                if (!pat->patlen || (pat->patlen <= h->labuf_len
+                            && !memcmp(h->labuf_start, pat->pattern, pat->patlen))) {
+                    if ((pat->flags & L_NOFLUSHTEXT) == 0) {
+                        xml_tokenbuf_flush_text(h);
+                    }
+                    if (!h->tokenbuf_len) {
+                        // Starting a new production, set location
+                        h->prodloc = STAILQ_FIRST(&h->active_input)->curloc;
+                    }
                     rv = pat->func(h);
                     break;
                 }
             }
             if (rv == PR_FAIL) {
-                // Attempt to recover
+                // Remove stray token and attempt to recover
+                h->tokenbuf_len = 0;
                 rv = h->ctx->on_fail(h);
             }
         }
@@ -5227,6 +5223,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     const xml_reader_context_t *saved_ctx;
     xml_reader_tokens_t saved_svtk;
     xmlerr_loc_t saved_prodloc;
+    size_t saved_tlen;
     xml_reader_external_t *ex;
     xml_reader_input_t *inp;
     xml_reader_initial_xcode_t xc;
@@ -5328,6 +5325,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // We're interrupting normal processing; save & restore the relevant parts
     saved_ctx = h->ctx;
     saved_svtk = h->svtk;
+    saved_tlen = h->tokenbuf_len;
     saved_prodloc = h->prodloc;
 
     h->ctx = &parser_decl;
@@ -5336,6 +5334,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     /// Restore
     h->ctx = saved_ctx;
     h->svtk = saved_svtk;
+    h->tokenbuf_len = saved_tlen;
     h->prodloc = saved_prodloc;
 
     h->flags &= ~R_ASCII_ONLY;
