@@ -72,10 +72,6 @@ enum xml_reader_cbtype_e {
     /// Append text to current node (extra data in .text)
     XML_READER_CB_TEXT,
 
-    // TBD merge into CB_TEXT
-    /// Append text via CDATA (extra data in .text)
-    XML_READER_CB_CDSECT,
-
     /// Start of element (extra data in .tag)
     XML_READER_CB_STAG,
 

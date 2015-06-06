@@ -33,7 +33,6 @@ static const enumval_t enumval_cbtype[] = {
     ENUM_VAL(XML_READER_CB_ENTITY_DEF, "Entity definition")
     ENUM_VAL(XML_READER_CB_NOTATION_DEF, "Notation definition")
     ENUM_VAL(XML_READER_CB_TEXT, "Text node")
-    ENUM_VAL(XML_READER_CB_CDSECT, "CDATA section")
     ENUM_VAL(XML_READER_CB_STAG, "Start tag")
     ENUM_VAL(XML_READER_CB_ETAG, "End tag")
     ENUM_VAL(XML_READER_CB_ATTR, "Attribute")

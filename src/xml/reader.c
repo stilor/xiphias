@@ -495,6 +495,37 @@ xml_reader_set_encoding(xml_reader_external_t *ex, const encoding_t *enc)
 }
 
 /**
+    Initialize a callback structure.
+
+    @param h Reader handle
+    @param cbtype Callback type
+    @param cbp Callback parameter structure
+    @return None
+*/
+static inline void
+xml_reader_callback_init(xml_reader_t *h, enum xml_reader_cbtype_e cbtype,
+        xml_reader_cbparam_t *cbp)
+{
+    memset(cbp, 0, sizeof(*cbp));
+    cbp->cbtype = cbtype;
+    cbp->loc = h->prodloc;
+}
+
+/**
+    Call a user-registered function for the specified event.
+
+    @param h Reader handle
+    @param cbp Callback parameter structure
+    @return None
+*/
+static inline void
+xml_reader_callback_invoke(xml_reader_t *h, xml_reader_cbparam_t *cbp)
+{
+    h->cb_func(h->cb_arg, cbp);
+}
+
+
+/**
     Reallocate token buffer.
 
     @param h Reader handle
@@ -579,6 +610,33 @@ xml_tokenbuf_setcbtoken(xml_reader_t *h, const xml_reader_saved_token_t *svtk,
     else {
         xml_reader_token_unset(tk);
     }
+}
+
+/**
+    Flush accumulated data in the token buffer as a TEXT callback.
+    TEXT data is special in that it can cross the entity boundaries, and we do not
+    know whether the text block has ended until we start the next production (e.g.
+    STag).
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_tokenbuf_flush_text(xml_reader_t *h)
+{
+    xml_reader_cbparam_t cbp;
+
+    if (h->tokenbuf_len) {
+        xml_tokenbuf_save(h, &h->svtk.value);
+        xml_reader_callback_init(h, XML_READER_CB_TEXT, &cbp);
+        xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.text.text);
+        // TBD test for whitespace rules - entity with charrefs is whitespace while 
+        // entity with references to charrefs (double-escaped) is not.
+        cbp.text.ws = h->ws;
+        xml_reader_callback_invoke(h, &cbp);
+    }
+    h->tokenbuf_len = 0;
+    h->ws = true;
 }
 
 /**
@@ -1344,36 +1402,6 @@ xml_reader_set_loader(xml_reader_t *h, xml_loader_t func, void *arg)
 {
     h->loader = func;
     h->loader_arg = arg;
-}
-
-/**
-    Initialize a callback structure.
-
-    @param h Reader handle
-    @param cbtype Callback type
-    @param cbp Callback parameter structure
-    @return None
-*/
-static inline void
-xml_reader_callback_init(xml_reader_t *h, enum xml_reader_cbtype_e cbtype,
-        xml_reader_cbparam_t *cbp)
-{
-    memset(cbp, 0, sizeof(*cbp));
-    cbp->cbtype = cbtype;
-    cbp->loc = h->prodloc;
-}
-
-/**
-    Call a user-registered function for the specified event.
-
-    @param h Reader handle
-    @param cbp Callback parameter structure
-    @return None
-*/
-static inline void
-xml_reader_callback_invoke(xml_reader_t *h, xml_reader_cbparam_t *cbp)
-{
-    h->cb_func(h->cb_arg, cbp);
 }
 
 /**
@@ -3440,18 +3468,9 @@ static const xml_reference_ops_t reference_ops_CharData = {
 static prodres_t
 xml_parse_CharData(xml_reader_t *h)
 {
-    xml_reader_cbparam_t cbp;
-
-    h->ws = true;
+    h->ws = true; // TBD remove
     (void)xml_read_until_parseref(h, &reference_ops_CharData, h);
-    xml_tokenbuf_save(h, &h->svtk.value);
-
-    if (h->svtk.value.len) {
-        xml_reader_callback_init(h, XML_READER_CB_TEXT, &cbp);
-        xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.text.text);
-        cbp.text.ws = h->ws;
-        xml_reader_callback_invoke(h, &cbp);
-    }
+    xml_tokenbuf_flush_text(h); // TBD remove
     return PR_OK;
 }
 
@@ -3677,8 +3696,6 @@ UCS4_ASSERT(does_not_compose, ucs4_fromlocal(']'));
 static prodres_t
 xml_parse_CDSect(xml_reader_t *h)
 {
-    xml_reader_cbparam_t cbp;
-
     // CDSect is considered an escape mechanism; the markup before and after
     // is not subject to include normalization check.
     h->flags |= R_NO_INC_NORM;
@@ -3699,12 +3716,8 @@ xml_parse_CDSect(xml_reader_t *h)
     }
     h->flags &= ~R_NO_INC_NORM; // Set in callback when parsing closing markup
     h->relevant = NULL;
-    xml_tokenbuf_save(h, &h->svtk.value);
-
-    xml_reader_callback_init(h, XML_READER_CB_CDSECT, &cbp);
-    xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.text.text);
-    cbp.text.ws = false;
-    xml_reader_callback_invoke(h, &cbp);
+    h->ws = false;
+    xml_tokenbuf_flush_text(h); // TBD remove
 
     xml_reader_input_unlock(h);
     return PR_OK;

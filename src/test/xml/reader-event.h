@@ -31,7 +31,6 @@ void xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam);
 #define FL_ENTITY_DEF         entity
 #define FL_NOTATION_DEF       notation
 #define FL_TEXT               text
-#define FL_CDSECT             text
 #define FL_STAG               tag
 #define FL_ETAG               tag
 #define FL_ATTR               attr

@@ -461,7 +461,6 @@ static const event_t events[] = {
     X(ENTITY_DEF)
     X(NOTATION_DEF)
     X(TEXT)
-    X(CDSECT)
     X(STAG)
     X(ETAG)
     X(ATTR)
