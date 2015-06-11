@@ -860,9 +860,9 @@ xml_reader_input_lock(xml_reader_t *h)
     Unlock a previously locked input.
 
     @param h Reader handle
-    @return Nothing
+    @return true if the input was locked, false otherwise
 */
-static void
+static bool __warn_unused_result
 xml_reader_input_unlock(xml_reader_t *h)
 {
     xml_reader_input_t *inp;
@@ -878,7 +878,24 @@ xml_reader_input_unlock(xml_reader_t *h)
     if (inp->locked) {
         // Normal case
         inp->locked--;
+        return true;
     }
+    return false;
+}
+
+/**
+    Ensure the last input was locked and unlock.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_reader_input_unlock_assert(xml_reader_t *h)
+{
+    bool unlocked;
+
+    unlocked = xml_reader_input_unlock(h);
+    OOPS_ASSERT(unlocked);
 }
 
 /**
@@ -2344,7 +2361,7 @@ read_content:
         goto malformed;
     }
     h->flags &= ~R_NO_INC_NORM;
-    xml_reader_input_unlock(h);
+    xml_reader_input_unlock_assert(h); // No recognized entities parsed since lock
     return PR_OK;
 
 literal_percent:
@@ -2352,7 +2369,7 @@ literal_percent:
     // an input with percent sign; mark it as reference-ignoring so that
     // we don't try to interpret this as a PE reference again
     h->flags &= ~R_NO_INC_NORM;
-    xml_reader_input_unlock(h);
+    xml_reader_input_unlock_assert(h); // No recognized entities parsed since lock
     inp = xml_reader_input_new(h, "literal percent sign");
     strbuf_set_input(inp->buf, rplc_percent, sizeof(rplc_percent));
     inp->ignore_references = true;
@@ -2363,7 +2380,7 @@ malformed:
     ri = xml_entity_type_info(*reftype);
     xml_reader_message_ref(h, XMLERR_MK(XMLERR_ERROR, XMLERR_SPEC_XML, ri->ecode),
             "Malformed %s reference", ri->desc);
-    xml_reader_input_unlock(h);
+    xml_reader_input_unlock_assert(h); // No recognized entities parsed since lock
     return PR_FAIL;
 }
 
@@ -3051,12 +3068,13 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
             xml_reader_message(h, &startloc, refops->errinfo,
                     "Unterminated literal");
             // Quote character loses its meaning if entity is included
-            // in literal
-            xml_reader_input_unlock(h);
+            // in literal. All reference operations must not recognize quote as
+            // a terminator.
+            xml_reader_input_unlock_assert(h);
         }
         return PR_FAIL;
     }
-    xml_reader_input_unlock(h);
+    xml_reader_input_unlock_assert(h);
     return PR_OK;
 }
 
@@ -3366,7 +3384,7 @@ xml_parse_decl_attr(xml_reader_t *h)
     return PR_OK;
 
 malformed:
-    xml_reader_input_unlock(h);
+    xml_reader_input_unlock_assert(h); // Entities are not recognized in declaration
     return PR_FAIL;
 }
 
@@ -3404,7 +3422,7 @@ xml_parse_decl_end(xml_reader_t *h)
     cbp.xmldecl.version = h->current_external->version;
     cbp.xmldecl.standalone = h->standalone;
     xml_reader_callback_invoke(h, &cbp);
-    xml_reader_input_unlock(h);
+    xml_reader_input_unlock_assert(h); // Entities not recognized in declaration
     h->declattr = NULL;
     return PR_STOP;
 }
@@ -3527,7 +3545,7 @@ xml_parse_Comment(xml_reader_t *h)
         // no need to recover (EOF)
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_Comment),
                 "Unterminated comment");
-        xml_reader_input_unlock(h);
+        xml_reader_input_unlock_assert(h); // Entities not recognized
         return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.value);
@@ -3536,7 +3554,7 @@ xml_parse_Comment(xml_reader_t *h)
     xml_tokenbuf_setcbtoken(h, &h->svtk.value, &cbp.comment.text);
     xml_reader_callback_invoke(h, &cbp);
 
-    xml_reader_input_unlock(h);
+    xml_reader_input_unlock_assert(h); // Entities not recognized
     return PR_OK;
 }
 
@@ -3577,13 +3595,15 @@ xml_parse_PI(xml_reader_t *h)
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                 "Expected PI target here");
-        xml_reader_input_unlock(h);
+        xml_reader_input_unlock_assert(h); // No recognized entities
         return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.name);
     /// @todo Check for XML-reserved names ([Xx][Mm][Ll]*)
 
-    // Content, if any, must be separated by a whitespace
+    // Content, if any, must be separated by a whitespace.
+    // We could only have closing ?> if there's no whitespace after PI target.
+    // There is no content in this case.
     if (xml_parse_whitespace(h) == PR_OK) {
         // Whitespace; everything up to closing ?> is the content
         if (xml_read_termstring(h, &termstring_pi, NULL, NULL) == PR_OK) {
@@ -3592,13 +3612,13 @@ xml_parse_PI(xml_reader_t *h)
         else {
             xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
                     "Unterminated processing instruction");
-            xml_reader_input_unlock(h);
+            xml_reader_input_unlock_assert(h); // No recognized entities
             return PR_FAIL;
         }
     }
     else if (xml_read_string(h, "?>", XMLERR(ERROR, XML, P_PI)) != PR_OK) {
         // Recover by skipping until closing angle bracket
-        xml_reader_input_unlock(h);
+        xml_reader_input_unlock_assert(h); // No recognized entities
         return PR_FAIL;
     }
 
@@ -3614,9 +3634,7 @@ xml_parse_PI(xml_reader_t *h)
     }
     xml_reader_callback_invoke(h, &cbp);
 
-    // We could only have closing ?> if there's no whitespace after PI target.
-    // There is no content in this case.
-    xml_reader_input_unlock(h);
+    xml_reader_input_unlock_assert(h); // No recognized entities
     return PR_OK;
 }
 
@@ -3701,7 +3719,7 @@ xml_parse_CDSect(xml_reader_t *h)
         xml_tokenbuf_flush_text(h); // Salvage as much already read text as possible
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_CDSect),
                 "Unterminated CDATA section");
-        xml_reader_input_unlock(h);
+        xml_reader_input_unlock_assert(h); // No recognized entities
         h->flags &= ~R_NO_INC_NORM; // Set in callback when parsing closing markup
         h->relevant = NULL;
         return PR_FAIL;
@@ -3710,7 +3728,7 @@ xml_parse_CDSect(xml_reader_t *h)
     h->relevant = NULL;
     h->cdata_ws = false; // CDATA is never considered matching S non-terminal
 
-    xml_reader_input_unlock(h);
+    xml_reader_input_unlock_assert(h); // No recognized entities
     return PR_OK;
 }
 
@@ -4436,7 +4454,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
         // No valid name - try to recover by skipping until closing bracket
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_STag),
                 "Expected element type");
-        xml_reader_input_unlock(h);
+        xml_reader_input_unlock_assert(h); // No recognized entities yet
         return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.name);
@@ -4547,7 +4565,9 @@ xml_parse_closing_EmptyElemTag(xml_reader_t *h)
     xml_read_string_assert(h, "/>");
     xml_reader_callback_init(h, XML_READER_CB_ETAG, &cbp);
     xml_reader_callback_invoke(h, &cbp);
-    xml_reader_input_unlock(h);
+
+    // Entities are only allowed in attribute value literals, which do their own locking
+    xml_reader_input_unlock_assert(h);
     h->ctx = h->nestlvl ? &parser_content : &parser_document_entity;
     return PR_OK;
 }
@@ -4590,15 +4610,15 @@ xml_parse_ETag(xml_reader_t *h)
     xml_reader_callback_init(h, XML_READER_CB_ETAG, &cbp);
     xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.tag.name);
     xml_reader_callback_invoke(h, &cbp);
-    xml_reader_input_unlock(h);
     inp = STAILQ_FIRST(&h->active_input);
     OOPS_ASSERT(inp);
     if (h->nestlvl != inp->saved_nestlvl) {
-        // Do not decrement nest level if already at the same level as before
-        // the current input
         h->nestlvl--;
+        xml_reader_input_unlock_assert(h);
     }
     else {
+        // Do not decrement nest level if already at the same level as before
+        // the current input. It also means the input is already unlocked.
         xml_reader_message_lastread(h, h->ctx->errcode, "%s", h->ctx->errmsg);
     }
 
