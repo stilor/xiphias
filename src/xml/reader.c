@@ -2126,7 +2126,7 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
 
     @param h Reader handle
     @param s String expected in the document; must be ASCII-only
-    @return PR_OK on success, PR_NOMATCH on failure
+    @return Nothing (asserts on no match)
 */
 static void
 xml_read_string_assert(xml_reader_t *h, const char *s)
@@ -2135,6 +2135,21 @@ xml_read_string_assert(xml_reader_t *h, const char *s)
 
     rv = xml_read_string(h, s, XMLERR_NOERROR);
     OOPS_ASSERT(rv == PR_OK);
+}
+
+/**
+    Read an expected string that starts a locked production.
+
+    @param h Reader handle
+    @param s String expected in the document; must be ASCII-only
+    @param locker Locking production name
+    @return Nothing (asserts on no match)
+*/
+static void
+xml_read_string_lock(xml_reader_t *h, const char *s, const char *locker)
+{
+    xml_reader_input_lock(h, locker);
+    xml_read_string_assert(h, s);
 }
 
 /**
@@ -2360,8 +2375,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     h->flags |= R_NO_INC_NORM;
     if (ucs4_cheq(startchar, '&')) {
         // This may be either entity or character reference
-        xml_read_string_assert(h, "&");
-        xml_reader_input_lock(h, "Reference");
+        xml_read_string_lock(h, "&", "Reference");
         if (xml_read_Name(h) == PR_OK) {
             // EntityRef
             *reftype = XML_READER_REF_GENERAL;
@@ -2397,8 +2411,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     // percent sign may be taken literally in the parameter entity
     // definition. If that's the case, it is followed by a whitespace
     // (S) rather than Name.
-    xml_read_string_assert(h, "%");
-    xml_reader_input_lock(h, "PEReference");
+    xml_read_string_lock(h, "%", "PEReference");
     if (xml_read_Name(h) == PR_OK) {
         *reftype = XML_READER_REF_PE;
         goto read_content;
@@ -3596,8 +3609,7 @@ xml_parse_Comment(xml_reader_t *h)
     xml_reader_cbparam_t cbp;
     comment_backtrack_handler_t cbh;
 
-    xml_read_string_assert(h, "<!--");
-    xml_reader_input_lock(h, "Comment");
+    xml_read_string_lock(h, "<!--", "Comment");
 
     cbh.h = h;
     cbh.warned = false;
@@ -3649,8 +3661,7 @@ xml_parse_PI(xml_reader_t *h)
     xml_reader_cbparam_t cbp;
     xml_reader_notation_t *n;
 
-    xml_read_string_assert(h, "<?");
-    xml_reader_input_lock(h, "PI");
+    xml_read_string_lock(h, "<?", "PI");
 
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
@@ -3768,8 +3779,7 @@ xml_parse_CDSect(xml_reader_t *h)
     // CDSect is considered an escape mechanism; the markup before and after
     // is not subject to include normalization check.
     h->flags |= R_NO_INC_NORM;
-    xml_read_string_assert(h, "<![CDATA[");
-    xml_reader_input_lock(h, "CDSect");
+    xml_read_string_lock(h, "<![CDATA[", "CDSect");
     h->flags &= ~R_NO_INC_NORM;
 
     // Starting CData - which is relevant construct
@@ -3947,8 +3957,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     prodres_t rv;
 
     // ['<!ENTITY' S]
-    xml_read_string_assert(h, "<!ENTITY");
-    xml_reader_input_lock(h, "EntityDecl");
+    xml_read_string_lock(h, "<!ENTITY", "EntityDecl");
 
     h->flags |= R_AMBIGUOUS_PERCENT;
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
@@ -4186,9 +4195,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
     xml_reader_notation_t *n = NULL;
     prodres_t rv;
 
-    // TBD use lock/unlock and check unlock's retval for proper nesting
-    xml_read_string_assert(h, "<!NOTATION");
-    xml_reader_input_lock(h, "NotationDecl");
+    xml_read_string_lock(h, "<!NOTATION", "NotationDecl");
 
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_NotationDecl),
@@ -4434,8 +4441,7 @@ xml_parse_doctypedecl(xml_reader_t *h)
     //   '<!DOCTYPE' S Name 'PUBLIC' S PubidLiteral S SystemLiteral S? '[' intSubset ']' S? '>'
 
     // Common part: '<!DOCTYPE' S Name
-    xml_read_string_assert(h, "<!DOCTYPE");
-    xml_reader_input_lock(h, "doctypedecl");
+    xml_read_string_lock(h, "<!DOCTYPE", "doctypedecl");
 
     // DTD allowed only once and only before the root element
     if (h->flags & (R_HAS_DTD|R_HAS_ROOT)) {
@@ -4520,9 +4526,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
         }
     }
 
-    // TBD xml_read_and_lock
-    xml_reader_input_lock(h, "STag/EmptyElemTag");
-    xml_read_string_assert(h, "<");
+    xml_read_string_lock(h, "<", "element");
 
     if (xml_read_Name(h) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
