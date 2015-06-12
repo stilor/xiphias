@@ -4704,6 +4704,9 @@ static const testcase_t testcases_structure[] = {
                     .info = XMLERR(ERROR, XML, P_doctypedecl),
                     .msg = "Expected string: '>'",
             ),
+            E0(DTD_END,
+                    LOC("dtd-bad4.xml", 1, 15)
+            ),
             EV(STAG,
                     LOC("dtd-bad4.xml", 2, 1),
                     .name = TOK("a"),
@@ -5500,7 +5503,7 @@ static const testcase_t testcases_structure[] = {
                     .root = TOK("x"),
             ),
             EV(MESSAGE,
-                    LOC("dtd-internal-truncated.xml", 1, 14),
+                    LOC("dtd-internal-truncated.xml", 2, 1),
                     .info = XMLERR(ERROR, XML, P_intSubset),
                     .msg = "Missing closing ] for internal subset",
             ),

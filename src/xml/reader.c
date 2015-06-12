@@ -873,14 +873,32 @@ xml_reader_input_unlock(xml_reader_t *h)
         otherwise, signal an error and unlock the closest input (since execution
         will not go back to the same production).
     */
-    inp = STAILQ_FIRST(&h->active_input);
-    OOPS_ASSERT(inp);
-    if (inp->locked) {
-        // Normal case
-        inp->locked--;
-        return true;
+    STAILQ_FOREACH(inp, &h->active_input, link) {
+        if (inp->locked) {
+            inp->locked--;
+            break;
+        }
     }
-    return false;
+    return inp == STAILQ_FIRST(&h->active_input);
+}
+
+/**
+    Attempt to unlock the input, but ignore any failures (used when there
+    was some preceding malformedness - so there is no point in the extra error
+    message.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_reader_input_unlock_ignore(xml_reader_t *h)
+{
+    bool unlocked;
+
+    unlocked = xml_reader_input_unlock(h);
+    if (!unlocked) {
+        // Do nothing
+    }
 }
 
 /**
@@ -896,6 +914,27 @@ xml_reader_input_unlock_assert(xml_reader_t *h)
 
     unlocked = xml_reader_input_unlock(h);
     OOPS_ASSERT(unlocked);
+}
+
+/**
+    Check proper nesting of markup declarations.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_reader_input_unlock_markupdecl(xml_reader_t *h)
+{
+    bool unlocked;
+
+    unlocked = xml_reader_input_unlock(h);
+    if (!unlocked) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, VC_PROPER_DECL_PE_NESTING),
+                "Parameter entity replacement text must be properly nested with "
+                "markup declarations");
+        xml_reader_message_lastread(h, XMLERR_NOTE,
+                "This is the start of the markup declaration");
+    }
 }
 
 /**
@@ -3289,7 +3328,6 @@ xml_parse_decl_start(xml_reader_t *h)
     // Ok, this is a declaration.
     // We know it's there, checked above
     xml_read_string_assert(h, "<?xml");
-    xml_reader_input_lock(h);
     h->declattr = h->declinfo->attrlist; // Currently expected attribute
     (void)xml_parse_whitespace(h); // checked above
     h->attr_ws = true;
@@ -3384,7 +3422,6 @@ xml_parse_decl_attr(xml_reader_t *h)
     return PR_OK;
 
 malformed:
-    xml_reader_input_unlock_assert(h); // Entities are not recognized in declaration
     return PR_FAIL;
 }
 
@@ -3422,7 +3459,6 @@ xml_parse_decl_end(xml_reader_t *h)
     cbp.xmldecl.version = h->current_external->version;
     cbp.xmldecl.standalone = h->standalone;
     xml_reader_callback_invoke(h, &cbp);
-    xml_reader_input_unlock_assert(h); // Entities not recognized in declaration
     h->declattr = NULL;
     return PR_STOP;
 }
@@ -3709,9 +3745,8 @@ xml_parse_CDSect(xml_reader_t *h)
     // is not subject to include normalization check.
     h->flags |= R_NO_INC_NORM;
     xml_read_string_assert(h, "<![CDATA[");
-    h->flags &= ~R_NO_INC_NORM;
-
     xml_reader_input_lock(h);
+    h->flags &= ~R_NO_INC_NORM;
 
     // Starting CData - which is relevant construct
     h->relevant = "CData";
@@ -3887,9 +3922,9 @@ xml_parse_EntityDecl(xml_reader_t *h)
     ucs4_t *rplc;
     prodres_t rv;
 
-    // TBD use lock/unlock and check unlock's retval for proper nesting
     // ['<!ENTITY' S]
     xml_read_string_assert(h, "<!ENTITY");
+    xml_reader_input_lock(h);
 
     h->flags |= R_AMBIGUOUS_PERCENT;
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
@@ -4074,6 +4109,8 @@ compatible:
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_EntityDecl)) != PR_OK) {
         goto malformed;
     }
+    xml_reader_input_unlock_markupdecl(h);
+
     if (ue) {
         // This entity is now known
         xml_unknown_entity_delete(h, &h->svtk.name);
@@ -4102,6 +4139,7 @@ malformed:
         // Remove the entity from the hash
         xml_entity_delete(h, e);
     }
+    xml_reader_input_unlock_ignore(h);
     return PR_FAIL;
 }
 
@@ -4126,6 +4164,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
 
     // TBD use lock/unlock and check unlock's retval for proper nesting
     xml_read_string_assert(h, "<!NOTATION");
+    xml_reader_input_lock(h);
 
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_NotationDecl),
@@ -4173,6 +4212,8 @@ xml_parse_NotationDecl(xml_reader_t *h)
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_NotationDecl)) != PR_OK) {
         goto malformed;
     }
+    xml_reader_input_unlock_markupdecl(h);
+
     xml_reader_callback_init(h, XML_READER_CB_NOTATION_DEF, &cbp);
     xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.notation.name);
     xml_tokenbuf_setcbtoken(h, &h->svtk.sysid, &cbp.notation.system_id);
@@ -4185,6 +4226,7 @@ malformed:
         // Remove the notation from the hash
         xml_notation_delete(h, n);
     }
+    xml_reader_input_unlock_ignore(h);
     return PR_FAIL;
 }
 
@@ -4267,6 +4309,8 @@ xml_dtd_on_complete(xml_reader_t *h, const xmlerr_loc_t *loc)
 {
     xml_reader_cbparam_t cbp;
 
+    xml_reader_input_unlock_assert(h);
+
     strhash_foreach(h->entities_unknown, xml_unknown_entity, h);
 
     // Use current location in including entity
@@ -4289,6 +4333,7 @@ xml_parse_dtd_end(xml_reader_t *h)
     if (xml_read_string(h, ">", XMLERR(ERROR, XML, P_doctypedecl)) != PR_OK) {
         // The only case we're attempting recovery in doctypedecl. Restore
         // context for future entities.
+        xml_dtd_on_complete(h, NULL);
         return PR_FAIL;
     }
 
@@ -4366,6 +4411,7 @@ xml_parse_doctypedecl(xml_reader_t *h)
 
     // Common part: '<!DOCTYPE' S Name
     xml_read_string_assert(h, "<!DOCTYPE");
+    xml_reader_input_lock(h);
 
     // DTD allowed only once and only before the root element
     if (h->flags & (R_HAS_DTD|R_HAS_ROOT)) {
@@ -4377,11 +4423,13 @@ xml_parse_doctypedecl(xml_reader_t *h)
     if (xml_parse_whitespace(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_doctypedecl),
                 "Expect whitespace here");
+        xml_reader_input_unlock_assert(h);
         return PR_FAIL;
     }
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_doctypedecl),
                 "Expect root element type here");
+        xml_reader_input_unlock_assert(h);
         return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.name);
@@ -4389,6 +4437,7 @@ xml_parse_doctypedecl(xml_reader_t *h)
     if (xml_parse_whitespace(h) == PR_OK) {
         rv = xml_parse_ExternalID(h, false);
         if (rv == PR_FAIL) {
+            xml_reader_input_unlock_assert(h);
             return PR_FAIL;
         }
         else if (rv == PR_OK) {
@@ -4690,12 +4739,10 @@ on_end_dtd_internal(xml_reader_t *h)
 {
     // Only raise the error on completion of the document entity - which we know
     // is the last in the stack.
-    if (STAILQ_EMPTY(&h->active_input)) {
-        xml_reader_message_current(h, XMLERR(ERROR, XML, P_intSubset),
-                "Missing closing ] for internal subset");
-        return PR_FAIL;
-    }
-    return PR_OK;
+    xml_reader_message_current(h, XMLERR(ERROR, XML, P_intSubset),
+            "Missing closing ] for internal subset");
+    xml_reader_input_unlock_assert(h);
+    return PR_FAIL;
 }
 
 /**
@@ -5075,7 +5122,6 @@ xml_reader_process(xml_reader_t *h)
 
     tokenbuf_reserved = h->tokenbuf_used;
 
-    // TBD move this func closer to xml_lookahead
     do {
         memset(&h->svtk, 0, sizeof(h->svtk));
         h->tokenbuf_used = tokenbuf_reserved;
@@ -5083,9 +5129,6 @@ xml_reader_process(xml_reader_t *h)
             // Handle end-of-input and collect any completed inputs
             xml_tokenbuf_flush_text(h);
             rv = h->ctx->on_end(h);
-            if (xml_reader_input_rptr(h, &begin, &end) == XRU_EOF) {
-                break;
-            }
         }
         else {
             xml_reader_input_complete_notify(h);
@@ -5111,10 +5154,18 @@ xml_reader_process(xml_reader_t *h)
                 }
             }
             if (rv == PR_FAIL) {
-                // Remove stray token and attempt to recover
+                // Remove stray token and attempt to recover. If recovery fails,
+                // mark the current external input as aborted (didn't consume it all,
+                // so certain normal end-of-input checks will not be performed).
                 h->tokenbuf_len = 0;
-                rv = h->ctx->on_fail(h);
+                if ((rv = h->ctx->on_fail(h)) != PR_OK) {
+                    h->current_external->aborted = true;
+                }
             }
+        }
+        // Remove completed inputs
+        if (xml_reader_input_rptr(h, &begin, &end) == XRU_EOF) {
+            break;
         }
     } while (rv == PR_OK && (h->flags & R_STOP) == 0);
 
@@ -5217,7 +5268,10 @@ xml_read_to_position(xml_reader_t *h)
         rv = xml_read_until(h, xml_cb_to_position, &st);
 
         // Unless the encoding is actually not compatible and advanced the pointer differently
-        OOPS_ASSERT(rv == XRU_STOP);
+        // TBD this function is going to die when DFAs for lookahead patterns are implemented
+        // TBD (and this is needed since position may not be updating if no loc tracking is
+        //      requested).
+        OOPS_ASSERT(rv == XRU_STOP || rv == XRU_INPUT_LOCKED);
     }
     return PR_OK;
 }
@@ -5261,7 +5315,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     ex->buf = buf;
     ex->location = xstrdup(location);
     ex->norm_unicode = NULL;
-    ex->aborted = false;
+    ex->aborted = true; // Until we know otherwise
     ex->on_complete = ha->on_complete;
 
     if (ha->ctx) {
@@ -5279,6 +5333,11 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     inp->complete = external_entity_end;
     inp->complete_arg = inp;
     inp->inc_in_literal = ha->inc_in_literal;
+
+    // Immediately lock the input, so that it is not removed even if it is empty.
+    // Since declaration parser does not recognize any entities, this is sufficient
+    // to prevent the declaration parser from escaping into the including entity.
+    xml_reader_input_lock(h);
 
     // Try to get the encoding from stream and check for BOM
     memset(adbuf, 0, sizeof(adbuf));
@@ -5442,7 +5501,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     if (decl_rv == PR_STOP) {
         h->flags |= R_NO_CHAR_CHECK;
         // TBD if not tracking location - this will fail! Need to get the machinery for
-        // generating the DGA and do strbuf_radvance(..., xc.la_offs)
+        // generating the DFA and do strbuf_radvance(..., xc.la_offs)
         decl_rv = xml_read_to_position(h);
         h->flags &= ~R_NO_CHAR_CHECK;
         OOPS_ASSERT(decl_rv == PR_OK);
@@ -5484,14 +5543,21 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
                 h->ctx->declinfo->name, enc->name);
     }
 
-    h->hidden_loader_arg = NULL; // Loaded successfully
+    // Loaded successfully
+    xml_reader_input_unlock_assert(h);
+    h->hidden_loader_arg = NULL;
+    ex->aborted = false;
     return;
 
 failed:
     // Keep the external in the list of entities we attempted to read, so that
-    // the locations for events remain valid.
-    ex->aborted = true;
-    xml_reader_input_complete(h, inp);
+    // the locations for events remain valid. Remove the "completed" input if
+    // it is still on the active list (i.e. if it has not been removed due to
+    // being empty (with or without declaration), or having a truncated declaration.
+    xml_reader_input_unlock_assert(h);
+    if (inp == STAILQ_FIRST(&h->active_input)) {
+        xml_reader_input_complete(h, inp);
+    }
 }
 
 /**
