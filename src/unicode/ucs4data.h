@@ -111,4 +111,7 @@ extern const ucs4data_t ucs4_characters[];
 /// Get the list of characters this one composes with
 #define ucs4_get_cw(cp) (&ucs4_composes_with[2 * ucs4_characters[cp].comp_idx])
 
+/// Check if this character is known in this Unicode version
+#define ucs4_is_assigned(cp) (ucs4_characters[cp].gencat != UCS4_GC_Cn)
+
 #endif

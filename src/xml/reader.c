@@ -41,6 +41,7 @@ enum {
     R_AMBIGUOUS_PERCENT = 0x0100,   ///< '%' may either start PE reference or have literal meaning
     R_NO_CHAR_CHECK     = 0x0200,   ///< When re-reading XMLDecl, disable checking restricted chars
     R_STOP              = 0x0400,   ///< Callback requested stop
+    R_NORM_UNKNOWN      = 0x0800,   ///< Accept unknown characters
 };
 
 /// Notation information
@@ -1321,6 +1322,7 @@ dummy_callback(void *arg, xml_reader_cbparam_t *cbparam)
 /// Default XML reader options
 static const xml_reader_options_t opts_default = {
     .normalization = XML_READER_NORM_DEFAULT,
+    .normalization_accept_unknown = false,
     .loctrack = true,
     .tabsize = 8,
     .entity_hash_order = 6,
@@ -1365,6 +1367,9 @@ xml_reader_new(const xml_reader_options_t *opts)
     h->tabsize = opts->tabsize;
     if (opts->loctrack) {
         h->flags |= R_LOCTRACK;
+    }
+    if (opts->normalization_accept_unknown) {
+        h->flags |= R_NORM_UNKNOWN;
     }
 
     // what would be the context of the entities loaded from it
@@ -1845,24 +1850,33 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
             // But, need to feed the character to both normalization checkers to maintain context.
             if (h->normalization == XML_READER_NORM_ON) {
                 norm_warned = false;
+                // Is this character known? If not, do we care?
+                if (!ucs4_is_assigned(cp0) && (h->flags & R_NORM_UNKNOWN) == 0) {
+                    xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
+                            "Unicode character U+%04X is not assigned in this Unicode version.", cp0);
+                    norm_warned = true;
+                }
                 // Does it come from the regular input or was a result of some substitution?
                 if (inp->external
                         && !nfc_check_nextchar(inp->external->norm_unicode, cp0)) {
-                    xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
-                            "Input is not Unicode-normalized");
-                    norm_warned = true;
+                    if (!norm_warned) {
+                        xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
+                                "Input is not Unicode-normalized");
+                        norm_warned = true;
+                    }
                 }
                 // Is this going to be a part of the document or will it be replaced?
                 if ((h->flags & R_NO_INC_NORM) == 0
-                        && !nfc_check_nextchar(h->norm_include, cp0)
-                        && !norm_warned) {
+                        && !nfc_check_nextchar(h->norm_include, cp0)) {
                     // TBD _ref or _current? _ref is where the last inclusion occurred, but
                     // it may not be the relevant part (i.e. if the denormalization happend
                     // in the nested include). Have refloc saved in each input when it is interrupted
                     // by another input inclusion?
-                    xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
-                            "Input is not include-normalized");
-                    norm_warned = true;
+                    if (!norm_warned) {
+                        xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
+                                "Input is not include-normalized");
+                        norm_warned = true;
+                    }
                 }
                 // Relevant construct start?
                 if (h->relevant) {

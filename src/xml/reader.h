@@ -226,6 +226,7 @@ typedef void (*xml_reader_cb_t)(void *arg, xml_reader_cbparam_t *cbparam);
 typedef struct {
     /// Unicode normalization behavior
     enum xml_reader_normalization_e normalization;
+    bool normalization_accept_unknown;  ///< Do not warn about unassigned characters
     bool loctrack;                      ///< Whether location tracking is enabled
     size_t tabsize;                     ///< Tabulation size for location tracking
     size_t entity_hash_order;           ///< Log2(number of hash buckets for entities)
