@@ -938,24 +938,6 @@ xml_reader_input_unlock_markupdecl(xml_reader_t *h)
 }
 
 /**
-    Break lock on the current locked input.
-
-    @param h Reader handle
-    @return Input that was previously locked, or NULL if current input was not locked
-*/
-static xml_reader_input_t *
-xml_reader_input_break_lock(xml_reader_t *h)
-{
-    xml_reader_input_t *inp;
-
-    if ((inp = STAILQ_FIRST(&h->active_input)) != NULL && inp->locked) {
-        inp->locked = 0;
-        return inp;
-    }
-    return NULL;
-}
-
-/**
     Advance read pointer, either in strbuf or in diversion.
 
     @param h Reader handle
@@ -4784,8 +4766,11 @@ on_end_tag(xml_reader_t *h)
     if (h->nestlvl != expected_nestlvl) {
         // TBD reword the message, e.g. 'Unbalanced start/end tags'
         xml_reader_message_current(h, h->ctx->errcode, "%s", h->ctx->errmsg);
-        xml_reader_input_break_lock(h);
         h->nestlvl = expected_nestlvl;
+        // Input may be locked more than once if more than one tag is not closed
+        while (inp->locked) {
+            xml_reader_input_unlock_assert(h);
+        }
     }
     return PR_OK;
 }
@@ -4809,7 +4794,7 @@ on_end_attr(xml_reader_t *h)
     // Revert to document/content parsing. Assume it was STag (because it's easier
     // and in absence of closing markup, we don't know for sure anyway.
     h->ctx = h->nestlvl ? &parser_content : &parser_document_entity;
-    xml_reader_input_break_lock(h);
+    xml_reader_input_unlock_assert(h);
     return PR_OK; // Parse the remainder
 }
 
@@ -4859,8 +4844,6 @@ on_fail_resync_bracket(xml_reader_t *h)
 static prodres_t
 on_fail_attr(xml_reader_t *h)
 {
-    xml_reader_input_t *inp;
-
     // Consume '/' if any: if we got here, it means we didn't match the lookahead for
     // closing EmptyElemTag - i.e., '/' was not followed by '>'. In that case, consume
     // the slash so as not to stall the recovery.
@@ -4873,8 +4856,7 @@ on_fail_attr(xml_reader_t *h)
     // context, without error (already complained when the failure was detected).
     // Since we cannot advance, it is because the input was locked by start of the
     // tag - so unlock it.
-    inp = xml_reader_input_break_lock(h);
-    OOPS_ASSERT(inp);
+    xml_reader_input_unlock_assert(h);
     h->ctx = h->nestlvl ? &parser_content : &parser_document_entity;
     return PR_OK;
 }
