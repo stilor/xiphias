@@ -256,9 +256,8 @@ typedef struct xml_reader_context_s {
     /// What is allowed in EntityValue
     const struct xml_reference_ops_s *entity_value_parser;
 
-    xmlerr_info_t errcode;          ///< Error code when breaking the lock in this context
-    const char *errmsg;             ///< Error message when breaking the lock in this context
-    enum xml_reader_reference_e reftype;    ///< If not a named entity, reference type for events
+    /// If not a named entity, reference type for events
+    enum xml_reader_reference_e reftype;
 } xml_reader_context_t;
 
 /// Completion handler for external entity
@@ -749,7 +748,6 @@ xml_reader_input_new(xml_reader_t *h, const char *location)
         inp->curloc.pos = 1;
     }
     else {
-        // TBD needed? If we save input in xml_reader_run, looks like this is redundant
         parent = STAILQ_FIRST(&h->active_input);
         OOPS_ASSERT(parent);
         inp->curloc = parent->curloc;
@@ -1613,6 +1611,7 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
     // TBD no longer need to read this one-by-one, a block read is ok as long as it will stop
     // reading (rather than emit an error) in case of encoding errors (which may be due to
     // wrongly guessed encoding). Try that after restoring the test cases.
+    // TBD wait until DFA is implemented - reading 1-by-1 may still be needed
     OOPS_ASSERT(sz != 0);
     OOPS_ASSERT((sz & 3) == 0); // Reading in 32-bit blocks
     bptr = cptr = begin;
@@ -3126,8 +3125,9 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     xmlerr_loc_t startloc;
     xml_cb_literal_state_t st;
 
+    // Literals are always inside a locked production (element/XMLDecl/EntityDecl/...)
     inp = STAILQ_FIRST(&h->active_input);
-    OOPS_ASSERT(inp); // TBD can this be violated if document entity is truncated before literal?
+    OOPS_ASSERT(inp);
     startloc = inp->curloc;
     // xml_read_until() may return 0 (empty literal), which is valid
     st.quote = UCS4_NOCHAR;
@@ -3277,7 +3277,6 @@ check_SD_YesNo(xml_reader_t *h)
 
     // Standalone status applies to the whole document and can only be set
     // in XMLDecl (i.e., in document entity).
-    // TBD assert this is a document entity
     if (sz == 2 && utf8_eqn(str, "no", 2)) {
         h->standalone = XML_INFO_STANDALONE_NO;
     }
@@ -4368,9 +4367,6 @@ xml_parse_dtd_end(xml_reader_t *h)
         return PR_FAIL;
     }
 
-    // We know there's input in the queue, we've just read from it
-    h->prodloc = STAILQ_FIRST(&h->active_input)->curloc; // TBD keep?
-
     if (xml_loader_info_isset(&h->dtd_loader_info)) {
         // TBD should have a ENTITY_START message here or in invoke_loader for DTD/main doc.
         // TBD and ENTITY_END at the end (since we emit ENTITY_NOT_LOADED, why not these?)
@@ -4696,7 +4692,14 @@ xml_parse_ETag(xml_reader_t *h)
     else {
         // Do not decrement nest level if already at the same level as before
         // the current input. It also means the input is already unlocked.
-        xml_reader_message_lastread(h, h->ctx->errcode, "%s", h->ctx->errmsg);
+        if (!l) {
+            xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_document),
+                    "Document entity must match 'document' production");
+        }
+        else {
+            xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_content),
+                    "Replacement text for an entity must match 'content' production");
+        }
     }
 
     h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
@@ -4751,7 +4754,8 @@ on_end_stop(xml_reader_t *h)
 static prodres_t
 on_end_fail(xml_reader_t *h)
 {
-    xml_reader_message_current(h, h->ctx->errcode, "%s", h->ctx->errmsg);
+    xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
+            "Expect pseudo-attribute or ?> here");
     return PR_FAIL;
 }
 
@@ -4807,8 +4811,15 @@ on_end_tag(xml_reader_t *h)
     }
     h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
     if (unbalanced) {
-        // TBD reword the message, e.g. 'Unbalanced start/end tags'
-        xml_reader_message_current(h, h->ctx->errcode, "%s", h->ctx->errmsg);
+        // TBD reword the message, e.g. 'Unbalanced start/end tags' - here and in parse_ETag
+        if (SLIST_EMPTY(&h->active_locks)) {
+            xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
+                    "Document entity must match 'document' production");
+        }
+        else {
+            xml_reader_message_current(h, XMLERR(ERROR, XML, P_content),
+                    "Replacement text for an entity must match 'content' production");
+        }
     }
     return PR_OK;
 }
@@ -4935,8 +4946,6 @@ static const xml_reader_context_t parser_internal_subset = {
     .declinfo = NULL,                   // Not used for reading any external entity
     .reftype = XML_READER_REF_NONE,     // Not an external entity
     .entity_value_parser = &reference_ops_EntityValue_internal,
-    .errcode = XMLERR(ERROR, XML, P_intSubset),
-    .errmsg = "Missing closing ] for internal subset",
 };
 
 /**
@@ -5020,8 +5029,6 @@ static const xml_reader_context_t parser_content = {
     .on_end = on_end_tag,
     .declinfo = &declinfo_textdecl,
     .reftype = XML_READER_REF_NONE, // Can only be loaded via entity
-    .errcode = XMLERR(ERROR, XML, P_content),
-    .errmsg = "Replacement text for an entity must match 'content' production",
 };
 
 /**
@@ -5056,8 +5063,6 @@ static const xml_reader_context_t parser_document_entity = {
     .on_end = on_end_tag,
     .declinfo = &declinfo_xmldecl,
     .reftype = XML_READER_REF_DOCUMENT, // Document entity
-    .errcode = XMLERR(ERROR, XML, P_document),
-    .errmsg = "Document entity must match 'document' production",
 };
 
 /**
@@ -5081,11 +5086,6 @@ static const xml_reader_context_t parser_attributes = {
     .on_fail = on_fail_attr,
     .on_end = on_end_attr,
     .reftype = XML_READER_REF_NONE, // not an external entity
-    // TBD change errcode/errmsg to a callback function so that it can distinguish
-    // whether whitespace or attribute name was expected. Rename to on_lock_break
-    // (since it would not be usable on any other error)
-    .errcode = XMLERR(ERROR, XML, P_STag),
-    .errmsg = "Expect attribute name, or >, or /> here",
 };
 
 /**
@@ -5122,8 +5122,6 @@ static const xml_reader_context_t parser_decl_attributes = {
     .on_fail = on_fail_fail,
     .on_end = on_end_fail,
     .reftype = XML_READER_REF_NONE, // not an external entity
-    .errcode = XMLERR(ERROR, XML, P_XMLDecl),
-    .errmsg = "Expect pseudo-attribute or ?> here",
 };
 
 /**
