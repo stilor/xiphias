@@ -177,7 +177,6 @@ typedef struct xml_reader_input_s {
     void *complete_arg;             ///< Argument to completion notification
 
     // Other fields
-    uint32_t saved_nestlvl;         ///< Element nesting level before this input
     bool inc_in_literal;            ///< 'included in literal' - special handling of quotes
     bool ignore_references;         ///< Ignore reference expansion in this input
     bool charref;                   ///< Input originated from a character reference
@@ -329,8 +328,6 @@ struct xml_reader_s {
     xml_reader_external_t *current_external;        ///< External entity being parsed
 
     nfc_t *norm_include;            ///< Normalization check handle for include normalization
-
-    uint32_t nestlvl;               ///< Element nesting level
 
     bool cdata_ws;                  ///< Seen only whitespace in CharData/CDATA
     bool attr_ws;                   ///< Attribute parser: seen w/s at the end of preceding token
@@ -746,7 +743,6 @@ xml_reader_input_new(xml_reader_t *h, const char *location)
 
     memset(inp, 0, sizeof(xml_reader_input_t));
     inp->buf = buf;
-    inp->saved_nestlvl = h->nestlvl;
     if (location) {
         inp->curloc.src = location;
         inp->curloc.line = 1;
@@ -4513,11 +4509,8 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
 
-    xml_read_string_assert(h, "<");
-    xml_reader_input_lock(h, "STag/EmptyElemTag");
-
     // Check the document production: at the top level, only one element is allowed
-    if (!h->nestlvl) {
+    if (SLIST_EMPTY(&h->active_locks)) {
         if (h->flags & R_HAS_ROOT) {
             xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_document),
                     "One root element allowed in a document");
@@ -4526,6 +4519,10 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
             h->flags |= R_HAS_ROOT;
         }
     }
+
+    // TBD xml_read_and_lock
+    xml_reader_input_lock(h, "STag/EmptyElemTag");
+    xml_read_string_assert(h, "<");
 
     if (xml_read_Name(h) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
@@ -4618,7 +4615,6 @@ xml_parse_closing_STag(xml_reader_t *h)
     // Just read the mark-up and restore the context. Since we just opened
     // a tag, nest level is non-zero - so we're in the content context.
     xml_read_string_assert(h, ">");
-    h->nestlvl++; // Opened element
     h->ctx = &parser_content;
     return PR_OK;
 }
@@ -4645,7 +4641,7 @@ xml_parse_closing_EmptyElemTag(xml_reader_t *h)
 
     // Entities are only allowed in attribute value literals, which do their own locking
     xml_reader_input_unlock_assert(h);
-    h->ctx = h->nestlvl ? &parser_content : &parser_document_entity;
+    h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
     return PR_OK;
 }
 
@@ -4666,6 +4662,7 @@ xml_parse_ETag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
     xml_reader_input_t *inp;
+    xml_reader_lock_token_t *l;
 
     xml_read_string_assert(h, "</");
     // Locked by STag
@@ -4689,8 +4686,7 @@ xml_parse_ETag(xml_reader_t *h)
     xml_reader_callback_invoke(h, &cbp);
     inp = STAILQ_FIRST(&h->active_input);
     OOPS_ASSERT(inp);
-    if (h->nestlvl != inp->saved_nestlvl) {
-        h->nestlvl--;
+    if ((l = SLIST_FIRST(&h->active_locks)) != NULL && l->input == inp) {
         xml_reader_input_unlock_assert(h);
     }
     else {
@@ -4699,7 +4695,7 @@ xml_parse_ETag(xml_reader_t *h)
         xml_reader_message_lastread(h, h->ctx->errcode, "%s", h->ctx->errmsg);
     }
 
-    h->ctx = h->nestlvl ? &parser_content : &parser_document_entity;
+    h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
     return PR_OK;
 }
 
@@ -4796,20 +4792,19 @@ on_end_tag(xml_reader_t *h)
 {
     xml_reader_input_t *inp;
     xml_reader_lock_token_t *l;
-    uint32_t expected_nestlvl;
+    bool unbalanced = false;
 
     // Should've switched back to content/document due to closing markup
     inp = STAILQ_FIRST(&h->active_input);
-    expected_nestlvl = inp ? inp->saved_nestlvl : 0;
-    h->ctx = expected_nestlvl ? &parser_content : &parser_document_entity;
-    if (h->nestlvl != expected_nestlvl) {
+    // Input may be locked more than once if more than one tag is not closed
+    while ((l = SLIST_FIRST(&h->active_locks)) != NULL && l->input == inp) {
+        xml_reader_input_unlock_assert(h);
+        unbalanced = true;
+    }
+    h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
+    if (unbalanced) {
         // TBD reword the message, e.g. 'Unbalanced start/end tags'
         xml_reader_message_current(h, h->ctx->errcode, "%s", h->ctx->errmsg);
-        h->nestlvl = expected_nestlvl;
-        // Input may be locked more than once if more than one tag is not closed
-        while ((l = SLIST_FIRST(&h->active_locks)) != NULL && l->input == inp) {
-            xml_reader_input_unlock_assert(h);
-        }
     }
     return PR_OK;
 }
@@ -4832,7 +4827,7 @@ on_end_attr(xml_reader_t *h)
 
     // Revert to document/content parsing. Assume it was STag (because it's easier
     // and in absence of closing markup, we don't know for sure anyway.
-    h->ctx = h->nestlvl ? &parser_content : &parser_document_entity;
+    h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
     xml_reader_input_unlock_assert(h);
     return PR_OK; // Parse the remainder
 }
@@ -4896,7 +4891,7 @@ on_fail_attr(xml_reader_t *h)
     // Since we cannot advance, it is because the input was locked by start of the
     // tag - so unlock it.
     xml_reader_input_unlock_assert(h);
-    h->ctx = h->nestlvl ? &parser_content : &parser_document_entity;
+    h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
     return PR_OK;
 }
 
