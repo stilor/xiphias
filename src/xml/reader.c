@@ -91,6 +91,9 @@ typedef void (*xml_refhandler_t)(xml_reader_t *, xml_reader_entity_t *);
 
 /// Methods for handling references (PEReference, EntityRef, CharRef)
 typedef struct xml_reference_ops_s {
+    /// Production name associated with this reference ops set - for literal parsing
+    const char *prodname;
+
     /// Error raised if failed to parse
     xmlerr_info_t errinfo;
 
@@ -174,7 +177,6 @@ typedef struct xml_reader_input_s {
     void *complete_arg;             ///< Argument to completion notification
 
     // Other fields
-    uint32_t locked;                ///< Number of productions 'locking' this input
     uint32_t saved_nestlvl;         ///< Element nesting level before this input
     bool inc_in_literal;            ///< 'included in literal' - special handling of quotes
     bool ignore_references;         ///< Ignore reference expansion in this input
@@ -182,6 +184,15 @@ typedef struct xml_reader_input_s {
     xml_reader_entity_t *entity;    ///< Associated entity if any
     xml_reader_external_t *external;///< External entity information
 } xml_reader_input_t;
+
+/// Input locking token.
+typedef struct xml_reader_lock_token_s {
+    SLIST_ENTRY(xml_reader_lock_token_s) link;  ///< Stack of locked productions
+    xmlerr_loc_t where;             ///< Where the production locked the input
+    xml_reader_input_t *input;      ///< Locked input
+    const char *locker;             ///< Type of locked production
+    // TBD name of tag used for locking for STag production
+} xml_reader_lock_token_t;
 
 /// Input head
 typedef STAILQ_HEAD(,xml_reader_input_s) xml_reader_input_head_t;
@@ -349,6 +360,9 @@ struct xml_reader_s {
     xml_reader_input_head_t active_input;       ///< Currently active inputs
     xml_reader_input_head_t free_input;         ///< Free list of input structures
     xml_reader_input_head_t completed_input;    ///< Deferred completion notifications
+
+    SLIST_HEAD(,xml_reader_lock_token_s) active_locks;  ///< Locked productions
+    SLIST_HEAD(,xml_reader_lock_token_s) free_locks;    ///< Free lock tokens
 
     STAILQ_HEAD(,xml_reader_external_s) external;       ///< All external entities
 };
@@ -822,6 +836,7 @@ static xru_t
 xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
 {
     xml_reader_input_t *inp;
+    xml_reader_lock_token_t *l;
     xru_t rv = XRU_CONTINUE;
 
     while ((inp = STAILQ_FIRST(&h->active_input)) != NULL) {
@@ -829,9 +844,8 @@ xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
         if (strbuf_rptr(inp->buf, begin, end) != 0) {
             return rv;
         }
-        if (inp->locked) {
+        if ((l = SLIST_FIRST(&h->active_locks)) != NULL && l->input == inp) {
             // Can't remove this input yet
-            // @todo Create an error message
             return XRU_INPUT_LOCKED;
         }
         xml_reader_input_complete(h, inp);
@@ -844,16 +858,27 @@ xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
     Lock current input.
 
     @param h Reader handle
+    @param locker Production name that locked this input
     @return Nothing
 */
 static void
-xml_reader_input_lock(xml_reader_t *h)
+xml_reader_input_lock(xml_reader_t *h, const char *locker)
 {
     xml_reader_input_t *inp;
+    xml_reader_lock_token_t *l;
 
     inp = STAILQ_FIRST(&h->active_input);
     OOPS_ASSERT(inp);
-    inp->locked++;
+    if ((l = SLIST_FIRST(&h->free_locks)) != NULL) {
+        SLIST_REMOVE_HEAD(&h->free_locks, link);
+    }
+    else {
+        l = xmalloc(sizeof(xml_reader_lock_token_t));
+    }
+    l->where = inp->curloc;
+    l->input = inp;
+    l->locker = locker;
+    SLIST_INSERT_HEAD(&h->active_locks, l, link);
 }
 
 /**
@@ -865,7 +890,8 @@ xml_reader_input_lock(xml_reader_t *h)
 static bool __warn_unused_result
 xml_reader_input_unlock(xml_reader_t *h)
 {
-    xml_reader_input_t *inp;
+    xml_reader_lock_token_t *l;
+    bool rv;
 
     /*
         Productions lock/unlock inputs in a stack-like fashion. Normally, we
@@ -873,13 +899,12 @@ xml_reader_input_unlock(xml_reader_t *h)
         otherwise, signal an error and unlock the closest input (since execution
         will not go back to the same production).
     */
-    STAILQ_FOREACH(inp, &h->active_input, link) {
-        if (inp->locked) {
-            inp->locked--;
-            break;
-        }
-    }
-    return inp == STAILQ_FIRST(&h->active_input);
+    l = SLIST_FIRST(&h->active_locks);
+    OOPS_ASSERT(l);
+    rv = l->input == STAILQ_FIRST(&h->active_input);
+    SLIST_REMOVE_HEAD(&h->active_locks, link);
+    SLIST_INSERT_HEAD(&h->free_locks, l, link);
+    return rv;
 }
 
 /**
@@ -1368,6 +1393,10 @@ xml_reader_new(const xml_reader_options_t *opts)
     STAILQ_INIT(&h->active_input);
     STAILQ_INIT(&h->free_input);
     STAILQ_INIT(&h->completed_input);
+
+    SLIST_INIT(&h->active_locks);
+    SLIST_INIT(&h->free_locks);
+
     STAILQ_INIT(&h->external);
 
     xml_entity_populate(h);
@@ -1386,7 +1415,16 @@ xml_reader_delete(xml_reader_t *h)
 {
     xml_reader_input_t *inp;
     xml_reader_external_t *ex;
+    xml_reader_lock_token_t *l;
 
+    while ((l = SLIST_FIRST(&h->active_locks)) != NULL) {
+        SLIST_REMOVE_HEAD(&h->active_locks, link);
+        xfree(l);
+    }
+    while ((l = SLIST_FIRST(&h->free_locks)) != NULL) {
+        SLIST_REMOVE_HEAD(&h->free_locks, link);
+        xfree(l);
+    }
     while ((inp = STAILQ_FIRST(&h->active_input)) != NULL) {
         xml_reader_input_complete(h, inp);
     }
@@ -2327,7 +2365,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     if (ucs4_cheq(startchar, '&')) {
         // This may be either entity or character reference
         xml_read_string_assert(h, "&");
-        xml_reader_input_lock(h);
+        xml_reader_input_lock(h, "Reference");
         if (xml_read_Name(h) == PR_OK) {
             // EntityRef
             *reftype = XML_READER_REF_GENERAL;
@@ -2364,7 +2402,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     // definition. If that's the case, it is followed by a whitespace
     // (S) rather than Name.
     xml_read_string_assert(h, "%");
-    xml_reader_input_lock(h);
+    xml_reader_input_lock(h, "PEReference");
     if (xml_read_Name(h) == PR_OK) {
         *reftype = XML_READER_REF_PE;
         goto read_content;
@@ -2899,6 +2937,8 @@ typedef struct xml_cb_literal_state_s {
     xml_reader_t *h;
     /// Deferred setting of 'relevant construct'
     bool starting;
+    /// Production name for this literal
+    const char *prodname;
 } xml_cb_literal_state_t;
 
 /**
@@ -2922,7 +2962,7 @@ xml_cb_literal(void *arg, ucs4_t cp)
             return UCS4_STOPCHAR; // Rejected before even started
         }
         st->quote = cp;
-        xml_reader_input_lock(st->h);
+        xml_reader_input_lock(st->h, st->prodname);
         return UCS4_NOCHAR; // Remember the quote, but do not store it
     }
     else {
@@ -2973,6 +3013,7 @@ UCS4_ASSERT(does_not_compose_with_preceding, ucs4_fromlocal('\''))
 
 /// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
 static const xml_reference_ops_t reference_ops_pseudo = {
+    .prodname = "<pseudo-literal in declaration>",
     .errinfo = XMLERR(ERROR, XML, P_XMLDecl), // TBD P_XMLDecl vs P_TextDecl
     .condread = xml_cb_literal,
     .flags = 0,
@@ -2983,6 +3024,7 @@ static const xml_reference_ops_t reference_ops_pseudo = {
 /// Virtual methods for reading attribute values (AttValue production)
 /// @todo: .condread must check for forbidden character ('<')
 static const xml_reference_ops_t reference_ops_AttValue = {
+    .prodname = "AttValue",
     .errinfo = XMLERR(ERROR, XML, P_AttValue),
     .condread = xml_cb_literal,
     .flags = R_RECOGNIZE_REF,
@@ -2999,6 +3041,7 @@ static const xml_reference_ops_t reference_ops_AttValue = {
 
 /// Virtual methods for reading system ID (SystemLiteral production)
 static const xml_reference_ops_t reference_ops_SystemLiteral = {
+    .prodname = "SystemLiteral",
     .errinfo = XMLERR(ERROR, XML, P_SystemLiteral),
     .condread = xml_cb_literal,
     .flags = 0,
@@ -3011,6 +3054,7 @@ static const xml_reference_ops_t reference_ops_SystemLiteral = {
 /// way so that R_ASCII may also make use of that approach? Also,
 /// can attribute value normalization use that approach?
 static const xml_reference_ops_t reference_ops_PubidLiteral = {
+    .prodname = "PubidLiteral",
     .errinfo = XMLERR(ERROR, XML, P_PubidLiteral),
     .condread = xml_cb_literal,
     .flags = 0,
@@ -3020,6 +3064,7 @@ static const xml_reference_ops_t reference_ops_PubidLiteral = {
 
 /// Virtual methods for reading entity value (EntityValue production) in internal subset
 static const xml_reference_ops_t reference_ops_EntityValue_internal = {
+    .prodname = "EntityValue (internal subset)",
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
     .condread = xml_cb_literal_EntityValue,
     .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
@@ -3038,6 +3083,7 @@ static const xml_reference_ops_t reference_ops_EntityValue_internal = {
 
 /// Virtual methods for reading entity value (EntityValue production) in external subset
 static const xml_reference_ops_t reference_ops_EntityValue_external = {
+    .prodname = "EntityValue (external subset)",
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
     .condread = xml_cb_literal_EntityValue,
     .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
@@ -3555,7 +3601,7 @@ xml_parse_Comment(xml_reader_t *h)
     comment_backtrack_handler_t cbh;
 
     xml_read_string_assert(h, "<!--");
-    xml_reader_input_lock(h);
+    xml_reader_input_lock(h, "Comment");
 
     cbh.h = h;
     cbh.warned = false;
@@ -3608,7 +3654,7 @@ xml_parse_PI(xml_reader_t *h)
     xml_reader_notation_t *n;
 
     xml_read_string_assert(h, "<?");
-    xml_reader_input_lock(h);
+    xml_reader_input_lock(h, "PI");
 
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
@@ -3727,7 +3773,7 @@ xml_parse_CDSect(xml_reader_t *h)
     // is not subject to include normalization check.
     h->flags |= R_NO_INC_NORM;
     xml_read_string_assert(h, "<![CDATA[");
-    xml_reader_input_lock(h);
+    xml_reader_input_lock(h, "CDSect");
     h->flags &= ~R_NO_INC_NORM;
 
     // Starting CData - which is relevant construct
@@ -3906,7 +3952,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
 
     // ['<!ENTITY' S]
     xml_read_string_assert(h, "<!ENTITY");
-    xml_reader_input_lock(h);
+    xml_reader_input_lock(h, "EntityDecl");
 
     h->flags |= R_AMBIGUOUS_PERCENT;
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
@@ -4146,7 +4192,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
 
     // TBD use lock/unlock and check unlock's retval for proper nesting
     xml_read_string_assert(h, "<!NOTATION");
-    xml_reader_input_lock(h);
+    xml_reader_input_lock(h, "NotationDecl");
 
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_NotationDecl),
@@ -4393,7 +4439,7 @@ xml_parse_doctypedecl(xml_reader_t *h)
 
     // Common part: '<!DOCTYPE' S Name
     xml_read_string_assert(h, "<!DOCTYPE");
-    xml_reader_input_lock(h);
+    xml_reader_input_lock(h, "doctypedecl");
 
     // DTD allowed only once and only before the root element
     if (h->flags & (R_HAS_DTD|R_HAS_ROOT)) {
@@ -4468,7 +4514,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
     xml_reader_cbparam_t cbp;
 
     xml_read_string_assert(h, "<");
-    xml_reader_input_lock(h);
+    xml_reader_input_lock(h, "STag/EmptyElemTag");
 
     // Check the document production: at the top level, only one element is allowed
     if (!h->nestlvl) {
@@ -4749,6 +4795,7 @@ static prodres_t
 on_end_tag(xml_reader_t *h)
 {
     xml_reader_input_t *inp;
+    xml_reader_lock_token_t *l;
     uint32_t expected_nestlvl;
 
     // Should've switched back to content/document due to closing markup
@@ -4760,7 +4807,7 @@ on_end_tag(xml_reader_t *h)
         xml_reader_message_current(h, h->ctx->errcode, "%s", h->ctx->errmsg);
         h->nestlvl = expected_nestlvl;
         // Input may be locked more than once if more than one tag is not closed
-        while (inp->locked) {
+        while ((l = SLIST_FIRST(&h->active_locks)) != NULL && l->input == inp) {
             xml_reader_input_unlock_assert(h);
         }
     }
@@ -5311,7 +5358,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // Immediately lock the input, so that it is not removed even if it is empty.
     // Since declaration parser does not recognize any entities, this is sufficient
     // to prevent the declaration parser from escaping into the including entity.
-    xml_reader_input_lock(h);
+    xml_reader_input_lock(h, "XMLDecl/TextDecl");
 
     // Try to get the encoding from stream and check for BOM
     memset(adbuf, 0, sizeof(adbuf));
