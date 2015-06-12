@@ -1,0 +1,2 @@
+<!ENTITY % xyz "empty &#34;&#34;">
+<!ENTITY %xyz;>

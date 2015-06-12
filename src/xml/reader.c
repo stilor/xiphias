@@ -4736,14 +4736,6 @@ on_end_dtd_internal(xml_reader_t *h)
 static prodres_t
 on_end_dtd_external(xml_reader_t *h)
 {
-#if 0 // TBD: check conditional sections, check nesting PEs inside a declaration once they're locking
-    // Parameter entities in DTD are not expected to match any given
-    // production ("are well-formed by definition"). Instead, there are
-    // certain requirements on proper nesting of parameter entities.
-    xml_reader_message_current(h,
-            XMLERR(ERROR, XML, VC_PROPER_DECL_PE_NESTING),
-            "Fails to parse: parameter entities not properly nested");
-#endif
     return PR_OK;
 }
 
