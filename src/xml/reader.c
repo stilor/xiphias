@@ -656,8 +656,6 @@ xml_tokenbuf_flush_text(xml_reader_t *h)
         xml_tokenbuf_save(h, &tk_cdata);
         xml_reader_callback_init(h, XML_READER_CB_TEXT, &cbp);
         xml_tokenbuf_setcbtoken(h, &tk_cdata, &cbp.text.text);
-        // TBD test for whitespace rules - entity with charrefs is whitespace while 
-        // entity with references to charrefs (double-escaped) is not.
         cbp.text.ws = h->cdata_ws;
         xml_reader_callback_invoke(h, &cbp);
     }
@@ -2791,6 +2789,10 @@ reference_included_charref(xml_reader_t *h, xml_reader_entity_t *e)
     inp->inc_in_literal = true;
     inp->ignore_references = true;
     inp->charref = true;
+
+    // Character reference, even if it evaluates to a whitespace character, does
+    // not match the S production.
+    h->cdata_ws = false;
 }
 
 /**
