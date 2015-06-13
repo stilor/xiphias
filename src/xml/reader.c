@@ -332,13 +332,17 @@ struct xml_reader_s {
     bool cdata_ws;                  ///< Seen only whitespace in CharData/CDATA
     bool attr_ws;                   ///< Attribute parser: seen w/s at the end of preceding token
 
-    utf8_t *tokenbuf_start;         ///< Start of the allocated token buffer
-    size_t tokenbuf_size;           ///< Size of the token buffer
-    size_t tokenbuf_used;           ///< Length of saved data in token buffer
-    size_t tokenbuf_len;            ///< Length of the current (unsaved) token
+    struct {
+        utf8_t *start;              ///< Start of the allocated token buffer
+        size_t size;                ///< Size of the token buffer
+        size_t used;                ///< Length of saved data in token buffer
+        size_t len;                 ///< Length of the current (unsaved) token
+    } tokenbuf;                     ///< Current token buffer
 
-    utf8_t labuf_start[MAX_LOOKAHEAD_SIZE];         ///< Lookahead buffer
-    size_t labuf_len;                               ///< Amount of looked ahead data
+    struct {
+        utf8_t start[MAX_LOOKAHEAD_SIZE];   ///< Lookahead buffer
+        size_t len;                         ///< Amount of looked ahead data
+    } labuf;                        ///< Lookahead buffer
 
     xml_reader_tokens_t svtk;       ///< All saved tokens
 
@@ -556,8 +560,8 @@ xml_reader_callback_invoke(xml_reader_t *h, xml_reader_cbparam_t *cbp)
 static void
 xml_tokenbuf_realloc(xml_reader_t *h)
 {
-    h->tokenbuf_size *= 2;
-    h->tokenbuf_start = xrealloc(h->tokenbuf_start, h->tokenbuf_size);
+    h->tokenbuf.size *= 2;
+    h->tokenbuf.start = xrealloc(h->tokenbuf.start, h->tokenbuf.size);
 }
 
 /**
@@ -590,11 +594,11 @@ static void
 xml_tokenbuf_save(xml_reader_t *h, xml_reader_saved_token_t *svtk)
 {
     OOPS_ASSERT(!svtk->reserved);
-    svtk->offset = h->tokenbuf_used;
-    svtk->len = h->tokenbuf_len;
+    svtk->offset = h->tokenbuf.used;
+    svtk->len = h->tokenbuf.len;
     svtk->reserved = true;
-    h->tokenbuf_used += h->tokenbuf_len;
-    h->tokenbuf_len = 0;
+    h->tokenbuf.used += h->tokenbuf.len;
+    h->tokenbuf.len = 0;
 }
 
 /**
@@ -607,10 +611,10 @@ xml_tokenbuf_save(xml_reader_t *h, xml_reader_saved_token_t *svtk)
 static void
 xml_tokenbuf_release(xml_reader_t *h, xml_reader_saved_token_t *svtk)
 {
-    OOPS_ASSERT(h->tokenbuf_used == svtk->offset + svtk->len); // Last saved?
+    OOPS_ASSERT(h->tokenbuf.used == svtk->offset + svtk->len); // Last saved?
     OOPS_ASSERT(svtk->reserved);
-    h->tokenbuf_used = svtk->offset;
-    h->tokenbuf_len = svtk->len;
+    h->tokenbuf.used = svtk->offset;
+    h->tokenbuf.len = svtk->len;
     svtk->reserved = false;
 }
 
@@ -626,7 +630,7 @@ xml_tokenbuf_setcbtoken(xml_reader_t *h, xml_reader_saved_token_t *svtk,
         xml_reader_token_t *tk)
 {
     if (svtk->reserved) {
-        tk->str = h->tokenbuf_start + svtk->offset;
+        tk->str = h->tokenbuf.start + svtk->offset;
         tk->len = svtk->len;
     }
     else {
@@ -649,7 +653,7 @@ xml_tokenbuf_flush_text(xml_reader_t *h)
     xml_reader_cbparam_t cbp;
     xml_reader_saved_token_t tk_cdata = { .reserved = false };
 
-    if (h->tokenbuf_len) {
+    if (h->tokenbuf.len) {
         xml_tokenbuf_save(h, &tk_cdata);
         xml_reader_callback_init(h, XML_READER_CB_TEXT, &cbp);
         xml_tokenbuf_setcbtoken(h, &tk_cdata, &cbp.text.text);
@@ -672,11 +676,11 @@ xml_tokenbuf_set_loader_info(xml_reader_t *h, xml_loader_info_t *loader_info)
 {
     if (h->svtk.sysid.reserved) {
         xml_loader_info_set_system_id(loader_info,
-                h->tokenbuf_start + h->svtk.sysid.offset, h->svtk.sysid.len);
+                h->tokenbuf.start + h->svtk.sysid.offset, h->svtk.sysid.len);
     }
     if (h->svtk.pubid.reserved) {
         xml_loader_info_set_public_id(loader_info,
-                h->tokenbuf_start + h->svtk.pubid.offset, h->svtk.pubid.len);
+                h->tokenbuf.start + h->svtk.pubid.offset, h->svtk.pubid.len);
     }
 }
 
@@ -990,15 +994,15 @@ xml_lookahead(xml_reader_t *h)
     xml_reader_input_t *inp;
     ucs4_t tmp[MAX_LOOKAHEAD_SIZE];
     ucs4_t *ptr = tmp;
-    utf8_t *bufptr = h->labuf_start;
+    utf8_t *bufptr = h->labuf.start;
     size_t i, nread;
 
     if ((inp = STAILQ_FIRST(&h->active_input)) == NULL) {
-        h->labuf_len = 0;
+        h->labuf.len = 0;
         return false;
     }
     if ((nread = strbuf_lookahead(inp->buf, ptr, MAX_LOOKAHEAD_SIZE * sizeof(ucs4_t))) == 0) {
-        h->labuf_len = 0;
+        h->labuf.len = 0;
         return false;
     }
     OOPS_ASSERT((nread & 3) == 0); // input buf must have an integral number of characters
@@ -1009,7 +1013,7 @@ xml_lookahead(xml_reader_t *h)
         }
         *bufptr++ = *ptr++;
     }
-    h->labuf_len = ptr - tmp;
+    h->labuf.len = ptr - tmp;
     return true; // Even if we didn't put anything into token buffer, there's data to process
 }
 
@@ -1022,7 +1026,7 @@ xml_lookahead(xml_reader_t *h)
 static xml_reader_notation_t *
 xml_notation_new(xml_reader_t *h)
 {
-    const utf8_t *name = h->tokenbuf_start + h->svtk.name.offset;
+    const utf8_t *name = h->tokenbuf.start + h->svtk.name.offset;
     size_t namelen = h->svtk.name.len;
     xml_reader_notation_t *n;
 
@@ -1044,7 +1048,7 @@ xml_notation_new(xml_reader_t *h)
 static xml_reader_notation_t *
 xml_notation_get(xml_reader_t *h, const xml_reader_saved_token_t *svtk)
 {
-    const utf8_t *name = h->tokenbuf_start + svtk->offset;
+    const utf8_t *name = h->tokenbuf.start + svtk->offset;
     size_t namelen = svtk->len;
 
     return strhash_get(h->notations, name, namelen);
@@ -1089,7 +1093,7 @@ static xml_reader_entity_t *
 xml_entity_new(xml_reader_t *h, bool parameter)
 {
     strhash_t *ehash = parameter ? h->entities_param : h->entities_gen;
-    const utf8_t *name = h->tokenbuf_start + h->svtk.name.offset;
+    const utf8_t *name = h->tokenbuf.start + h->svtk.name.offset;
     size_t namelen = h->svtk.name.len;
     xml_reader_entity_t *e;
     const char *s;
@@ -1117,7 +1121,7 @@ static xml_reader_entity_t *
 xml_entity_get(xml_reader_t *h, const xml_reader_saved_token_t *svtk, bool parameter)
 {
     strhash_t *ehash = parameter ? h->entities_param : h->entities_gen;
-    const utf8_t *name = h->tokenbuf_start + svtk->offset;
+    const utf8_t *name = h->tokenbuf.start + svtk->offset;
     size_t namelen = svtk->len;
 
     return strhash_get(ehash, name, namelen);
@@ -1176,7 +1180,7 @@ xml_entity_destroy(void *arg)
 static xml_reader_unknown_entity_t *
 xml_unknown_entity_get(xml_reader_t *h, const xml_reader_saved_token_t *svtk)
 {
-    const utf8_t *name = h->tokenbuf_start + svtk->offset;
+    const utf8_t *name = h->tokenbuf.start + svtk->offset;
     size_t namelen = svtk->len;
 
     return strhash_get(h->entities_unknown, name, namelen);
@@ -1192,7 +1196,7 @@ xml_unknown_entity_get(xml_reader_t *h, const xml_reader_saved_token_t *svtk)
 static void
 xml_unknown_entity_delete(xml_reader_t *h, const xml_reader_saved_token_t *svtk)
 {
-    const utf8_t *name = h->tokenbuf_start + svtk->offset;
+    const utf8_t *name = h->tokenbuf.start + svtk->offset;
     size_t namelen = svtk->len;
 
     // TBD strhash_delete that doesn't have to lookup using container_of to find item
@@ -1258,16 +1262,16 @@ xml_entity_populate(xml_reader_t *h)
     size_t i, j, nchars;
 
     // We'll use token buffer, make sure it's empty
-    OOPS_ASSERT(h->tokenbuf_used == 0);
-    OOPS_ASSERT(h->tokenbuf_len == 0);
+    OOPS_ASSERT(h->tokenbuf.used == 0);
+    OOPS_ASSERT(h->tokenbuf.len == 0);
     for (i = 0, predef = predefined_entities; i < sizeofarray(predefined_entities);
             i++, predef++) {
         s = predef->rplc[0];
         // Entity allocation routine is tailored for allocating from a definition,
         // emulate that. We know the buffer is large enough to accommodate the predefined
         // entities.
-        OOPS_ASSERT(predef->namelen <= h->tokenbuf_size);
-        memcpy(h->tokenbuf_start, predef->name, predef->namelen);
+        OOPS_ASSERT(predef->namelen <= h->tokenbuf.size);
+        memcpy(h->tokenbuf.start, predef->name, predef->namelen);
         h->svtk.name.offset = 0;
         h->svtk.name.len = predef->namelen;
         e = xml_entity_new(h, false);
@@ -1377,8 +1381,8 @@ xml_reader_new(const xml_reader_options_t *opts)
     h->normalization = opts->normalization;
     h->norm_include = NULL;
 
-    h->tokenbuf_size = max(opts->initial_tokenbuf, MAX_LOOKAHEAD_SIZE);
-    h->tokenbuf_start = xmalloc(h->tokenbuf_size);
+    h->tokenbuf.size = max(opts->initial_tokenbuf, MAX_LOOKAHEAD_SIZE);
+    h->tokenbuf.start = xmalloc(h->tokenbuf.size);
 
     xml_loader_info_init(&h->dtd_loader_info, NULL, NULL);
 
@@ -1448,7 +1452,7 @@ xml_reader_delete(xml_reader_t *h)
     strhash_destroy(h->entities_unknown);
     strhash_destroy(h->notations);
 
-    xfree(h->tokenbuf_start);
+    xfree(h->tokenbuf.start);
     xfree(h->ucs4buf);
     xfree(h->refrplc);
     xfree(h);
@@ -1745,7 +1749,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 
     xml_reader_input_complete_notify(h); // Process any outstanding notifications
 
-    bufptr = h->tokenbuf_start + h->tokenbuf_used + h->tokenbuf_len;
+    bufptr = h->tokenbuf.start + h->tokenbuf.used + h->tokenbuf.len;
     h->rejected = UCS4_NOCHAR; // Avoid stale data if we exit without looking at next char
 
     do {
@@ -1906,14 +1910,14 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
 
             if (cp != UCS4_NOCHAR) {
                 clen = utf8_clen(cp);
-                if (bufptr + clen > h->tokenbuf_start + h->tokenbuf_size) {
+                if (bufptr + clen > h->tokenbuf.start + h->tokenbuf.size) {
                     // Double token storage
-                    offs = bufptr - h->tokenbuf_start;
+                    offs = bufptr - h->tokenbuf.start;
                     xml_tokenbuf_realloc(h);
-                    bufptr = h->tokenbuf_start + offs;
+                    bufptr = h->tokenbuf.start + offs;
                 }
                 utf8_store(&bufptr, cp);
-                h->tokenbuf_len += clen;
+                h->tokenbuf.len += clen;
                 if (h->flags & R_SAVE_UCS4) {
                     xml_ucs4_store(h, cp);
                 }
@@ -2255,7 +2259,7 @@ xml_read_termstring(xml_reader_t *h, const xml_termstring_desc_t *ts,
         return PR_NOMATCH;
     }
     // Drop match terminator from token buffer
-    h->tokenbuf_len -= st.term.len;
+    h->tokenbuf.len -= st.term.len;
     return PR_OK;
 }
 
@@ -3183,7 +3187,7 @@ static void
 check_VersionInfo(xml_reader_t *h)
 {
     xml_reader_external_t *ex = h->current_external;
-    const utf8_t *str = h->tokenbuf_start + h->svtk.value.offset;
+    const utf8_t *str = h->tokenbuf.start + h->svtk.value.offset;
     size_t sz = h->svtk.value.len;
     size_t i;
 
@@ -3242,7 +3246,7 @@ static void
 check_EncName(xml_reader_t *h)
 {
     xml_reader_external_t *ex = h->current_external;
-    const utf8_t *str = h->tokenbuf_start + h->svtk.value.offset;
+    const utf8_t *str = h->tokenbuf.start + h->svtk.value.offset;
     size_t sz = h->svtk.value.len;
     const utf8_t *s;
     size_t i;
@@ -3286,7 +3290,7 @@ bad_encoding:
 static void
 check_SD_YesNo(xml_reader_t *h)
 {
-    const utf8_t *str = h->tokenbuf_start + h->svtk.value.offset;
+    const utf8_t *str = h->tokenbuf.start + h->svtk.value.offset;
     size_t sz = h->svtk.value.len;
 
     // Standalone status applies to the whole document and can only be set
@@ -3371,7 +3375,7 @@ xml_parse_decl_start(xml_reader_t *h)
 {
     // We know '<?xml' is here, but it must be followed by a whitespace
     // so that it can be distinguished from a XML PI, e.g. '<?xml-model'
-    if (h->labuf_len < 6 || !xml_is_whitespace(h->labuf_start[5])) {
+    if (h->labuf.len < 6 || !xml_is_whitespace(h->labuf.start[5])) {
         return PR_NOMATCH;
     }
 
@@ -3426,7 +3430,7 @@ xml_parse_decl_attr(xml_reader_t *h)
 
     // Go through the remaining attributes and see if this one is known
     // (and if we skipped any mandatory attributes while advancing).
-    name = h->tokenbuf_start + h->svtk.name.offset;
+    name = h->tokenbuf.start + h->svtk.name.offset;
     for (attr = h->declattr; attr->name; attr++) {
         if (h->svtk.name.len == strlen(attr->name)
                 && utf8_eqn(name, attr->name, h->svtk.name.len)) {
@@ -5152,11 +5156,11 @@ xml_reader_process(xml_reader_t *h)
     size_t tokenbuf_reserved;
     prodres_t rv;
 
-    tokenbuf_reserved = h->tokenbuf_used;
+    tokenbuf_reserved = h->tokenbuf.used;
 
     do {
         memset(&h->svtk, 0, sizeof(h->svtk));
-        h->tokenbuf_used = tokenbuf_reserved;
+        h->tokenbuf.used = tokenbuf_reserved;
         if (!xml_lookahead(h)) {
             // Handle end-of-input and collect any completed inputs
             xml_tokenbuf_flush_text(h);
@@ -5171,12 +5175,12 @@ xml_reader_process(xml_reader_t *h)
                 // Last pattern must accept the input
                 OOPS_ASSERT(pat < h->ctx->lookahead + MAX_LA_PAIRS);
                 OOPS_ASSERT(pat->func);
-                if (!pat->patlen || (pat->patlen <= h->labuf_len
-                            && !memcmp(h->labuf_start, pat->pattern, pat->patlen))) {
+                if (!pat->patlen || (pat->patlen <= h->labuf.len
+                            && !memcmp(h->labuf.start, pat->pattern, pat->patlen))) {
                     if ((pat->flags & L_NOFLUSHTEXT) == 0) {
                         xml_tokenbuf_flush_text(h);
                     }
-                    if (!h->tokenbuf_len) {
+                    if (!h->tokenbuf.len) {
                         // Starting a new production, set location & prepare
                         h->prodloc = STAILQ_FIRST(&h->active_input)->curloc;
                         h->cdata_ws = true;
@@ -5189,7 +5193,7 @@ xml_reader_process(xml_reader_t *h)
                 // Remove stray token and attempt to recover. If recovery fails,
                 // mark the current external input as aborted (didn't consume it all,
                 // so certain normal end-of-input checks will not be performed).
-                h->tokenbuf_len = 0;
+                h->tokenbuf.len = 0;
                 if ((rv = h->ctx->on_fail(h)) != PR_OK) {
                     h->current_external->aborted = true;
                 }
@@ -5204,7 +5208,7 @@ xml_reader_process(xml_reader_t *h)
     xml_reader_input_complete_notify(h);
 
     // Restore handle state
-    h->tokenbuf_used = tokenbuf_reserved;
+    h->tokenbuf.used = tokenbuf_reserved;
     return rv;
 }
 
@@ -5438,7 +5442,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // We're interrupting normal processing; save & restore the relevant parts
     saved_ctx = h->ctx;
     saved_svtk = h->svtk;
-    saved_tlen = h->tokenbuf_len;
+    saved_tlen = h->tokenbuf.len;
     saved_prodloc = h->prodloc;
 
     h->ctx = &parser_decl;
@@ -5447,7 +5451,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     /// Restore
     h->ctx = saved_ctx;
     h->svtk = saved_svtk;
-    h->tokenbuf_len = saved_tlen;
+    h->tokenbuf.len = saved_tlen;
     h->prodloc = saved_prodloc;
 
     h->flags &= ~R_ASCII_ONLY;
