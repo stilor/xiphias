@@ -280,6 +280,9 @@ strbuf_radvance(strbuf_t *buf, size_t sz)
     if (buf->roffs >= buf->memsz) {
         buf->roffs -= buf->memsz;
     }
+    if (buf->ops && buf->ops->radvance) {
+        buf->ops->radvance(buf->arg, sz);
+    }
 }
 
 /**

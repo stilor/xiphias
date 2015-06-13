@@ -31,6 +31,15 @@ typedef struct strbuf_ops_s {
     size_t (*more)(void *arg, void *begin, size_t sz);
 
     /**
+        Advance read pointer in the buffer.
+
+        @param arg Argument set for callbacks
+        @param sz Number of bytes to advance
+        @return Nothing
+    */
+    void (*radvance)(void *arg, size_t sz);
+
+    /**
         Destroy arbitrary data associated with the buffer.
 
         @param arg Argument set for callbacks

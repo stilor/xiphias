@@ -39,9 +39,8 @@ enum {
     R_HAS_ROOT          = 0x0040,   ///< Root element seen
     R_HAS_DTD           = 0x0080,   ///< Document declaration seen
     R_AMBIGUOUS_PERCENT = 0x0100,   ///< '%' may either start PE reference or have literal meaning
-    R_NO_CHAR_CHECK     = 0x0200,   ///< When re-reading XMLDecl, disable checking restricted chars
-    R_STOP              = 0x0400,   ///< Callback requested stop
-    R_NORM_UNKNOWN      = 0x0800,   ///< Accept unknown characters
+    R_STOP              = 0x0200,   ///< Callback requested stop
+    R_NORM_UNKNOWN      = 0x0400,   ///< Accept unknown characters
 };
 
 /// Notation information
@@ -973,10 +972,12 @@ xml_reader_input_radvance(xml_reader_t *h, size_t sz)
 {
     xml_reader_input_t *inp;
 
-    inp = STAILQ_FIRST(&h->active_input);
-    OOPS_ASSERT(inp);
-    OOPS_ASSERT(inp->buf);
-    strbuf_radvance(inp->buf, sz);
+    if (sz) {
+        inp = STAILQ_FIRST(&h->active_input);
+        OOPS_ASSERT(inp);
+        OOPS_ASSERT(inp->buf);
+        strbuf_radvance(inp->buf, sz);
+    }
 }
 
 /**
@@ -1595,6 +1596,16 @@ typedef struct xml_reader_initial_xcode_s {
     size_t la_avail;            ///< Size of data available in buffer
     size_t la_offs;             ///< Current lookahead offset
 
+    /// Position (@a la_offs) at each looked ahead character
+    size_t la_pos[MAX_LOOKAHEAD_SIZE];
+
+    /// Index in the position index
+    size_t la_pos_idx;
+
+    /// Flag if current position has been set (if more than 1 byte is consumed per character,
+    /// do not update the position on 2nd and further bytes)
+    bool la_pos_set;
+
     /// First attempt to have the buffer on the stack
     utf8_t initial[INITIAL_DECL_LOOKAHEAD_SIZE];
 } xml_reader_initial_xcode_t;
@@ -1624,7 +1635,7 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
     OOPS_ASSERT(sz != 0);
     OOPS_ASSERT((sz & 3) == 0); // Reading in 32-bit blocks
     bptr = cptr = begin;
-    do {
+    while (true) {
         if (xc->la_offs == xc->la_avail) {
             // Need to read more data into the buffer ...
             if (xc->la_avail == xc->la_size) {
@@ -1644,20 +1655,49 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
             }
         }
         // Transcode a single UCS-4 code point
+        if (!xc->la_pos_set) {
+            xc->la_pos_set = true;
+            OOPS_ASSERT(xc->la_pos_idx < sizeofarray(xc->la_pos));
+            xc->la_pos[xc->la_pos_idx++] = xc->la_offs;
+        }
         xc->la_offs += encoding_in(ex->enc, xc->la_start + xc->la_offs,
                 xc->la_start + xc->la_avail, &cptr, bptr + 1);
 
+        if (cptr != bptr) {
+            xc->la_pos_set = false;
+            break;
+        }
+
         // If reading did not produce a character (was absorbed by encoding
         // state), repeat - possibly reading more
-    } while (cptr == bptr);
+    }
 
     OOPS_ASSERT(cptr == bptr + 1); // Must have 1 character
     return sizeof(ucs4_t);
 }
 
+/**
+    Notification when the read pointer is advanced.
+
+    @param arg Pointer to transcoder state
+    @param sz Number of bytes to advance
+    @return Nothing
+*/
+static void
+xml_reader_initial_op_radvance(void *arg, size_t sz)
+{
+    xml_reader_initial_xcode_t *xc = arg;
+
+    OOPS_ASSERT((sz & 3) == 0); // Reading in 32-bit blocks
+    sz /= 4;
+    memmove(xc->la_pos, xc->la_pos + sz, sizeof(xc->la_pos) - sizeof(*xc->la_pos) * sz);
+    xc->la_pos_idx -= sz;
+}
+
 /// Operations for transcoding XMLDecl/TextDecl
 static const strbuf_ops_t xml_reader_initial_ops = {
     .more = xml_reader_initial_op_more,
+    .radvance = xml_reader_initial_op_radvance,
 };
 
 /**
@@ -1820,14 +1860,11 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
             // Not rejected: check if original input was a disallowed character
             if (!cp0) {
                 // Non-fatal: recover by skipping the character
-                if ((h->flags & R_NO_CHAR_CHECK) == 0) {
-                    xml_reader_message_current(h, XMLERR(ERROR, XML, P_Char),
-                            "NUL character encountered");
-                }
+                xml_reader_message_current(h, XMLERR(ERROR, XML, P_Char),
+                        "NUL character encountered");
                 continue;
             }
-            else if (cp0 >= 0x7F
-                    && (h->flags & (R_ASCII_ONLY|R_NO_CHAR_CHECK)) == R_ASCII_ONLY) {
+            else if (cp0 >= 0x7F && (h->flags & R_ASCII_ONLY)) {
                 // Only complain once.
                 h->flags &= ~R_ASCII_ONLY;
                 OOPS_ASSERT(h->declinfo);
@@ -1835,8 +1872,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
                         "Malformed %s: non-ASCII character", h->declinfo->name);
             }
             else if (!inp->charref
-                    && xml_is_restricted(cp0, h->current_external->version)
-                    && (h->flags & R_NO_CHAR_CHECK) == 0) {
+                    && xml_is_restricted(cp0, h->current_external->version)) {
                 // Ignore if it came from character reference (if it is prohibited,
                 // the character reference parser already complained)
                 // Non-fatal: just let the app figure what to do with it
@@ -5250,68 +5286,6 @@ external_entity_end(xml_reader_t *h, void *arg)
     }
 }
 
-/// Re-reader state
-typedef struct {
-    xmlerr_loc_t stop;
-    xml_reader_input_t *inp;
-} xml_read_to_position_state_t;
-
-/**
-    Read condition: until the position reaches the same point as on entry
-    to the reader.
-
-    @param arg Reader state
-    @param cp Codepoint
-    @return UCS4_STOPCHAR if accepting this char would cause to exceed the position,
-        UCS4_NOCHAR otherwise
-*/
-static ucs4_t
-xml_cb_to_position(void *arg, ucs4_t cp)
-{
-    xml_read_to_position_state_t *st = arg;
-
-    if (st->stop.line == st->inp->curloc.line) {
-        if (st->stop.pos == st->inp->curloc.pos) {
-            return UCS4_STOPCHAR;
-        }
-        OOPS_ASSERT(st->stop.pos > st->inp->curloc.pos);
-    }
-    return UCS4_NOCHAR;
-}
-
-/**
-    Re-read the content from the input until the same position is reached.
-    This is used after establishing a permanent transcoder for the entity -
-    the XML declaration then needs to be skipped.
-
-    @param h Reader handle
-    @return PR_OK if the position reached successfully.
-*/
-static prodres_t
-xml_read_to_position(xml_reader_t *h)
-{
-    xml_read_to_position_state_t st;
-    xru_t rv;
-
-    // Can have no input if the document was empty
-    if ((st.inp = STAILQ_FIRST(&h->active_input)) != NULL) {
-        // XML declaration does not recognize any references, nor does it include any new inputs.
-        // Thus, save the desired position and reset the position in the input. Once the input
-        // reaches the same position, we're done.
-        st.stop = st.inp->curloc;
-        st.inp->curloc.line = 1;
-        st.inp->curloc.pos = 1;
-        rv = xml_read_until(h, xml_cb_to_position, &st);
-
-        // Unless the encoding is actually not compatible and advanced the pointer differently
-        // TBD this function is going to die when DFAs for lookahead patterns are implemented
-        // TBD (and this is needed since position may not be updating if no loc tracking is
-        //      requested).
-        OOPS_ASSERT(rv == XRU_STOP || rv == XRU_INPUT_LOCKED);
-    }
-    return PR_OK;
-}
-
 /**
     Add an external parsed entity in the current context: if not reading anything,
     add a 'main document' entity. If expanding an external parameter entity reference,
@@ -5425,6 +5399,9 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     xc.la_size = sizeof(xc.initial);
     xc.la_avail = 0;
     xc.la_offs = 0;
+    memset(&xc.la_pos, 0, sizeof(xc.la_pos));
+    xc.la_pos_idx = 0;
+    xc.la_pos_set = false;
 
     strbuf_realloc(inp->buf, INITIAL_DECL_LOOKAHEAD_SIZE * sizeof(ucs4_t));
     strbuf_setops(inp->buf, &xml_reader_initial_ops, &xc);
@@ -5530,17 +5507,10 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // Set up permanent transcoder
     strbuf_setops(inp->buf, &xml_reader_transcode_ops, ex);
 
-    // If declaration was found, skip it. Do not update position again while skipping over.
-    /// @todo If at some point context parsers are implemented with DFAs, it will be
-    /// possible to do a simple strbuf_radvance(..., xc.la_offs) - since in that case
-    /// xml_lookahead will not read more than it actually needs to recognize the token.
+    // If declaration was found, skip it. The position recorded in transcoder state
+    // is the offset of the first non-consumed character.
     if (decl_rv == PR_STOP) {
-        h->flags |= R_NO_CHAR_CHECK;
-        // TBD if not tracking location - this will fail! Need to get the machinery for
-        // generating the DFA and do strbuf_radvance(..., xc.la_offs)
-        decl_rv = xml_read_to_position(h);
-        h->flags &= ~R_NO_CHAR_CHECK;
-        OOPS_ASSERT(decl_rv == PR_OK);
+        strbuf_radvance(buf, xc.la_pos[0]);
     }
 
     // Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
