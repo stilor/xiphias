@@ -5422,8 +5422,11 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     saved_tlen = h->tokenbuf.len;
     saved_prodloc = h->prodloc;
 
+    // After processing the declaration, skip over it in the source buffer. The position
+    // recorded in transcoder state is the offset of the first non-consumed character.
     h->ctx = &parser_decl;
     decl_rv = xml_reader_process(h);
+    strbuf_radvance(buf, xc.la_pos[0]);
 
     /// Restore
     h->ctx = saved_ctx;
@@ -5506,12 +5509,6 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
 
     // Set up permanent transcoder
     strbuf_setops(inp->buf, &xml_reader_transcode_ops, ex);
-
-    // If declaration was found, skip it. The position recorded in transcoder state
-    // is the offset of the first non-consumed character.
-    if (decl_rv == PR_STOP) {
-        strbuf_radvance(buf, xc.la_pos[0]);
-    }
 
     // Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
     // begin with the Byte Order Mark described in ISO/IEC 10646 [ISO/IEC
