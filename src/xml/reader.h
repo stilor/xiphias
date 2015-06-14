@@ -232,6 +232,7 @@ typedef struct {
     size_t entity_hash_order;           ///< Log2(number of hash buckets for entities)
     size_t notation_hash_order;         ///< Log2(number of hash buckets for notations)
     size_t initial_tokenbuf;            ///< Initial size of the token buffer
+    size_t initial_namestorage;         ///< Initial size of the namestorage buffer
 } xml_reader_options_t;
 
 void xml_reader_opts_default(xml_reader_options_t *opts);

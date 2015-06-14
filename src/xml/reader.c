@@ -190,7 +190,8 @@ typedef struct xml_reader_lock_token_s {
     xmlerr_loc_t where;             ///< Where the production locked the input
     xml_reader_input_t *input;      ///< Locked input
     const char *locker;             ///< Type of locked production
-    // TBD name of tag used for locking for STag production
+    size_t name_offset;             ///< Associated element name in the buffer (start offset)
+    size_t name_len;                ///< Element name length
 } xml_reader_lock_token_t;
 
 /// Input head
@@ -334,7 +335,7 @@ struct xml_reader_s {
     struct {
         utf8_t *start;              ///< Start of the allocated token buffer
         size_t size;                ///< Size of the token buffer
-        size_t used;                ///< Length of saved data in token buffer
+        size_t used;                ///< Length of saved (reserved) data in token buffer
         size_t len;                 ///< Length of the current (unsaved) token
     } tokenbuf;                     ///< Current token buffer
 
@@ -342,6 +343,12 @@ struct xml_reader_s {
         utf8_t start[MAX_LOOKAHEAD_SIZE];   ///< Lookahead buffer
         size_t len;                         ///< Amount of looked ahead data
     } labuf;                        ///< Lookahead buffer
+
+    struct {
+        utf8_t *start;              ///< Allocated name storage buffer
+        size_t size;                ///< Size of the name storage buffer
+        size_t used;                ///< Number of bytes currently stored
+    } namestorage;                  ///< Storage for names associated with lock tokens
 
     xml_reader_tokens_t svtk;       ///< All saved tokens
 
@@ -877,6 +884,39 @@ xml_reader_input_lock(xml_reader_t *h, const char *locker)
     l->input = inp;
     l->locker = locker;
     SLIST_INSERT_HEAD(&h->active_locks, l, link);
+
+    l->name_offset = h->namestorage.used;
+    l->name_len = 0;
+}
+
+/**
+    Set name on the most recent lock token.
+
+    @param h Reader handle
+    @return Nothing
+*/
+static void
+xml_reader_input_lock_set_name(xml_reader_t *h)
+{
+    xml_reader_saved_token_t *svtk = &h->svtk.name;
+    xml_reader_lock_token_t *l;
+
+    // Get the most recent lock
+    l = SLIST_FIRST(&h->active_locks);
+    OOPS_ASSERT(l);
+
+    // Check if namestorage buffer has enough space
+    OOPS_ASSERT(svtk->reserved);
+    while (h->namestorage.used + svtk->len > h->namestorage.size) {
+        h->namestorage.size *= 2;
+        h->namestorage.start = xrealloc(h->namestorage.start, h->namestorage.size);
+    }
+
+    // Then copy the name and reserve that portion
+    memcpy(h->namestorage.start + l->name_offset, h->tokenbuf.start + svtk->offset,
+            svtk->len);
+    h->namestorage.used += svtk->len;
+    l->name_len = svtk->len;
 }
 
 /**
@@ -901,6 +941,7 @@ xml_reader_input_unlock(xml_reader_t *h)
     OOPS_ASSERT(l);
     rv = l->input == STAILQ_FIRST(&h->active_input);
     SLIST_REMOVE_HEAD(&h->active_locks, link);
+    h->namestorage.used = l->name_offset;
     SLIST_INSERT_HEAD(&h->free_locks, l, link);
     return rv;
 }
@@ -1349,6 +1390,7 @@ static const xml_reader_options_t opts_default = {
     .entity_hash_order = 6,
     .notation_hash_order = 4,
     .initial_tokenbuf = 1024,
+    .initial_namestorage = 256,
 };
 
 /**
@@ -1400,6 +1442,9 @@ xml_reader_new(const xml_reader_options_t *opts)
 
     h->tokenbuf.size = max(opts->initial_tokenbuf, MAX_LOOKAHEAD_SIZE);
     h->tokenbuf.start = xmalloc(h->tokenbuf.size);
+
+    h->namestorage.size = opts->initial_namestorage;
+    h->namestorage.start = xmalloc(h->namestorage.size);
 
     xml_loader_info_init(&h->dtd_loader_info, NULL, NULL);
 
@@ -1470,6 +1515,8 @@ xml_reader_delete(xml_reader_t *h)
     strhash_destroy(h->notations);
 
     xfree(h->tokenbuf.start);
+    xfree(h->namestorage.start);
+
     xfree(h->ucs4buf);
     xfree(h->refrplc);
     xfree(h);
@@ -4605,6 +4652,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
         return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.name);
+    xml_reader_input_lock_set_name(h);  // For later check to match ETag
 
     // Notify the application that a new element has started
     xml_reader_callback_init(h, XML_READER_CB_STAG, &cbp);
@@ -4734,7 +4782,7 @@ static prodres_t
 xml_parse_ETag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
-    xml_reader_input_t *inp;
+    xml_reader_lock_token_t *l;
 
     xml_read_string_assert(h, "</");
     // Locked by STag
@@ -4753,18 +4801,26 @@ xml_parse_ETag(xml_reader_t *h)
         return PR_FAIL;
     }
 
-    xml_reader_callback_init(h, XML_READER_CB_ETAG, &cbp);
-    xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.tag.name);
-    xml_reader_callback_invoke(h, &cbp);
-    inp = STAILQ_FIRST(&h->active_input);
-    OOPS_ASSERT(inp);
-    if (xml_reader_input_is_locked(h)) {
+    if ((l = xml_reader_input_is_locked(h)) != NULL) {
+        // Check if the name ("element type") is matching with the start tag
+        if (l->name_len != h->svtk.name.len
+                || memcmp(h->namestorage.start + l->name_offset,
+                    h->tokenbuf.start + h->svtk.name.offset, l->name_len)) {
+            xml_reader_message_lastread(h, XMLERR(ERROR, XML, WFC_ELEMENT_TYPE_MATCH),
+                    "ETag element type does not match STag element type");
+            xml_reader_message(h, &l->where, XMLERR_NOTE,
+                    "This is the location of the STag");
+        }
         xml_reader_input_unlock_assert(h);
     }
     else {
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_element),
                 "ETag without matching STag");
     }
+
+    xml_reader_callback_init(h, XML_READER_CB_ETAG, &cbp);
+    xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.tag.name);
+    xml_reader_callback_invoke(h, &cbp);
 
     h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
     return PR_OK;
