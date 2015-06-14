@@ -622,6 +622,7 @@ xml_tokenbuf_release(xml_reader_t *h, xml_reader_saved_token_t *svtk)
     Pass a saved token info to a callback.
 
     @param h Reader handle
+    @param svtk Saved token
     @param tk Callback token
     @return Nothing
 */
@@ -1130,6 +1131,7 @@ xml_entity_new(xml_reader_t *h, bool parameter)
 
     @param h Reader handle
     @param svtk Saved token with entity name
+    @param parameter True if the parameter entity is queried
     @return Previously defined notation, or NULL if none found.
 */
 static xml_reader_entity_t *
@@ -4825,7 +4827,7 @@ on_end_xmldecl(xml_reader_t *h)
     Handler for EOF in the internal subset.
 
     @param h Reader handle
-    @param PR_FAIL (internal subset is part of document entity - EOF means
+    @return PR_FAIL (internal subset is part of document entity - EOF means
         end of parsing)
 */
 static prodres_t

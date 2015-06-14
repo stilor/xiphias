@@ -2,7 +2,7 @@
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
 /** @file
-    String buffer implementation.
+    Transcoder implementation.
 */
 #include <string.h>
 
