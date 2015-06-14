@@ -381,6 +381,7 @@ typedef enum {
 static const xml_reader_context_t parser_content;
 static const xml_reader_context_t parser_document_entity;
 static const xml_reader_context_t parser_attributes;
+static const xml_reader_context_t parser_attr_recovery;
 static const xml_reader_context_t parser_internal_subset;
 static const xml_reader_context_t parser_external_subset;
 static const xml_reader_context_t parser_decl;
@@ -956,6 +957,21 @@ xml_reader_input_unlock_markupdecl(xml_reader_t *h)
         xml_reader_message_lastread(h, XMLERR_NOTE,
                 "This is the start of the markup declaration");
     }
+}
+
+/**
+    Check if the current input is locked without unlocking it.
+
+    @param h Reader handle
+    @return Lock token if the input is locked, or NULL ortherwise
+*/
+static xml_reader_lock_token_t *
+xml_reader_input_is_locked(xml_reader_t *h)
+{
+    xml_reader_lock_token_t *l;
+
+    l = SLIST_FIRST(&h->active_locks);
+    return l && l->input == STAILQ_FIRST(&h->active_input) ? l : NULL;
 }
 
 /**
@@ -1629,7 +1645,6 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
     // TBD no longer need to read this one-by-one, a block read is ok as long as it will stop
     // reading (rather than emit an error) in case of encoding errors (which may be due to
     // wrongly guessed encoding). Try that after restoring the test cases.
-    // TBD wait until DFA is implemented - reading 1-by-1 may still be needed
     OOPS_ASSERT(sz != 0);
     OOPS_ASSERT((sz & 3) == 0); // Reading in 32-bit blocks
     bptr = cptr = begin;
@@ -4669,7 +4684,7 @@ static prodres_t
 xml_parse_closing_STag(xml_reader_t *h)
 {
     // Just read the mark-up and restore the context. Since we just opened
-    // a tag, nest level is non-zero - so we're in the content context.
+    // a tag, we're in the content context.
     xml_read_string_assert(h, ">");
     h->ctx = &parser_content;
     return PR_OK;
@@ -4718,7 +4733,6 @@ xml_parse_ETag(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
     xml_reader_input_t *inp;
-    xml_reader_lock_token_t *l;
 
     xml_read_string_assert(h, "</");
     // Locked by STag
@@ -4742,20 +4756,12 @@ xml_parse_ETag(xml_reader_t *h)
     xml_reader_callback_invoke(h, &cbp);
     inp = STAILQ_FIRST(&h->active_input);
     OOPS_ASSERT(inp);
-    if ((l = SLIST_FIRST(&h->active_locks)) != NULL && l->input == inp) {
+    if (xml_reader_input_is_locked(h)) {
         xml_reader_input_unlock_assert(h);
     }
     else {
-        // Do not decrement nest level if already at the same level as before
-        // the current input. It also means the input is already unlocked.
-        if (!l) {
-            xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_document),
-                    "Document entity must match 'document' production");
-        }
-        else {
-            xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_content),
-                    "Replacement text for an entity must match 'content' production");
-        }
+        xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_element),
+                "ETag without matching STag");
     }
 
     h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
@@ -4808,7 +4814,7 @@ on_end_stop(xml_reader_t *h)
     @return Always PR_FAIL
 */
 static prodres_t
-on_end_fail(xml_reader_t *h)
+on_end_xmldecl(xml_reader_t *h)
 {
     xml_reader_message_current(h, XMLERR(ERROR, XML, P_XMLDecl),
             "Expect pseudo-attribute or ?> here");
@@ -4854,29 +4860,17 @@ on_end_dtd_external(xml_reader_t *h)
 static prodres_t
 on_end_tag(xml_reader_t *h)
 {
-    xml_reader_input_t *inp;
     xml_reader_lock_token_t *l;
-    bool unbalanced = false;
 
-    // Should've switched back to content/document due to closing markup
-    inp = STAILQ_FIRST(&h->active_input);
     // Input may be locked more than once if more than one tag is not closed
-    while ((l = SLIST_FIRST(&h->active_locks)) != NULL && l->input == inp) {
+    while ((l = xml_reader_input_is_locked(h)) != NULL) {
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_element),
+                "STag without matching ETag");
+        xml_reader_message(h, &l->where, XMLERR_NOTE,
+                "This is the location of the STag");
         xml_reader_input_unlock_assert(h);
-        unbalanced = true;
     }
     h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
-    if (unbalanced) {
-        // TBD reword the message, e.g. 'Unbalanced start/end tags' - here and in parse_ETag
-        if (SLIST_EMPTY(&h->active_locks)) {
-            xml_reader_message_current(h, XMLERR(ERROR, XML, P_document),
-                    "Document entity must match 'document' production");
-        }
-        else {
-            xml_reader_message_current(h, XMLERR(ERROR, XML, P_content),
-                    "Replacement text for an entity must match 'content' production");
-        }
-    }
     return PR_OK;
 }
 
@@ -4949,12 +4943,26 @@ on_fail_resync_bracket(xml_reader_t *h)
 static prodres_t
 on_fail_attr(xml_reader_t *h)
 {
-    // Consume '/' if any: if we got here, it means we didn't match the lookahead for
-    // closing EmptyElemTag - i.e., '/' was not followed by '>'. In that case, consume
-    // the slash so as not to stall the recovery.
-    (void)xml_read_string(h, "/", XMLERR_NOERROR);
-    if (xml_read_recover(h, ">/") == PR_OK) {
-        return PR_OK; // Found what appears to be the end of STag/EmptyElemTag
+    // Switch to special parser context for recovery
+    h->ctx = &parser_attr_recovery;
+    return PR_OK;
+}
+
+/**
+    Handler for the case when during attribute parser recovery none of the possible
+    markup strings is recognized.
+
+    @param h Reader handle
+    @return PR_OK if recovery succeeded
+*/
+static prodres_t
+xml_parse_attr_recovery(xml_reader_t *h)
+{
+    // If we are here, we didn't match > or /> tokens. Thus, any slash that immediately
+    // follows is stray - consume it so as not to stall the recovery.
+    xml_read_string(h, "/", XMLERR_NOERROR);
+    if (xml_read_recover(h, "/>") == PR_OK) {
+        return PR_OK; // Found what appears to be STag/EmptyElemTag closure (or we'll get back here)
     }
 
     // Failed and cannot advance while recovering. Switch back to content/document
@@ -5145,6 +5153,20 @@ static const xml_reader_context_t parser_attributes = {
 };
 
 /**
+    Recovery context when parsing fails while parsing attributes
+*/
+static const xml_reader_context_t parser_attr_recovery = {
+    .lookahead = {
+        LOOKAHEAD("/>", xml_parse_closing_EmptyElemTag, 0),
+        LOOKAHEAD(">", xml_parse_closing_STag, 0),
+        LOOKAHEAD("", xml_parse_attr_recovery, 0),
+    },
+    .on_fail = on_fail_fail, // last parser always recovers
+    .on_end = xml_parse_attr_recovery, // last parser always recovers
+    .reftype = XML_READER_REF_NONE, // not an external entity
+};
+
+/**
     Context for parsing the XMLDecl/TextDecl productions.
 
     @verbatim
@@ -5176,7 +5198,7 @@ static const xml_reader_context_t parser_decl_attributes = {
         LOOKAHEAD("", xml_parse_decl_attr, 0),
     },
     .on_fail = on_fail_fail,
-    .on_end = on_end_fail,
+    .on_end = on_end_xmldecl,
     .reftype = XML_READER_REF_NONE, // not an external entity
 };
 

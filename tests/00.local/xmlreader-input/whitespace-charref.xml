@@ -1,0 +1,9 @@
+<!DOCTYPE a [
+<!ENTITY whitespace " 	
+">
+<!ENTITY char.references "&#x9;&#x20;&#xA;&#xD;">
+<!ENTITY double.escaped.references "&#x26;#x9;&#x26;#x20;&#x26;#xA;&#x26;#xD;">
+]>
+<a> 	
+	<!----><![CDATA[ 	
+	]]><!---->&whitespace;<!---->&char.references;<!---->&double.escaped.references;</a>
