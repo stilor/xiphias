@@ -5162,7 +5162,7 @@ static const xml_reader_context_t parser_attr_recovery = {
         LOOKAHEAD("", xml_parse_attr_recovery, 0),
     },
     .on_fail = on_fail_fail, // last parser always recovers
-    .on_end = xml_parse_attr_recovery, // last parser always recovers
+    .on_end = xml_parse_attr_recovery,
     .reftype = XML_READER_REF_NONE, // not an external entity
 };
 
