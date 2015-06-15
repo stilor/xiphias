@@ -63,6 +63,7 @@ enum xmlerr_spec_e {
           XMLERR_DEF(XML, P_DeclSep) \
           XMLERR_DEF(XML, P_intSubset) \
           XMLERR_DEF(XML, P_extSubset) \
+          XMLERR_DEF(XML, P_includeSect) \
           /* Other errors and recommendations (spelled in text of the spec) */ \
           XMLERR_DEF(XML, ENCODING_ERROR) \
           XMLERR_DEF(XML, PREDEFINED_ENTITY) \
@@ -86,7 +87,8 @@ enum xmlerr_spec_e {
           /* Validity constraints */ \
           XMLERR_DEF(XML, VC_PROPER_DECL_PE_NESTING) \
           XMLERR_DEF(XML, VC_NOTATION_DECLARED) \
-          XMLERR_DEF(XML, VC_UNIQUE_NOTATION_NAME)
+          XMLERR_DEF(XML, VC_UNIQUE_NOTATION_NAME) \
+          XMLERR_DEF(XML, VC_PROPER_COND_SECT_PE_NESTING) \
           
 
 /**

@@ -331,6 +331,8 @@ struct xml_reader_s {
 
     bool cdata_ws;                  ///< Seen only whitespace in CharData/CDATA
     bool attr_ws;                   ///< Attribute parser: seen w/s at the end of preceding token
+    uint32_t condsects_all;         ///< Total depth of conditional sections
+    uint32_t condsects_ign;         ///< Depth of the outermost ignored conditional section
 
     struct {
         utf8_t *start;              ///< Start of the allocated token buffer
@@ -391,6 +393,8 @@ static const xml_reader_context_t parser_attributes;
 static const xml_reader_context_t parser_attr_recovery;
 static const xml_reader_context_t parser_internal_subset;
 static const xml_reader_context_t parser_external_subset;
+static const xml_reader_context_t parser_conditional_section;
+static const xml_reader_context_t parser_ignored_section;
 static const xml_reader_context_t parser_decl;
 static const xml_reader_context_t parser_decl_attributes;
 
@@ -1014,6 +1018,28 @@ xml_reader_input_is_locked(xml_reader_t *h)
 
     l = SLIST_FIRST(&h->active_locks);
     return l && l->input == STAILQ_FIRST(&h->active_input) ? l : NULL;
+}
+
+/**
+    Check if locking constraint for conditional section is satisfied.
+
+    @param h Reader handle
+    @param markup Currently read markup (for error message)
+    @return Nothing (issues error event if constraint is broken)
+*/
+static void
+xml_reader_input_is_locked_condsect(xml_reader_t *h, const char *markup)
+{
+    xml_reader_lock_token_t *l;
+
+    if (!xml_reader_input_is_locked(h)) {
+        l = SLIST_FIRST(&h->active_locks);
+        xml_reader_message_current(h, XMLERR(ERROR, XML, VC_PROPER_COND_SECT_PE_NESTING),
+                "If %s is contained in PE replacement text, <![ must be in the same "
+                "replacement text", markup);
+        xml_reader_message(h, &l->where, XMLERR_NOTE,
+                "This is the location of <![ markup of the conditional section");
+    }
 }
 
 /**
@@ -3253,6 +3279,7 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     st.quote = UCS4_NOCHAR;
     st.h = h;
     st.starting = false;
+    st.prodname = refops->prodname;
     if (xml_read_until_parseref(h, refops, &st) != XRU_STOP
             || st.quote != UCS4_STOPCHAR) {
         if (st.quote == UCS4_NOCHAR) {
@@ -3461,6 +3488,18 @@ xml_parse_nomatch(xml_reader_t *h)
 }
 
 /**
+    Trivial parser: always returns a failure.
+
+    @param h Reader handle
+    @return Always PR_FAIL
+*/
+static prodres_t
+xml_parse_fail(xml_reader_t *h)
+{
+    return PR_FAIL;
+}
+
+/**
     Start parsing XMLDecl/TextDecl if one is present.
 
     @verbatim
@@ -3519,14 +3558,14 @@ xml_parse_decl_attr(xml_reader_t *h)
         xml_reader_message_current(h, h->declinfo->errcode,
                 "Malformed %s: expect whitespace or ?> here",
                 h->declinfo->name);
-        goto malformed;
+        return PR_FAIL;
     }
 
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, h->declinfo->errcode,
                 "Malformed %s: expect pseudo-attribute name or ?> here",
                 h->declinfo->name);
-        goto malformed;
+        return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.name);
 
@@ -3558,12 +3597,12 @@ xml_parse_decl_attr(xml_reader_t *h)
     (void)xml_parse_whitespace(h);
     if (xml_read_string(h, "=", h->declinfo->errcode) != PR_OK) {
         // Already complained
-        goto malformed;
+        return PR_FAIL;
     }
     (void)xml_parse_whitespace(h);
     if (xml_parse_literal(h, &reference_ops_pseudo) != PR_OK) {
         // Already complained
-        goto malformed;
+        return PR_FAIL;
     }
     xml_tokenbuf_save(h, &h->svtk.value);
 
@@ -3576,9 +3615,6 @@ xml_parse_decl_attr(xml_reader_t *h)
     }
     h->attr_ws = xml_parse_whitespace(h) == PR_OK;
     return PR_OK;
-
-malformed:
-    return PR_FAIL;
 }
 
 /**
@@ -4381,18 +4417,6 @@ malformed:
 }
 
 /**
-    Parse a conditional section in DTD.
-
-    @param h Reader handle
-    @return PR_OK if parsed successfully
-*/
-static prodres_t
-xml_parse_conditionalSect(xml_reader_t *h)
-{
-    return PR_OK; // TBD
-}
-
-/**
     Parse declaration separator (DeclSep) which is whitespace or PE reference.
 
     @verbatim
@@ -4422,6 +4446,158 @@ xml_parse_whitespace_peref_or_recover(xml_reader_t *h)
             "Invalid content in DTD");
     (void)xml_read_string(h, "<", XMLERR_NOERROR);
     return PR_FAIL;
+}
+
+/**
+    Parse a conditional section in DTD.
+
+    Context for parsing conditional sections.
+
+    @verbatim
+    conditionalSect    ::= includeSect | ignoreSect
+    includeSect        ::= '<![' S? 'INCLUDE' S? '[' extSubsetDecl ']]>'
+    ignoreSect         ::= '<![' S? 'IGNORE' S? '[' ignoreSectContents* ']]>'
+    @endverbatim
+
+    @param h Reader handle
+    @return PR_OK (this function does not expect anything besides what's already
+        established by lookahead.
+*/
+static prodres_t
+xml_parse_conditionalSect(xml_reader_t *h)
+{
+    // Conditional sections are only recognized in external subset - where PE references
+    // are allowed.
+    xml_read_string_lock(h, "<![", "conditionalSect");
+    (void)xml_parse_whitespace_peref(h); // this also expands PE reference
+    h->ctx = &parser_conditional_section;
+    return PR_OK;
+}
+
+/**
+    Parse an included conditional section in DTD.
+
+    @verbatim
+    conditionalSect    ::= includeSect | ignoreSect
+    includeSect        ::= '<![' S? 'INCLUDE' S? '[' extSubsetDecl ']]>'
+    ignoreSect         ::= '<![' S? 'IGNORE' S? '[' ignoreSectContents* ']]>'
+    @endverbatim
+
+    @param h Reader handle
+    @return PR_OK on success, PR_FAIL on parsing failure
+*/
+static prodres_t
+xml_parse_includeSect(xml_reader_t *h)
+{
+    xml_read_string_assert(h, "INCLUDE");
+    (void)xml_parse_whitespace_peref(h);
+    if (xml_read_string(h, "[", XMLERR(ERROR, XML, P_includeSect)) != PR_OK) {
+        return PR_FAIL;
+    }
+
+    xml_reader_input_is_locked_condsect(h, "[");
+
+    // Switch back to external subset context - now we'll recognize
+    // the closure markup in external subset.
+    h->condsects_all++;
+    h->ctx = &parser_external_subset;
+    return PR_OK;
+}
+
+/**
+    Parse an ignored conditional section in DTD.
+
+    @param h Reader handle
+    @return PR_OK on success, PR_FAIL on parsing failure
+*/
+static prodres_t
+xml_parse_ignoreSect(xml_reader_t *h)
+{
+    xml_read_string_assert(h, "IGNORE");
+    (void)xml_parse_whitespace_peref(h);
+    if (xml_read_string(h, "[", XMLERR(ERROR, XML, P_includeSect)) != PR_OK) {
+        return PR_FAIL;
+    }
+    xml_reader_input_is_locked_condsect(h, "[");
+    h->condsects_ign = h->condsects_all++;
+    h->ctx = &parser_ignored_section;
+    return PR_OK;
+}
+
+/**
+    Parse closing markup of an included conditional section.
+
+    @param h Reader handle
+    @return PR_OK on success, PR_NOMATCH if there was no opening section
+*/
+static prodres_t
+xml_parse_include_section_closure(xml_reader_t *h)
+{
+    if (!h->condsects_all) {
+        // It's going to fail, we know, just reuse the recovery logic.
+        return xml_parse_whitespace_peref_or_recover(h);
+    }
+    // We remain in external subset context
+    xml_read_string_assert(h, "]]>");
+    h->condsects_all--;
+    xml_reader_input_is_locked_condsect(h, "]]>");
+    xml_reader_input_unlock_ignore(h);
+    return PR_OK;
+}
+
+/**
+    Inside an ignored section, account for a closing markup.
+
+    @param h Reader handle
+    @return PR_OK (only consumes looked-ahead content)
+*/
+static prodres_t
+xml_parse_ignored_dec(xml_reader_t *h)
+{
+    xml_read_string_assert(h, "]]>");
+    if (--h->condsects_all == h->condsects_ign) {
+        // This concludes the ignored part. Unlock the input and switch to external
+        // subset context.
+        xml_reader_input_is_locked_condsect(h, "]]>");
+        xml_reader_input_unlock_ignore(h);
+        h->ctx = &parser_external_subset;
+    }
+    return PR_OK;
+}
+
+/**
+    Inside an ignored section, account for a opening markup.
+
+    @param h Reader handle
+    @return PR_OK (only consumes looked-ahead content)
+*/
+static prodres_t
+xml_parse_ignored_inc(xml_reader_t *h)
+{
+    // One more closing markup to be consumed without returning to external subset context
+    xml_read_string_assert(h, "<![");
+    h->condsects_all++;
+    return PR_OK;
+}
+
+/**
+    Inside an ignored section, skip content (not matching opening/closing markup).
+
+    @param h Reader handle
+    @return PR_OK (only consumes looked-ahead content)
+*/
+static prodres_t
+xml_parse_ignored_skip(xml_reader_t *h)
+{
+    // Didn't match open/close markup, so skip < or ] if any of them immediately follows
+    // so as not to stall the advance.
+    if (xml_read_string(h, "<", XMLERR_NOERROR) == PR_NOMATCH
+            && ucs4_cheq(h->rejected, ']')) {
+        xml_read_string_assert(h, "]");
+    }
+
+    // Not a recovery, but similar logic: skip until the next character of a set
+    return xml_read_recover(h, "]<");
 }
 
 /**
@@ -4459,6 +4635,12 @@ xml_dtd_on_complete(xml_reader_t *h, const xmlerr_loc_t *loc)
 {
     xml_reader_cbparam_t cbp;
 
+    // TBD if a production yields PR_FAIL while locked (or xml_reader_stop() is called,
+    // the unlock_assert() will fail during xml_reader_delete() when it calls ->on_complete().
+    // - Eliminate completion calls during delete? But need to do in the manner that will close
+    //   the input string buffers
+    // - Evaluate xml_reader_input_unlock_assert() calls and replace them with _ignore or error-
+    //   checking calls to simple unlock()?
     xml_reader_input_unlock_assert(h);
 
     strhash_foreach(h->entities_unknown, xml_unknown_entity, h);
@@ -4721,6 +4903,32 @@ xml_parse_attribute(xml_reader_t *h)
 }
 
 /**
+    Handler for the case when during attribute parser recovery none of the possible
+    markup strings is recognized.
+
+    @param h Reader handle
+    @return PR_OK if recovery succeeded
+*/
+static prodres_t
+xml_parse_attr_recovery(xml_reader_t *h)
+{
+    // If we are here, we didn't match > or /> tokens. Thus, any slash that immediately
+    // follows is stray - consume it so as not to stall the recovery.
+    xml_read_string(h, "/", XMLERR_NOERROR);
+    if (xml_read_recover(h, "/>") == PR_OK) {
+        return PR_OK; // Found what appears to be STag/EmptyElemTag closure (or we'll get back here)
+    }
+
+    // Failed and cannot advance while recovering. Switch back to content/document
+    // context, without error (already complained when the failure was detected).
+    // Since we cannot advance, it is because the input was locked by start of the
+    // tag - so unlock it.
+    xml_reader_input_unlock_assert(h);
+    h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
+    return PR_OK;
+}
+
+/**
     Parse closing markup for STag.
 
     @verbatim
@@ -4956,6 +5164,32 @@ on_end_attr(xml_reader_t *h)
 }
 
 /**
+    Handler for EOF while parsing conditional section's start markup.
+
+    @param h Reader handle
+    @return PR_OK (recovers to content/document parser)
+*/
+static prodres_t
+on_end_conditional_section(xml_reader_t *h)
+{
+    // TBD
+    return PR_FAIL;
+}
+
+/**
+    Handler for EOF while parsing ignored conditional section content.
+
+    @param h Reader handle
+    @return PR_OK (recovers to content/document parser)
+*/
+static prodres_t
+on_end_ignored_section(xml_reader_t *h)
+{
+    // TBD implement; is it going to be different from general conditional section parser?
+    return PR_FAIL;
+}
+
+/**
     Trivial function: no recovery, this failure is semi-fatal (current entity
     fails to parse).
 
@@ -5003,32 +5237,6 @@ on_fail_attr(xml_reader_t *h)
 {
     // Switch to special parser context for recovery
     h->ctx = &parser_attr_recovery;
-    return PR_OK;
-}
-
-/**
-    Handler for the case when during attribute parser recovery none of the possible
-    markup strings is recognized.
-
-    @param h Reader handle
-    @return PR_OK if recovery succeeded
-*/
-static prodres_t
-xml_parse_attr_recovery(xml_reader_t *h)
-{
-    // If we are here, we didn't match > or /> tokens. Thus, any slash that immediately
-    // follows is stray - consume it so as not to stall the recovery.
-    xml_read_string(h, "/", XMLERR_NOERROR);
-    if (xml_read_recover(h, "/>") == PR_OK) {
-        return PR_OK; // Found what appears to be STag/EmptyElemTag closure (or we'll get back here)
-    }
-
-    // Failed and cannot advance while recovering. Switch back to content/document
-    // context, without error (already complained when the failure was detected).
-    // Since we cannot advance, it is because the input was locked by start of the
-    // tag - so unlock it.
-    xml_reader_input_unlock_assert(h);
-    h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
     return PR_OK;
 }
 
@@ -5091,9 +5299,6 @@ static const xml_reader_context_t parser_internal_subset = {
     PI              ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>' 
     Comment         ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
     @endverbatim
-
-    Additionally, in internal subset PEReference may only occur in DeclSep. So, we parse
-    DeclSep as whitespace with PE reference substitution enabled.
 */
 static const xml_reader_context_t parser_external_subset = {
     .lookahead = {
@@ -5104,6 +5309,7 @@ static const xml_reader_context_t parser_external_subset = {
         LOOKAHEAD("<![", xml_parse_conditionalSect, 0),
         LOOKAHEAD("<?", xml_parse_PI, 0),
         LOOKAHEAD("<!--", xml_parse_Comment, 0),
+        LOOKAHEAD("]]>", xml_parse_include_section_closure, 0),
         LOOKAHEAD("", xml_parse_whitespace_peref_or_recover, 0),
     },
     .on_fail = on_fail_resync_bracket,
@@ -5111,6 +5317,48 @@ static const xml_reader_context_t parser_external_subset = {
     .declinfo = &declinfo_textdecl,
     .reftype = XML_READER_REF_EXT_SUBSET, // If not parameter entity, this is external DTD
     .entity_value_parser = &reference_ops_EntityValue_external,
+};
+
+/**
+    Context for parsing conditional sections.
+
+    @verbatim
+    conditionalSect    ::= includeSect | ignoreSect
+    includeSect        ::= '<![' S? 'INCLUDE' S? '[' extSubsetDecl ']]>'
+    ignoreSect         ::= '<![' S? 'IGNORE' S? '[' ignoreSectContents* ']]>'
+    ignoreSectContents ::= Ignore ('<![' ignoreSectContents ']]>' Ignore)*
+    Ignore             ::= Char* - (Char* ('<![' | ']]>') Char*)
+    @endverbatim
+*/
+static const xml_reader_context_t parser_conditional_section = {
+    .lookahead = {
+        LOOKAHEAD("INCLUDE", xml_parse_includeSect, 0),
+        LOOKAHEAD("IGNORE", xml_parse_ignoreSect, 0),
+        LOOKAHEAD("", xml_parse_fail, 0),
+    },
+    .on_fail = on_fail_resync_bracket, // TBD loops forever if the failed match has < in it
+    .on_end = on_end_conditional_section,
+    .reftype = XML_READER_REF_NONE, // not an external entity
+};
+
+/**
+    Context for parsing ignored section's content.
+
+    @verbatim
+    ignoreSect         ::= '<![' S? 'IGNORE' S? '[' ignoreSectContents* ']]>'
+    ignoreSectContents ::= Ignore ('<![' ignoreSectContents ']]>' Ignore)*
+    Ignore             ::= Char* - (Char* ('<![' | ']]>') Char*)
+    @endverbatim
+*/
+static const xml_reader_context_t parser_ignored_section = {
+    .lookahead = {
+        LOOKAHEAD("]]>", xml_parse_ignored_dec, 0),
+        LOOKAHEAD("<![", xml_parse_ignored_inc, 0),
+        LOOKAHEAD("", xml_parse_ignored_skip, 0),
+    },
+    .on_fail = on_fail_fail, // last parser always recovers
+    .on_end = on_end_ignored_section,
+    .reftype = XML_READER_REF_NONE, // not an external entity
 };
 
 /**
@@ -5123,8 +5371,6 @@ static const xml_reader_context_t parser_external_subset = {
     this approach; it needs to be verified by a higher level, SAX or DOM. Higher level
     is also responsible for checking that both STag/ETag belong to the same input by
     keeping track when entity parsing started and ended.
-
-    TBD nesting-check.diff - in that case, it proper nesting will be verified here
 
     The content production is defined in XML 1.1 as one of the relevant constructs,
     meaning that it cannot start with a composing character. We do not check that
