@@ -1,0 +1,4 @@
+<![INCLUDE[
+<!ENTITY % zzz SYSTEM "condsect-eof1-2.dtd">
+%zzz;
+]]>

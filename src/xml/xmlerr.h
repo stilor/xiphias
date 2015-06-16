@@ -63,7 +63,9 @@ enum xmlerr_spec_e {
           XMLERR_DEF(XML, P_DeclSep) \
           XMLERR_DEF(XML, P_intSubset) \
           XMLERR_DEF(XML, P_extSubset) \
+          XMLERR_DEF(XML, P_conditionalSect) \
           XMLERR_DEF(XML, P_includeSect) \
+          XMLERR_DEF(XML, P_ignoreSect) \
           /* Other errors and recommendations (spelled in text of the spec) */ \
           XMLERR_DEF(XML, ENCODING_ERROR) \
           XMLERR_DEF(XML, PREDEFINED_ENTITY) \

@@ -1,0 +1,6 @@
+<!DOCTYPE a SYSTEM "condsect-eof1-1.dtd" [
+<!ENTITY % e1 "INCLUDE">
+<!ENTITY % e2 "INCLUDE">
+<!ENTITY % e3 "INCLUDE">
+]
+><a/>

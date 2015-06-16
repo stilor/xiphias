@@ -3488,18 +3488,6 @@ xml_parse_nomatch(xml_reader_t *h)
 }
 
 /**
-    Trivial parser: always returns a failure.
-
-    @param h Reader handle
-    @return Always PR_FAIL
-*/
-static prodres_t
-xml_parse_fail(xml_reader_t *h)
-{
-    return PR_FAIL;
-}
-
-/**
     Start parsing XMLDecl/TextDecl if one is present.
 
     @verbatim
@@ -4525,6 +4513,27 @@ xml_parse_ignoreSect(xml_reader_t *h)
 }
 
 /**
+    Parse a conditional section where the keyword is neither INCLUDE nor IGNORE.
+
+    @param h Reader handle
+    @return PR_OK always (attempts to recover to the next [)
+*/
+static prodres_t
+xml_parse_bad_ignoreSect(xml_reader_t *h)
+{
+    xml_reader_message_current(h, XMLERR(ERROR, XML, P_conditionalSect),
+            "Expect IGNORE or INCLUDE token here");
+    if (xml_read_recover(h, "[") == PR_NOMATCH) {
+        return PR_OK; // hand off to EOF handler
+    }
+    // Consider it ignored section
+    xml_reader_input_is_locked_condsect(h, "[");
+    h->condsects_ign = h->condsects_all++;
+    h->ctx = &parser_ignored_section;
+    return PR_OK;
+}
+
+/**
     Parse closing markup of an included conditional section.
 
     @param h Reader handle
@@ -4561,6 +4570,7 @@ xml_parse_ignored_dec(xml_reader_t *h)
         xml_reader_input_is_locked_condsect(h, "]]>");
         xml_reader_input_unlock_ignore(h);
         h->ctx = &parser_external_subset;
+        h->condsects_ign = 0;
     }
     return PR_OK;
 }
@@ -4596,8 +4606,10 @@ xml_parse_ignored_skip(xml_reader_t *h)
         xml_read_string_assert(h, "]");
     }
 
-    // Not a recovery, but similar logic: skip until the next character of a set
-    return xml_read_recover(h, "]<");
+    // Not a recovery, but similar logic: skip until the next character of a set. But,
+    // even if not found, return PR_OK and let the EOF handler process the failure.
+    (void)xml_read_recover(h, "]<");
+    return PR_OK;
 }
 
 /**
@@ -5114,6 +5126,19 @@ on_end_dtd_internal(xml_reader_t *h)
 static prodres_t
 on_end_dtd_external(xml_reader_t *h)
 {
+    xml_reader_lock_token_t *l;
+
+    while ((l = xml_reader_input_is_locked(h)) != NULL) {
+        // Some included conditional section has not been closed. If the end-of-input
+        // happens before we can determine included/ignored section, or inside the
+        // ignored section, it will be handled in other end-of-input handlers
+        xml_reader_message_current(h, XMLERR(ERROR, XML, P_includeSect),
+                "Unterminated included conditional section");
+        xml_reader_message(h, &l->where, XMLERR_NOTE,
+                "This is the start of the section");
+        xml_reader_input_unlock_ignore(h);
+        h->condsects_all--;
+    }
     return PR_OK;
 }
 
@@ -5172,8 +5197,12 @@ on_end_attr(xml_reader_t *h)
 static prodres_t
 on_end_conditional_section(xml_reader_t *h)
 {
-    // TBD
-    return PR_FAIL;
+    // This section has been locked but counter is not incremented yet
+    xml_reader_message_current(h, XMLERR(ERROR, XML, P_conditionalSect),
+            "Expect IGNORE or INCLUDE token here");
+    xml_reader_input_unlock_ignore(h);
+    h->ctx = &parser_external_subset; // It will handle enclosing sections if any
+    return PR_OK;
 }
 
 /**
@@ -5185,8 +5214,20 @@ on_end_conditional_section(xml_reader_t *h)
 static prodres_t
 on_end_ignored_section(xml_reader_t *h)
 {
-    // TBD implement; is it going to be different from general conditional section parser?
-    return PR_FAIL;
+    xml_reader_lock_token_t *l;
+
+    // Section was locked
+    l = xml_reader_input_is_locked(h);
+    OOPS_ASSERT(l);
+
+    xml_reader_message_current(h, XMLERR(ERROR, XML, P_ignoreSect),
+            "Unterminated ignored conditional section");
+    xml_reader_message(h, &l->where, XMLERR_NOTE,
+            "This is the start of the section");
+    xml_reader_input_unlock_ignore(h);
+    h->ctx = &parser_external_subset; // It will handle enclosing sections if any
+    h->condsects_ign = 0;
+    return PR_OK;
 }
 
 /**
@@ -5334,9 +5375,9 @@ static const xml_reader_context_t parser_conditional_section = {
     .lookahead = {
         LOOKAHEAD("INCLUDE", xml_parse_includeSect, 0),
         LOOKAHEAD("IGNORE", xml_parse_ignoreSect, 0),
-        LOOKAHEAD("", xml_parse_fail, 0),
+        LOOKAHEAD("", xml_parse_bad_ignoreSect, 0),
     },
-    .on_fail = on_fail_resync_bracket, // TBD loops forever if the failed match has < in it
+    .on_fail = on_fail_fail,
     .on_end = on_end_conditional_section,
     .reftype = XML_READER_REF_NONE, // not an external entity
 };
