@@ -42,8 +42,12 @@ check_stacktrace(xml_reader_t *h, xml_reader_cbparam_t *e, const void *arg)
         { "entity(e3)", 1, 8 },
         { "stack-test.xml", 6, 8 },
     };
+    const xml_reader_options_t *o = arg;
     struct cb_check_stacktrace_s cba;
 
+    if (!o || !o->loctrack) {
+        return PASS;
+    }
     if (e->cbtype != XML_READER_CB_ETAG || xml_reader_token_isset(&e->tag.name)) {
         // Only interested in the innermost event, which is the only empty tag
         return PASS;
@@ -57,7 +61,95 @@ check_stacktrace(xml_reader_t *h, xml_reader_cbparam_t *e, const void *arg)
     return cba.failed ? FAIL : PASS;
 }
 
-static const testcase_t testcases_api[] = {
+// Long encoding name
+#define VERY_LONG_ENCODING \
+        "INVALID_ENCODING_WITH_A_VERY_LONG_NAME_THAT_IS_GOING_TO_SPAN" \
+        "_A_FEW_LINES_AND_PROBABLY_REQUIRE_REALLOCATION_OF_THE_BUFFER"
+
+// To avoid defining this monster inline...
+#define VERY_LONG_NAME \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
+        "abcdefgh"
+
+// Set an encoding that cannot be autodetected. Dummy loader that always provides
+// a simple <a/> file.
+#define XORKEY  0xA5
+
+static size_t
+in_XOR(void *baton, const uint8_t *begin, const uint8_t *end,
+                ucs4_t **pout, ucs4_t *end_out)
+{
+    const uint8_t *ptr = begin;
+    ucs4_t *out = *pout;
+
+    while (ptr < end && out < end_out) {
+        *out = ucs4_fromlocal(*ptr ^ XORKEY);
+        out++;
+        ptr++;
+    }
+    *pout = out;
+    return ptr - begin;
+}
+
+static const encoding_t enc_XOR = {
+    .name = "XOR_ENCODING",
+    .form = ENCODING_FORM_UTF8,
+    .endian = ENCODING_E_ANY,
+    .baton_sz = 0,
+    .sigs = NULL,
+    .nsigs = 0,
+    .in = in_XOR,
+    .in_clean = NULL,
+};
+ENCODING_REGISTER(enc_XOR);
+
+static void
+loader_XORENC(xml_reader_t *h, void *arg, const xml_loader_info_t *loader_info)
+{
+    static const char * const doc = "<a/>";
+    size_t len = strlen(doc);
+    const char *s;
+    void *begin, *end;
+    uint8_t *ptr, *pend;
+    strbuf_t *buf;
+
+    buf = strbuf_new(len);
+    strbuf_wptr(buf, &begin, &end);
+    for (ptr = begin, pend = end, s = doc; ptr < pend; ptr++, s++) {
+        *ptr = *(const unsigned char *)s ^ XORKEY;
+    }
+    strbuf_wadvance(buf, len);
+    xml_reader_add_parsed_entity(h, buf, loader_info->system_id, arg);
+}
+
+static void
+set_loader_XORENC(xml_reader_t *h)
+{
+    xml_reader_set_loader(h, loader_XORENC, DECONST("XOR_ENCODING"));
+}
+
+static void
+set_loader_XORENC_BAD(xml_reader_t *h)
+{
+    xml_reader_set_loader(h, loader_XORENC, DECONST("GNIDOCNE_ROX"));
+}
+
+static const testcase_t testcases[] = {
     {
         TC("Stack trace of parser state"),
         .input = "stack-test.xml",
@@ -155,78 +247,6 @@ static const testcase_t testcases_api[] = {
             END,
         },
     },
-};
-
-// Set an encoding that cannot be autodetected. Dummy loader that always provides
-// a simple <a/> file.
-#define XORKEY  0xA5
-
-static size_t
-in_XOR(void *baton, const uint8_t *begin, const uint8_t *end,
-                ucs4_t **pout, ucs4_t *end_out)
-{
-    const uint8_t *ptr = begin;
-    ucs4_t *out = *pout;
-
-    while (ptr < end && out < end_out) {
-        *out = ucs4_fromlocal(*ptr ^ XORKEY);
-        out++;
-        ptr++;
-    }
-    *pout = out;
-    return ptr - begin;
-}
-
-static const encoding_t enc_XOR = {
-    .name = "XOR_ENCODING",
-    .form = ENCODING_FORM_UTF8,
-    .endian = ENCODING_E_ANY,
-    .baton_sz = 0,
-    .sigs = NULL,
-    .nsigs = 0,
-    .in = in_XOR,
-    .in_clean = NULL,
-};
-ENCODING_REGISTER(enc_XOR);
-
-static void
-loader_XORENC(xml_reader_t *h, void *arg, const xml_loader_info_t *loader_info)
-{
-    static const char * const doc = "<a/>";
-    size_t len = strlen(doc);
-    const char *s;
-    void *begin, *end;
-    uint8_t *ptr, *pend;
-    strbuf_t *buf;
-
-    buf = strbuf_new(len);
-    strbuf_wptr(buf, &begin, &end);
-    for (ptr = begin, pend = end, s = doc; ptr < pend; ptr++, s++) {
-        *ptr = *(const unsigned char *)s ^ XORKEY;
-    }
-    strbuf_wadvance(buf, len);
-    xml_reader_add_parsed_entity(h, buf, loader_info->system_id, arg);
-}
-
-static void
-set_loader_XORENC(xml_reader_t *h)
-{
-    xml_reader_set_loader(h, loader_XORENC, DECONST("XOR_ENCODING"));
-}
-
-static void
-set_loader_XORENC_BAD(xml_reader_t *h)
-{
-    xml_reader_set_loader(h, loader_XORENC, DECONST("GNIDOCNE_ROX"));
-}
-
-
-// Long encoding name
-#define VERY_LONG_ENCODING \
-        "INVALID_ENCODING_WITH_A_VERY_LONG_NAME_THAT_IS_GOING_TO_SPAN" \
-        "_A_FEW_LINES_AND_PROBABLY_REQUIRE_REALLOCATION_OF_THE_BUFFER"
-
-static const testcase_t testcases_encoding[] = {
     {
         TC("No declaration in UTF-8, with BOM"),
         .input = "simple-no-decl.xml",
@@ -633,9 +653,6 @@ static const testcase_t testcases_encoding[] = {
             END,
         },
     },
-};
-
-static const testcase_t testcases_xmldecl[] = {
     {
         TC("No document entity"),
         .input = "nonexistent.xml",
@@ -1732,30 +1749,6 @@ static const testcase_t testcases_xmldecl[] = {
             END,
         },
     },
-};
-
-// To avoid defining this monster inline...
-#define VERY_LONG_NAME \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefghabcdefgh" \
-        "abcdefgh"
-
-
-static const testcase_t testcases_structure[] = {
     {
         TC("Simple opening/closing tags"),
         .input = "simple-open-close.xml",
@@ -6670,10 +6663,9 @@ static const testcase_t testcases_structure[] = {
 };
 
 static const testset_t testsets[] = {
-    TEST_SET(run_testcase, "Tests for misc APIs", testcases_api),
-    TEST_SET(run_testcase, "Encoding tests", testcases_encoding),
-    TEST_SET(run_testcase, "XML/Text declaration tests", testcases_xmldecl),
-    TEST_SET(run_testcase, "XML structures", testcases_structure),
+    TEST_SET(run_testcase_dflt, "Regular run", testcases),
+    TEST_SET(run_testcase_init, "Options initialized with default values", testcases),
+    TEST_SET(run_testcase_noloc, "No location tracking", testcases),
 };
 
 static const testsuite_t testsuite = TEST_SUITE("Tests for XML reader API", testsets);

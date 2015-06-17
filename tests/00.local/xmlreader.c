@@ -15,6 +15,17 @@
 /// Location of the input files.
 static const char *xml_input_dir = ".";
 
+/// Re-running the same test cases with multiple variants
+typedef struct testcase_opts_s {
+    const char *desc;                   ///< Description of test case variant
+
+    ///< Function to create the options for constructor
+    const xml_reader_options_t *(*opts_create)(xml_reader_options_t *opts);
+
+    ///< Function to compare events
+    bool (*evt_compare)(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2);
+} testcase_opts_t;
+
 /// Describes a single test case for XML reader
 typedef struct testcase_s {
     const char *at_file;                    ///< Test case defined in this file
@@ -33,7 +44,6 @@ typedef struct testcase_s {
 
     /// Extra checks in the test event callback
     result_t (*checkevt)(xml_reader_t *h, xml_reader_cbparam_t *e, const void *arg);
-    const void *checkevt_arg;               ///< Argument to checkevt function
 
     // Events must be last: they're present in all tests, or warning will result
     // from using default initializations
@@ -44,6 +54,8 @@ typedef struct testcase_s {
 typedef struct test_cb_s {
     xml_reader_t *h;                    ///< Reader handle
     const testcase_t *tc;               ///< Testcase description
+    const testcase_opts_t *tcopt;       ///< Testcase options
+    const xml_reader_options_t *handle_opts; ///< Handle creation options
     const xml_reader_cbparam_t *expect; ///< Currently expected events
     bool failed;                        ///< Whether any of the expected events compared unequal
     uint32_t evtcnt;                    ///< Total counter of events
@@ -72,7 +84,7 @@ test_cb(void *arg, xml_reader_cbparam_t *cbparam)
                 MAX_NONE_EVENTS);
         return;
     }
-    if (xmlreader_event_equal(cbarg->expect, cbparam)) {
+    if (cbarg->tcopt->evt_compare(cbarg->expect, cbparam)) {
         printf("             PASS: ");
         xmlreader_event_print(cbparam);
     }
@@ -92,7 +104,7 @@ test_cb(void *arg, xml_reader_cbparam_t *cbparam)
         cbarg->expect += 1;
     }
     if (cbarg->tc->checkevt) {
-        rc = cbarg->tc->checkevt(cbarg->h, cbparam, cbarg->tc->checkevt_arg);
+        rc = cbarg->tc->checkevt(cbarg->h, cbparam, cbarg->handle_opts);
         if (rc != PASS) {
             printf("             FAIL: in test-specific callback\n");
             cbarg->failed = true;
@@ -134,8 +146,9 @@ sbuf_subst(void *arg, strbuf_t *sbuf)
     @return PASS/FAIL
 */
 static result_t
-run_testcase(const void *arg)
+run_testcase(const void *arg, const testcase_opts_t *o)
 {
+    xml_reader_options_t opts;
     const char *search_paths[2] = { xml_input_dir, NULL };
     xml_loader_opts_file_t file_loader_opts;
     const testcase_t *tc = arg;
@@ -145,6 +158,7 @@ run_testcase(const void *arg)
 
     // Brief summary of the test
     printf("%s\n", tc->desc);
+    printf("- Variant: %s\n", o->desc);
     printf("- Defined at %s:%u\n", tc->at_file, tc->at_line);
     printf("- Input: %s/%s\n", xml_input_dir, tc->input);
     printf("- Encoded into '%s', %s Byte-order mark\n",
@@ -159,11 +173,13 @@ run_testcase(const void *arg)
     // Run the test
     printf("XML reader events:\n");
 
-    reader = xml_reader_new(NULL);
+    cbarg.handle_opts = o->opts_create(&opts);
+    reader = xml_reader_new(cbarg.handle_opts);
     cbarg.expect = tc->events;
     cbarg.failed = false;
     cbarg.h = reader;
     cbarg.tc = tc;
+    cbarg.tcopt = o;
     cbarg.evtcnt = 0;
 
     xml_reader_set_callback(reader, test_cb, &cbarg);
@@ -191,6 +207,69 @@ run_testcase(const void *arg)
     xml_reader_delete(reader);
     return rc;
 }
+
+static const xml_reader_options_t *
+opts_fn_none(xml_reader_options_t *opts)
+{
+    return NULL;
+}
+
+static const testcase_opts_t opts_dflt = {
+    .desc = "default (NULL options)",
+    .opts_create = opts_fn_none,
+    .evt_compare = xmlreader_event_equal,
+};
+
+static const xml_reader_options_t *
+opts_fn_init(xml_reader_options_t *opts)
+{
+    xml_reader_opts_default(opts);
+    return opts;
+}
+
+static const testcase_opts_t opts_init = {
+    .desc = "initialized with default",
+    .opts_create = opts_fn_init,
+    .evt_compare = xmlreader_event_equal,
+};
+
+static const xml_reader_options_t *
+opts_fn_noloc(xml_reader_options_t *opts)
+{
+    xml_reader_opts_default(opts);
+    opts->loctrack = false;
+    return opts;
+}
+
+static bool
+evtcmp_fn_noloc(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2)
+{
+    xml_reader_cbparam_t x1 = *e1;
+    xml_reader_cbparam_t x2 = *e2;
+
+    memset(&x1.loc, 0, sizeof(x1.loc));
+    memset(&x2.loc, 0, sizeof(x2.loc));
+    return xmlreader_event_equal(&x1, &x2);
+}
+
+static const testcase_opts_t opts_noloc = {
+    .desc = "no location tracking",
+    .opts_create = opts_fn_noloc,
+    .evt_compare = evtcmp_fn_noloc,
+};
+
+/// Define a test case runner with a given option
+#define TC_RUNNER(x) \
+        static result_t \
+        run_testcase_##x(const void *arg) \
+        { \
+            return run_testcase(arg, &opts_##x); \
+        } \
+        struct __dummy
+
+TC_RUNNER(dflt);
+TC_RUNNER(init);
+TC_RUNNER(noloc);
 
 /// Initializer for basic test info
 #define TC(d) \
