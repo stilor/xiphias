@@ -4524,9 +4524,10 @@ xml_parse_bad_ignoreSect(xml_reader_t *h)
     xml_reader_message_current(h, XMLERR(ERROR, XML, P_conditionalSect),
             "Expect IGNORE or INCLUDE token here");
     if (xml_read_recover(h, "[") == PR_NOMATCH) {
-        return PR_OK; // hand off to EOF handler
+        return PR_FAIL;
     }
     // Consider it ignored section
+    (void)xml_read_string(h, "[", XMLERR_NOERROR); // checked above
     xml_reader_input_is_locked_condsect(h, "[");
     h->condsects_ign = h->condsects_all++;
     h->ctx = &parser_ignored_section;
@@ -5268,6 +5269,20 @@ on_fail_resync_bracket(xml_reader_t *h)
 }
 
 /**
+    Failure while reading conditional section keyword.
+
+    @param h Reader handle
+    @return PR_OK if recovery succeeded
+*/
+static prodres_t
+on_fail_conditional_section(xml_reader_t *h)
+{
+    xml_reader_input_unlock_ignore(h);
+    h->ctx = &parser_external_subset;
+    return on_fail_resync_bracket(h);
+}
+
+/**
     Recovery function if parsing an attribute fails.
 
     @param h Reader handle
@@ -5377,7 +5392,7 @@ static const xml_reader_context_t parser_conditional_section = {
         LOOKAHEAD("IGNORE", xml_parse_ignoreSect, 0),
         LOOKAHEAD("", xml_parse_bad_ignoreSect, 0),
     },
-    .on_fail = on_fail_fail,
+    .on_fail = on_fail_conditional_section,
     .on_end = on_end_conditional_section,
     .reftype = XML_READER_REF_NONE, // not an external entity
 };
