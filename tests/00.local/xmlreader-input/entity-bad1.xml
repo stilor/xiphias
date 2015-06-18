@@ -4,6 +4,7 @@
 <!ENTITY % first.param SYSTEM "xxx.xml">
 <!ENTITY>
 <!ENTITY %foo>
+<!ENTITY % foo SYSTEM>
 <!ENTITY ###>
 <!ENTITY first "bbb">
 <!ENTITY amp "&#38;#38;">

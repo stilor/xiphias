@@ -19,11 +19,29 @@ static const char *xml_input_dir = ".";
 typedef struct testcase_opts_s {
     const char *desc;                   ///< Description of test case variant
 
-    ///< Function to create the options for constructor
+    /// Function to create the options for constructor
     const xml_reader_options_t *(*opts_create)(xml_reader_options_t *opts);
 
-    ///< Function to compare events
+    /// Function to compare events
     bool (*evt_compare)(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2);
+
+    /// Check non-received events
+    bool (*check_remaining)(const xml_reader_cbparam_t *e);
+
+    /// Skip installing test callback 
+    bool nocallback;
+
+    /// Number of events before taking some action; 0 - on every event
+    uint32_t action_nevt;
+
+    /// Argument to pass to action function
+    void *action_arg;
+
+    /// Action to take on event #X
+    void (*action_evt)(void *arg, xml_reader_t *h);
+
+    /// Action to take on exiting from xml_reader_run; return true if the run loop is to restart
+    bool (*action_endrun)(void *arg, xml_reader_t *h);
 } testcase_opts_t;
 
 /// Describes a single test case for XML reader
@@ -61,7 +79,8 @@ typedef struct test_cb_s {
     const xml_reader_options_t *handle_opts; ///< Handle creation options
     const xml_reader_cbparam_t *expect; ///< Currently expected events
     bool failed;                        ///< Whether any of the expected events compared unequal
-    uint32_t evtcnt;                    ///< Total counter of events
+    uint32_t noevtcnt;                  ///< Total counter of NONE events
+    uint32_t totalevtcnt;               ///< Total counter of all events
 } test_cb_t;
 
 /// How many unexpected events per test case at most
@@ -78,16 +97,20 @@ static void
 test_cb(void *arg, xml_reader_cbparam_t *cbparam)
 {
     test_cb_t *cbarg = arg;
+    bool (*evt_compare)(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t *e2);
     result_t rc;
 
+    evt_compare = cbarg->tcopt->evt_compare ? cbarg->tcopt->evt_compare :
+            xmlreader_event_equal;
+
     if (cbarg->expect->cbtype == XML_READER_CB_NONE
-            && cbarg->evtcnt++ >= MAX_NONE_EVENTS) {
+            && cbarg->noevtcnt++ >= MAX_NONE_EVENTS) {
         xml_reader_stop(cbarg->h);
         printf("             FAIL: Exceeded number of unexpected events (%u)\n",
                 MAX_NONE_EVENTS);
         return;
     }
-    if (cbarg->tcopt->evt_compare(cbarg->expect, cbparam)) {
+    if (evt_compare(cbarg->expect, cbparam)) {
         printf("             PASS: ");
         xmlreader_event_print(cbparam);
     }
@@ -111,6 +134,12 @@ test_cb(void *arg, xml_reader_cbparam_t *cbparam)
         if (rc != PASS) {
             printf("             FAIL: in test-specific callback\n");
             cbarg->failed = true;
+        }
+    }
+    cbarg->totalevtcnt++;
+    if (cbarg->tcopt->action_evt) {
+        if (!cbarg->tcopt->action_nevt || cbarg->tcopt->action_nevt == cbarg->totalevtcnt) {
+            cbarg->tcopt->action_evt(cbarg->tcopt->action_arg, cbarg->h);
         }
     }
 }
@@ -177,16 +206,21 @@ run_testcase(const void *arg, const testcase_opts_t *o)
     printf("XML reader events:\n");
 
     xml_reader_opts_default(&opts);
-    cbarg.handle_opts = tc->opts_create ? tc->opts_create(&opts) : o->opts_create(&opts);
+    cbarg.handle_opts = tc->opts_create ? tc->opts_create(&opts) :
+            o->opts_create ? o->opts_create(&opts) : NULL;
     reader = xml_reader_new(cbarg.handle_opts);
     cbarg.expect = tc->events;
     cbarg.failed = false;
     cbarg.h = reader;
     cbarg.tc = tc;
     cbarg.tcopt = o;
-    cbarg.evtcnt = 0;
+    cbarg.noevtcnt = 0;
+    cbarg.totalevtcnt = 0;
 
-    xml_reader_set_callback(reader, test_cb, &cbarg);
+    if (!o->nocallback) {
+        xml_reader_set_callback(reader, test_cb, &cbarg);
+    }
+
     xml_reader_set_loader(reader, xml_loader_file, &file_loader_opts);
 
     if (tc->setup) {
@@ -194,17 +228,24 @@ run_testcase(const void *arg, const testcase_opts_t *o)
     }
 
     xml_reader_load_document_entity(reader, NULL, tc->input);
-    xml_reader_run(reader); // Emits the events
+    do {
+        xml_reader_run(reader); // Emits the events
+    } while (o->action_endrun && o->action_endrun(o->action_arg, reader));
 
     if (tc->teardown) {
         tc->teardown(reader);
     }
 
-    while (cbarg.expect->cbtype != XML_READER_CB_NONE) {
-        printf("  (not seen) FAIL: ");
-        xmlreader_event_print(cbarg.expect);
-        cbarg.expect += 1;
-        cbarg.failed = true;
+    if (o->check_remaining) {
+        cbarg.failed = o->check_remaining(cbarg.expect);
+    }
+    else {
+        while (cbarg.expect->cbtype != XML_READER_CB_NONE) {
+            printf("  (not seen) FAIL: ");
+            xmlreader_event_print(cbarg.expect);
+            cbarg.expect += 1;
+            cbarg.failed = true;
+        }
     }
     rc = cbarg.failed ? FAIL : PASS;
 
@@ -212,16 +253,8 @@ run_testcase(const void *arg, const testcase_opts_t *o)
     return rc;
 }
 
-static const xml_reader_options_t *
-opts_fn_none(xml_reader_options_t *opts)
-{
-    return NULL;
-}
-
 static const testcase_opts_t opts_dflt = {
     .desc = "default (NULL options)",
-    .opts_create = opts_fn_none,
-    .evt_compare = xmlreader_event_equal,
 };
 
 static const xml_reader_options_t *
@@ -233,7 +266,6 @@ opts_fn_init(xml_reader_options_t *opts)
 static const testcase_opts_t opts_init = {
     .desc = "initialized with default",
     .opts_create = opts_fn_init,
-    .evt_compare = xmlreader_event_equal,
 };
 
 static const xml_reader_options_t *
@@ -260,6 +292,18 @@ static const testcase_opts_t opts_noloc = {
     .evt_compare = evtcmp_fn_noloc,
 };
 
+static bool
+chkrem_ignore_unseen(const xml_reader_cbparam_t *e1)
+{
+    return false;
+}
+
+static const testcase_opts_t opts_nocb = {
+    .desc = "no callback",
+    .nocallback = true,
+    .check_remaining = chkrem_ignore_unseen,
+};
+
 /// Define a test case runner with a given option
 #define TC_RUNNER(x) \
         static result_t \
@@ -272,6 +316,58 @@ static const testcase_opts_t opts_noloc = {
 TC_RUNNER(dflt);
 TC_RUNNER(init);
 TC_RUNNER(noloc);
+TC_RUNNER(nocb);
+
+static void
+evt_reader_stop(void *arg, xml_reader_t *h)
+{
+    xml_reader_stop(h);
+    *(bool *)arg = true;
+    printf("  -- stop --\n");
+}
+
+static bool
+evt_reader_restart(void *arg, xml_reader_t *h)
+{
+    if (*(bool *)arg) {
+        printf("  --- go ---\n");
+        *(bool *)arg = false;
+        return true;
+    }
+    return false;
+}
+
+// Runner that stops the test after each received message and restarts it
+static result_t
+run_testcase_stopngo(const void *arg)
+{
+    testcase_opts_t opts;
+    bool stopped = false;
+
+    memset(&opts, 0, sizeof(opts));
+    opts.desc = "stop-and-go";
+    opts.action_nevt = 0; // Every event
+    opts.action_arg = &stopped;
+    opts.action_evt = evt_reader_stop;
+    opts.action_endrun = evt_reader_restart;
+    return run_testcase(arg, &opts);
+}
+
+// Runner that stops the test after each received message and deletes the handle
+static result_t
+run_testcase_stopndrop(const void *arg)
+{
+    testcase_opts_t opts;
+    bool stopped = false;
+
+    memset(&opts, 0, sizeof(opts));
+    opts.desc = "stop-and-go";
+    opts.action_nevt = 0; // Every event
+    opts.action_arg = &stopped;
+    opts.action_evt = evt_reader_stop;
+    opts.check_remaining = chkrem_ignore_unseen;
+    return run_testcase(arg, &opts);
+}
 
 /// Initializer for basic test info
 #define TC(d) \
