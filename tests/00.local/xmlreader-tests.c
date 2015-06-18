@@ -1,6 +1,13 @@
 /* vi: set ts=4 sw=4 et : */
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
+static const xml_reader_options_t *
+opts_no_unknown_norm_check(xml_reader_options_t *opts)
+{
+    opts->normalization_accept_unknown = true;
+    return opts;
+}
+
 struct cb_check_stacktrace_s {
     unsigned int idx;
     const xmlerr_loc_t *ptr;
@@ -4255,6 +4262,32 @@ static const testcase_t testcases[] = {
                     LOC("denorm08.xml", 2, 5),
                     .info = XMLERR(WARN, XML, NORMALIZATION),
                     .msg = "Unicode character U+03A2 is not assigned in this Unicode version.",
+            ),
+            EV(TEXT,
+                    LOC("denorm08.xml", 2, 4),
+                    .text = TOK("d\xCE\xA2"),
+                    .ws = false,
+            ),
+            EV(ETAG,
+                    LOC("denorm08.xml", 2, 6),
+                    .name = TOK("a"),
+            ),
+            END,
+        },
+    },
+    {
+        TC("Possibly denormalized (using unassigned character) with checking off"),
+        .input = "denorm08.xml",
+        .opts_create = opts_no_unknown_norm_check,
+        .events = (const xml_reader_cbparam_t[]){
+            EV(XMLDECL,
+                    LOC("denorm08.xml", 1, 20),
+                    .standalone = XML_INFO_STANDALONE_NO_VALUE,
+                    .version = XML_INFO_VERSION_1_1,
+            ),
+            EV(STAG,
+                    LOC("denorm08.xml", 2, 1),
+                    .name = TOK("a"),
             ),
             EV(TEXT,
                     LOC("denorm08.xml", 2, 4),

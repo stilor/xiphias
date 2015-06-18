@@ -36,6 +36,9 @@ typedef struct testcase_s {
     const char *encoding;                   ///< Transcode the file to this encoding
     const char *transport_encoding;         ///< Encoding from transport layer
 
+    /// Options setup: takes precedence over the one testcase_opts_t
+    const xml_reader_options_t *(*opts_create)(xml_reader_options_t *opts);
+
     /// Test set up
     void (*setup)(xml_reader_t *);
 
@@ -173,7 +176,8 @@ run_testcase(const void *arg, const testcase_opts_t *o)
     // Run the test
     printf("XML reader events:\n");
 
-    cbarg.handle_opts = o->opts_create(&opts);
+    xml_reader_opts_default(&opts);
+    cbarg.handle_opts = tc->opts_create ? tc->opts_create(&opts) : o->opts_create(&opts);
     reader = xml_reader_new(cbarg.handle_opts);
     cbarg.expect = tc->events;
     cbarg.failed = false;
@@ -223,7 +227,6 @@ static const testcase_opts_t opts_dflt = {
 static const xml_reader_options_t *
 opts_fn_init(xml_reader_options_t *opts)
 {
-    xml_reader_opts_default(opts);
     return opts;
 }
 
@@ -236,7 +239,6 @@ static const testcase_opts_t opts_init = {
 static const xml_reader_options_t *
 opts_fn_noloc(xml_reader_options_t *opts)
 {
-    xml_reader_opts_default(opts);
     opts->loctrack = false;
     return opts;
 }
