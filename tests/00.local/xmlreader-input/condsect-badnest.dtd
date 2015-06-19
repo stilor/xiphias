@@ -1,0 +1,8 @@
+<!ENTITY % all "<![INCLUDE[<!ENTITY chk.all &#34;&#34;>]]>">
+%all;
+<!ENTITY % start "<![INCLUDE[<!ENTITY chk.start &#34;&#34;>">
+%start;]]>
+<!ENTITY % mid "INCLUDE [">
+<![%mid;<!ENTITY chk.mid "">]]>
+<!ENTITY % end "<!ENTITY chk.end &#34;&#34;>]]>">
+<![INCLUDE[%end;
