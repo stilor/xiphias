@@ -1492,6 +1492,9 @@ xml_reader_new(const xml_reader_options_t *opts)
 
     xml_entity_populate(h);
 
+    // When we start parsing, it will be document entity context
+    h->ctx = &parser_document_entity;
+
     return h;
 }
 
@@ -1517,9 +1520,13 @@ xml_reader_delete(xml_reader_t *h)
         xfree(l);
     }
     while ((inp = STAILQ_FIRST(&h->active_input)) != NULL) {
-        xml_reader_input_complete(h, inp);
+        STAILQ_REMOVE_HEAD(&h->active_input, link);
+        xml_reader_input_destroy(inp);
     }
-    xml_reader_input_complete_notify(h);
+    while ((inp = STAILQ_FIRST(&h->completed_input)) != NULL) {
+        STAILQ_REMOVE_HEAD(&h->completed_input, link);
+        xml_reader_input_destroy(inp);
+    }
     while ((inp = STAILQ_FIRST(&h->free_input)) != NULL) {
         STAILQ_REMOVE_HEAD(&h->free_input, link);
         xml_reader_input_destroy(inp);
@@ -6028,7 +6035,6 @@ xml_reader_run(xml_reader_t *h)
     prodres_t rv;
 
     h->flags &= ~R_STOP; // If stopped previously, we can resume now.
-    h->ctx = &parser_document_entity;
     rv = xml_reader_process(h);
 
     // In each context, the last parser must catch all and recover

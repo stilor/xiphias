@@ -321,9 +321,12 @@ TC_RUNNER(nocb);
 static void
 evt_reader_stop(void *arg, xml_reader_t *h)
 {
-    xml_reader_stop(h);
-    *(bool *)arg = true;
-    printf("  -- stop --\n");
+    // TBD does not seem to stop in time - e.g. all the DTD declarations are processed before exiting
+    if (!*(bool *)arg) {
+        xml_reader_stop(h);
+        *(bool *)arg = true;
+        printf("  -- stop --\n");
+    }
 }
 
 static bool
@@ -344,6 +347,7 @@ run_testcase_stopngo(const void *arg)
     testcase_opts_t opts;
     bool stopped = false;
 
+    // TBD loop incrementing action_nevt
     memset(&opts, 0, sizeof(opts));
     opts.desc = "stop-and-go";
     opts.action_nevt = 0; // Every event
@@ -357,16 +361,30 @@ run_testcase_stopngo(const void *arg)
 static result_t
 run_testcase_stopndrop(const void *arg)
 {
+    const testcase_t *tc = arg;
+    const xml_reader_cbparam_t *cbp = tc->events;
     testcase_opts_t opts;
-    bool stopped = false;
+    bool stopped;
+    size_t max_evt;
+    result_t rc;
 
-    memset(&opts, 0, sizeof(opts));
-    opts.desc = "stop-and-go";
-    opts.action_nevt = 0; // Every event
-    opts.action_arg = &stopped;
-    opts.action_evt = evt_reader_stop;
-    opts.check_remaining = chkrem_ignore_unseen;
-    return run_testcase(arg, &opts);
+    for (max_evt = 0; cbp->cbtype != XML_READER_CB_NONE; max_evt++, cbp++) {
+    }
+
+    while (--max_evt) {
+        printf("  -- run until event %zu --\n", max_evt);
+        stopped = false;
+        memset(&opts, 0, sizeof(opts));
+        opts.desc = "stop-and-drop";
+        opts.action_nevt = max_evt;
+        opts.action_arg = &stopped;
+        opts.action_evt = evt_reader_stop;
+        opts.check_remaining = chkrem_ignore_unseen;
+        if ((rc = run_testcase(arg, &opts)) != PASS) {
+            return rc;
+        }
+    }
+    return PASS;
 }
 
 /// Initializer for basic test info
