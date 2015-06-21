@@ -318,13 +318,32 @@ TC_RUNNER(init);
 TC_RUNNER(noloc);
 TC_RUNNER(nocb);
 
+/// State structure for stop/restart test modes
+typedef struct {
+    bool stopped;           ///< Stop has been issued
+    bool on_every_event;    ///< Stop on every event
+    size_t stop_on;         ///< Stop on the specified event
+    size_t events_rcvd;     ///< Total number of events received
+} stop_restart_state_t;
+
+static void
+stop_restart_state_init(stop_restart_state_t *st)
+{
+    st->stopped = false;
+    st->on_every_event = false;
+    st->stop_on = 0;
+    st->events_rcvd = 0;
+}
+
 static void
 evt_reader_stop(void *arg, xml_reader_t *h)
 {
-    // TBD does not seem to stop in time - e.g. all the DTD declarations are processed before exiting
-    if (!*(bool *)arg) {
+    stop_restart_state_t *st = arg;
+
+    st->events_rcvd++;
+    if ((st->on_every_event || st->events_rcvd == st->stop_on) && !st->stopped) {
         xml_reader_stop(h);
-        *(bool *)arg = true;
+        st->stopped = true;
         printf("  -- stop --\n");
     }
 }
@@ -332,9 +351,11 @@ evt_reader_stop(void *arg, xml_reader_t *h)
 static bool
 evt_reader_restart(void *arg, xml_reader_t *h)
 {
-    if (*(bool *)arg) {
+    stop_restart_state_t *st = arg;
+
+    if (st->stopped) {
         printf("  --- go ---\n");
-        *(bool *)arg = false;
+        st->stopped = false;
         return true;
     }
     return false;
@@ -344,14 +365,15 @@ evt_reader_restart(void *arg, xml_reader_t *h)
 static result_t
 run_testcase_stopngo(const void *arg)
 {
+    stop_restart_state_t st;
     testcase_opts_t opts;
-    bool stopped = false;
 
-    // TBD loop incrementing action_nevt
+    stop_restart_state_init(&st);
+    st.on_every_event = true;
+
     memset(&opts, 0, sizeof(opts));
     opts.desc = "stop-and-go";
-    opts.action_nevt = 0; // Every event
-    opts.action_arg = &stopped;
+    opts.action_arg = &st;
     opts.action_evt = evt_reader_stop;
     opts.action_endrun = evt_reader_restart;
     return run_testcase(arg, &opts);
@@ -363,25 +385,34 @@ run_testcase_stopndrop(const void *arg)
 {
     const testcase_t *tc = arg;
     const xml_reader_cbparam_t *cbp = tc->events;
+    stop_restart_state_t st;
     testcase_opts_t opts;
-    bool stopped;
-    size_t max_evt;
+    size_t max_evt, last_events_rcvd;
     result_t rc;
 
+    // count total expected events
     for (max_evt = 0; cbp->cbtype != XML_READER_CB_NONE; max_evt++, cbp++) {
     }
 
+    last_events_rcvd = max_evt;
     while (--max_evt) {
         printf("\n[[ run until event %zu ]]\n", max_evt);
-        stopped = false;
+        stop_restart_state_init(&st);
+        st.stop_on = max_evt;
+
         memset(&opts, 0, sizeof(opts));
         opts.desc = "stop-and-drop";
-        opts.action_nevt = max_evt;
-        opts.action_arg = &stopped;
+        opts.action_arg = &st;
         opts.action_evt = evt_reader_stop;
         opts.check_remaining = chkrem_ignore_unseen;
         if ((rc = run_testcase(arg, &opts)) != PASS) {
             return rc;
+        }
+        if (st.events_rcvd > last_events_rcvd) {
+            printf("  FAIL: stopping at evt %zu produced more events (%zu) than stopping "
+                    "at event %zu (%zu)\n", st.stop_on, st.events_rcvd, st.stop_on + 1,
+                    last_events_rcvd);
+            return FAIL;
         }
     }
     return PASS;
