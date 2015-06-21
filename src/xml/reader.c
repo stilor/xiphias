@@ -61,7 +61,7 @@ typedef struct {
 
 /// Entity information
 typedef struct xml_reader_entity_s {
-    // TBD get name/length from the key in the hash using container_of() instead of storing it?
+    /// @todo get name/length from the key in the hash using container_of() instead of storing it?
     xml_reader_token_t name;                ///< Entity name/length
     enum xml_reader_reference_e type;       ///< Entity type
     xml_loader_info_t loader_info;          ///< Loader information for this entity
@@ -588,7 +588,7 @@ xml_reader_token_unset(xml_reader_token_t *tk)
     tk->len = 0;
 }
 
-// TBD: should be gone when loader uses utf8_t
+/// @todo should be gone when loader uses utf8_t
 #define TOKEN_FROM_CHAR(tk, s) do { \
     (tk)->str = (const unsigned char *)(s); \
     (tk)->len = s ? strlen(s) : 0; \
@@ -1283,7 +1283,7 @@ xml_unknown_entity_delete(xml_reader_t *h, const xml_reader_saved_token_t *svtk)
     const utf8_t *name = h->tokenbuf.start + svtk->offset;
     size_t namelen = svtk->len;
 
-    // TBD strhash_delete that doesn't have to lookup using container_of to find item
+    /// @todo strhash_delete that doesn't have to lookup using container_of to find item
     strhash_set(h->entities_unknown, name, namelen, NULL);
 }
 
@@ -1634,7 +1634,7 @@ xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
             cbp.entity.type = ctx->reftype;
             // We want to report this at the location of the loading entity,
             // not at the last production in the loaded entity.
-            // TBD if curloc moved back to h, would this be just h->curloc - since input is removed?
+            /// @todo if curloc moved back to h, would this be just h->curloc - since input is removed?
             if ((inp = STAILQ_FIRST(&h->active_input)) != NULL) {
                 cbp.loc = inp->curloc;
             }
@@ -1644,7 +1644,7 @@ xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
                 cbp.loc.pos = 0;
             }
         }
-        // TBD make loader use utf8_t (and size?)
+        /// @todo make loader use utf8_t (and size?)
         TOKEN_FROM_CHAR(&cbp.entity.system_id, loader_info->system_id);
         TOKEN_FROM_CHAR(&cbp.entity.public_id, loader_info->public_id);
         xml_reader_callback_invoke(h, &cbp);
@@ -1724,9 +1724,9 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
     xml_reader_external_t *ex = xc->ex;
     ucs4_t *cptr, *bptr;
 
-    // TBD no longer need to read this one-by-one, a block read is ok as long as it will stop
-    // reading (rather than emit an error) in case of encoding errors (which may be due to
-    // wrongly guessed encoding). Try that after restoring the test cases.
+    /// @todo no longer need to read this one-by-one, a block read is ok as long as it will stop
+    /// reading (rather than emit an error) in case of encoding errors (which may be due to
+    /// wrongly guessed encoding). Try that after restoring the test cases.
     OOPS_ASSERT(sz != 0);
     OOPS_ASSERT((sz & 3) == 0); // Reading in 32-bit blocks
     bptr = cptr = begin;
@@ -1734,7 +1734,7 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
         if (xc->la_offs == xc->la_avail) {
             // Need to read more data into the buffer ...
             if (xc->la_avail == xc->la_size) {
-                // TBD add a configurable limit on how large we can ever go
+                /// @todo add a configurable limit on how large we can ever go
                 // (or malicious input can keep this library consuming more and more memory)
                 // ... but need to grow the buffer first
                 if (xc->la_start != xc->initial) {
@@ -2003,10 +2003,10 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
                 // Is this going to be a part of the document or will it be replaced?
                 if ((h->flags & R_NO_INC_NORM) == 0
                         && !nfc_check_nextchar(h->norm_include, cp0)) {
-                    // TBD _ref or _current? _ref is where the last inclusion occurred, but
-                    // it may not be the relevant part (i.e. if the denormalization happend
-                    // in the nested include). Have refloc saved in each input when it is interrupted
-                    // by another input inclusion?
+                    /// @todo _ref or _current? _ref is where the last inclusion occurred, but
+                    /// it may not be the relevant part (i.e. if the denormalization happend
+                    /// in the nested include). Have refloc saved in each input when it is interrupted
+                    /// by another input inclusion?
                     if (!norm_warned) {
                         xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
                                 "Input is not include-normalized");
@@ -2027,7 +2027,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
                         xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
                                 "Relevant construct (%s) begins with a composing character",
                                 h->relevant);
-                        // TBD set h->relevant in NmToken (non-CDATA attributes)
+                        /// @todo set h->relevant in NmToken (non-CDATA attributes)
                     }
                     h->relevant = NULL;
                 }
@@ -2254,7 +2254,7 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
     xml_cb_string_state_t st;
     xmlerr_loc_t startloc;
 
-    // TBD: return curloc to xml_reader_t to avoid these checks...
+    /// @todo return curloc to xml_reader_t to avoid these checks...
     startloc = STAILQ_EMPTY(&h->active_input) ? h->prodloc : STAILQ_FIRST(&h->active_input)->curloc;
     st.cur = s;
     st.end = s + strlen(s);
@@ -2757,8 +2757,8 @@ reference_included(xml_reader_t *h, xml_reader_entity_t *e)
 static void
 reference_included_if_validating(xml_reader_t *h, xml_reader_entity_t *e)
 {
-    // TBD check 'if validating' condition? Or have a separate flag, 'loading entities', that
-    // controls this function?
+    /// @todo check 'if validating' condition? Or have a separate flag, 'loading entities', that
+    /// controls this function?
     reference_included_common(h, e, false, NULL);
 }
 
@@ -2854,8 +2854,8 @@ reference_unknown(xml_reader_t *h, xml_reader_entity_t *e)
 {
     xml_reader_cbparam_t cbp;
 
-    // TBD flag to callback_init which location to use? if so, move curloc back to handle
-    // and just save/restore the position when new input is added or removed
+    /// @todo flag to callback_init which location to use? if so, move curloc back to handle
+    /// and just save/restore the position when new input is added or removed
     xml_reader_callback_init(h, XML_READER_CB_ENTITY_UNKNOWN, &cbp);
     cbp.loc = h->refloc;
     cbp.entity.type = e->type;
@@ -2934,7 +2934,7 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
             }
             h->flags |= refops->flags;
             stopstatus = xml_read_until(h, refops->condread, arg);
-            // TBD: move flags settable via callback (STOP - anything else) to separate booleans?
+            /// @todo move flags settable via callback (STOP - anything else) to separate booleans?
             h->flags = saved_flags | (h->flags & R_STOP);
         } while (stopstatus == XRU_INPUT_BOUNDARY);
 
@@ -3176,7 +3176,7 @@ UCS4_ASSERT(does_not_compose_with_preceding, ucs4_fromlocal('\''))
 /// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
 static const xml_reference_ops_t reference_ops_pseudo = {
     .prodname = "<pseudo-literal in declaration>",
-    .errinfo = XMLERR(ERROR, XML, P_XMLDecl), // TBD P_XMLDecl vs P_TextDecl
+    .errinfo = XMLERR(ERROR, XML, P_XMLDecl), /// @todo differentiate P_XMLDecl vs P_TextDecl?
     .condread = xml_cb_literal,
     .flags = 0,
     .relevant = NULL,
@@ -3454,9 +3454,9 @@ check_SD_YesNo(xml_reader_t *h)
 */
 static const struct xml_reader_xmldecl_declinfo_s declinfo_textdecl = {
     .name = "TextDecl",
-    // TBD have a macro to combine spec/code, so that severity can be added later
-    // TBD use here and in other ecode/errcode fields
-    // TBD go over places invoking P_XMLDecl code and convert to use this via h->declinfo->errcode
+    /// @todo  have a macro to combine spec/code, so that severity can be added later;
+    /// use here and in other ecode/errcode fields; go over places invoking
+    /// P_XMLDecl code and convert to use this via h->declinfo->errcode
     .errcode = XMLERR(ERROR, XML, P_XMLDecl),
     .attrlist = (const xml_reader_xmldecl_attrdesc_t[]){
         { "version", false, check_VersionInfo },
@@ -3639,9 +3639,9 @@ xml_parse_decl_end(xml_reader_t *h)
                     attr->name, h->declinfo->name);
         }
     }
-    // TBD do away with XML declaration reporting? doesn't seem to have any
-    // value for consumer, and standalone status does not make sense except
-    // in doc entity. Instead, provide interfaces to query it via API?
+    /// @todo Do away with XML declaration reporting? doesn't seem to have any
+    /// value for consumer, and standalone status does not make sense except
+    /// in doc entity. Instead, provide interfaces to query it via API?
     xml_reader_callback_init(h, XML_READER_CB_XMLDECL, &cbp);
     cbp.xmldecl.encoding = h->current_external->enc_declared;
     cbp.xmldecl.version = h->current_external->version;
@@ -3663,7 +3663,7 @@ xml_cb_CharData(void *arg, ucs4_t cp)
 {
     xml_reader_t *h = arg;
 
-    // TBD: need to check if the content matches ']]>' token and raise an error if it does
+    /// @todo need to check if the content matches ']]>' token and raise an error if it does
     if (!ucs4_cheq(cp, '<') || STAILQ_FIRST(&h->active_input)->charref) {
         if (h->cdata_ws && !xml_is_whitespace(cp)) {
             h->cdata_ws = false;
@@ -4656,12 +4656,12 @@ xml_dtd_on_complete(xml_reader_t *h, const xmlerr_loc_t *loc)
 {
     xml_reader_cbparam_t cbp;
 
-    // TBD if a production yields PR_FAIL while locked (or xml_reader_stop() is called,
-    // the unlock_assert() will fail during xml_reader_delete() when it calls ->on_complete().
-    // - Eliminate completion calls during delete? But need to do in the manner that will close
-    //   the input string buffers
-    // - Evaluate xml_reader_input_unlock_assert() calls and replace them with _ignore or error-
-    //   checking calls to simple unlock()?
+    /// @todo if a production yields PR_FAIL while locked (or xml_reader_stop() is called,
+    /// the unlock_assert() will fail during xml_reader_delete() when it calls ->on_complete().
+    /// - Eliminate completion calls during delete? But need to do in the manner that will close
+    ///   the input string buffers
+    /// - Evaluate xml_reader_input_unlock_assert() calls and replace them with _ignore or error-
+    ///   checking calls to simple unlock()?
     xml_reader_input_unlock_assert(h);
 
     strhash_foreach(h->entities_unknown, xml_unknown_entity, h);
@@ -4691,8 +4691,8 @@ xml_parse_dtd_end(xml_reader_t *h)
     }
 
     if (xml_loader_info_isset(&h->dtd_loader_info)) {
-        // TBD should have a ENTITY_START message here or in invoke_loader for DTD/main doc.
-        // TBD and ENTITY_END at the end (since we emit ENTITY_NOT_LOADED, why not these?)
+        // @todo should have a ENTITY_START message here or in invoke_loader for DTD/main doc;
+        // and ENTITY_END at the end (since we emit ENTITY_NOT_LOADED, why not these?)
         (void)xml_reader_invoke_loader(h, &h->dtd_loader_info,
                 NULL, &parser_external_subset, false, xml_dtd_on_complete);
     }
@@ -4716,7 +4716,7 @@ xml_end_internal_subset(xml_reader_t *h)
 {
     xml_reader_cbparam_t cbp;
 
-    // TBD add matching START_INTERNAL event?
+    /// @todo add matching START_INTERNAL event?
     xml_read_string_assert(h, "]");
     xml_reader_callback_init(h, XML_READER_CB_DTD_END_INTERNAL, &cbp);
     xml_reader_callback_invoke(h, &cbp);
@@ -5817,16 +5817,16 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // This may be a nested invocation. If that's the case, we may not stop-and-restart;
     // doing so will restart the parser outside of this context - and will produce
     // incorrect tokens.
-    // TBD: ideally, this should be reworked to avoid nested call to xml_reader_process:
-    // - Store the saved_* variables above in the xml_reader_t
-    // - Instead of hidden_loader_arg, have this function save the input buffer and metadata
-    // to the handle and perform the initial parsing preparation in invoke_loader.
-    // - Have literals and chardata recognize the entities via pattern matcher rather than
-    // via flags in xml_read_until
-    // - xml_whitespace_peref should then recognize and handle PE references
-    // - Then move the XML declaration parsing into the main loop - start the document entity
-    // (and switch to when parsing included entities) in the declaration context and have it
-    // switch back to saved context afterwards.
+    /// @todo ideally, this should be reworked to avoid nested call to xml_reader_process:
+    /// - Store the saved_* variables above in the xml_reader_t
+    /// - Instead of hidden_loader_arg, have this function save the input buffer and metadata
+    /// to the handle and perform the initial parsing preparation in invoke_loader.
+    /// - Have literals and chardata recognize the entities via pattern matcher rather than
+    /// via flags in xml_read_until
+    /// - xml_whitespace_peref should then recognize and handle PE references
+    /// - Then move the XML declaration parsing into the main loop - start the document entity
+    /// (and switch to when parsing included entities) in the declaration context and have it
+    /// switch back to saved context afterwards.
     stopped = false;
 
     // After processing the declaration, skip over it in the source buffer. The position
@@ -5886,7 +5886,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // entity's declaration affects all the entities subsequently loaded: per XML 1.1
     // specification, "However, in such a case [...loading 1.0 entities from 1.1 document...]
     // the rules of XML 1.1 are applied to the entire document."
-    // TBD if preloading a DTD, need to avoid triggering this (or preload DTD after this check?)
+    /// @todo if preloading a DTD, need to avoid triggering this (or preload DTD after this check?)
     if (h->normalization == XML_READER_NORM_DEFAULT) {
         h->normalization = (ex->version == XML_INFO_VERSION_1_0) ?
                 XML_READER_NORM_OFF : XML_READER_NORM_ON;
@@ -6039,7 +6039,7 @@ xml_reader_message(xml_reader_t *h, const xmlerr_loc_t *loc, xmlerr_info_t info,
         cbp.loc = *loc;
     }
     else if ((inp = STAILQ_FIRST(&h->active_input)) != NULL) {
-        // TBD use prodloc as default (i.e. when NULL is passed)? It is already initialized in cbp
+        /// @todo use prodloc as default (i.e. when NULL is passed)? It is already initialized in cbp
         cbp.loc = inp->curloc;
     }
     cbp.message.info = info;
@@ -6080,8 +6080,6 @@ xml_reader_run(xml_reader_t *h)
 void
 xml_reader_stop(xml_reader_t *h)
 {
-    // TBD test exiting from nested xml_reader_process()? I.e. from XMLDecl processing loop?
-    // TBD looks like it should work fine, as only the last context (decl_end) makes a callback.
     h->flags |= R_STOP;
 }
 
