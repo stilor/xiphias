@@ -5709,7 +5709,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     const encoding_t *enc;
     enum encoding_endian_e endian;
     prodres_t decl_rv;
-    bool rv;
+    bool rv, stopped;
 
     ex = xmalloc(sizeof(xml_reader_external_t));
     memset(ex, 0, sizeof(xml_reader_external_t));
@@ -5813,10 +5813,36 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     saved_tlen = h->tokenbuf.len;
     saved_prodloc = h->prodloc;
 
+    // This may be a nested invocation. If that's the case, we may not stop-and-restart;
+    // doing so will restart the parser outside of this context - and will produce
+    // incorrect tokens.
+    // TBD: ideally, this should be reworked to avoid nested call to xml_reader_process:
+    // - Store the saved_* variables above in the xml_reader_t
+    // - Instead of hidden_loader_arg, have this function save the input buffer and metadata
+    // to the handle and perform the initial parsing preparation in invoke_loader.
+    // - Have literals and chardata recognize the entities via pattern matcher rather than
+    // via flags in xml_read_until
+    // - xml_whitespace_peref should then recognize and handle PE references
+    // - Then move the XML declaration parsing into the main loop - start the document entity
+    // (and switch to when parsing included entities) in the declaration context and have it
+    // switch back to saved context afterwards.
+    stopped = false;
+
     // After processing the declaration, skip over it in the source buffer. The position
     // recorded in transcoder state is the offset of the first non-consumed character.
     h->ctx = &parser_decl;
-    decl_rv = xml_reader_process(h);
+    do {
+        // Defer stopping until after the initial loading - see above
+        if (h->flags & R_STOP) {
+            h->flags &= ~R_STOP;
+            stopped = false;
+        }
+        decl_rv = xml_reader_process(h);
+    } while (decl_rv == PR_OK && (h->flags & R_STOP));
+    if (stopped) {
+        h->flags |= R_STOP;
+    }
+
     strbuf_radvance(buf, xc.la_pos[0]);
 
     /// Restore

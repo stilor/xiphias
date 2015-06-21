@@ -372,7 +372,7 @@ run_testcase_stopndrop(const void *arg)
     }
 
     while (--max_evt) {
-        printf("  -- run until event %zu --\n", max_evt);
+        printf("[[ run until event %zu ]]\n\n", max_evt);
         stopped = false;
         memset(&opts, 0, sizeof(opts));
         opts.desc = "stop-and-drop";
