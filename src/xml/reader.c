@@ -2934,7 +2934,8 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
             }
             h->flags |= refops->flags;
             stopstatus = xml_read_until(h, refops->condread, arg);
-            h->flags = saved_flags;
+            // TBD: move flags settable via callback (STOP - anything else) to separate booleans?
+            h->flags = saved_flags | (h->flags & R_STOP);
         } while (stopstatus == XRU_INPUT_BOUNDARY);
 
         if (stopstatus != XRU_REFERENCE) {
