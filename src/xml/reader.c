@@ -5835,7 +5835,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
         // Defer stopping until after the initial loading - see above
         if (h->flags & R_STOP) {
             h->flags &= ~R_STOP;
-            stopped = false;
+            stopped = true;
         }
         decl_rv = xml_reader_process(h);
     } while (decl_rv == PR_OK && (h->flags & R_STOP));
