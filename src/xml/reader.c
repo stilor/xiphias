@@ -1724,9 +1724,11 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
     xml_reader_external_t *ex = xc->ex;
     ucs4_t *cptr, *bptr;
 
-    /// @todo no longer need to read this one-by-one, a block read is ok as long as it will stop
-    /// reading (rather than emit an error) in case of encoding errors (which may be due to
-    /// wrongly guessed encoding). Try that after restoring the test cases.
+    // The loop below can be converted to reading into lookahead buffer in bulk, but
+    // we'd then need to transcode the characters one by one as the position of each
+    // of these characters needs to be recorded. After reading the declaration, the
+    // encoding may need to be changed, we will need to skip the exact number of bytes
+    // that the declaration used.
     OOPS_ASSERT(sz != 0);
     OOPS_ASSERT((sz & 3) == 0); // Reading in 32-bit blocks
     bptr = cptr = begin;
