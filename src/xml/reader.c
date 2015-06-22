@@ -1523,10 +1523,9 @@ xml_reader_delete(xml_reader_t *h)
         STAILQ_REMOVE_HEAD(&h->active_input, link);
         xml_reader_input_destroy(inp);
     }
-    while ((inp = STAILQ_FIRST(&h->completed_input)) != NULL) {
-        STAILQ_REMOVE_HEAD(&h->completed_input, link);
-        xml_reader_input_destroy(inp);
-    }
+    // Upon valid exit from xml_reader_run() (via end-of-input or via STOP request,
+    // the notification list must have been flushed.
+    OOPS_ASSERT(STAILQ_EMPTY(&h->completed_input));
     while ((inp = STAILQ_FIRST(&h->free_input)) != NULL) {
         STAILQ_REMOVE_HEAD(&h->free_input, link);
         xml_reader_input_destroy(inp);
@@ -1752,6 +1751,8 @@ xml_reader_initial_op_more(void *arg, void *begin, size_t sz)
             }
         }
         // Transcode a single UCS-4 code point
+        /// @todo to cover the else-branch of this conditional, need multibyte input
+        /// which is broken (by the downstream strbuf) at an odd position.
         if (!xc->la_pos_set) {
             xc->la_pos_set = true;
             OOPS_ASSERT(xc->la_pos_idx < sizeofarray(xc->la_pos));
@@ -1996,11 +1997,12 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
                 // Does it come from the regular input or was a result of some substitution?
                 if (inp->external
                         && !nfc_check_nextchar(inp->external->norm_unicode, cp0)) {
-                    if (!norm_warned) {
-                        xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
-                                "Input is not Unicode-normalized");
-                        norm_warned = true;
-                    }
+                    // Above there is only the check for unassigned characters - which are not,
+                    // by definition, a part of any composite.
+                    OOPS_ASSERT(!norm_warned);
+                    xml_reader_message_current(h, XMLERR(WARN, XML, NORMALIZATION),
+                            "Input is not Unicode-normalized");
+                    norm_warned = true;
                 }
                 // Is this going to be a part of the document or will it be replaced?
                 if ((h->flags & R_NO_INC_NORM) == 0
@@ -2256,8 +2258,9 @@ xml_read_string(xml_reader_t *h, const char *s, xmlerr_info_t errinfo)
     xml_cb_string_state_t st;
     xmlerr_loc_t startloc;
 
-    /// @todo return curloc to xml_reader_t to avoid these checks...
-    startloc = STAILQ_EMPTY(&h->active_input) ? h->prodloc : STAILQ_FIRST(&h->active_input)->curloc;
+    // Production must lock to expect fixed markup
+    OOPS_ASSERT(!STAILQ_EMPTY(&h->active_input));
+    startloc = STAILQ_FIRST(&h->active_input)->curloc;
     st.cur = s;
     st.end = s + strlen(s);
     if (xml_read_until(h, xml_cb_string, &st) != XRU_STOP || st.cur != st.end) {
@@ -3513,7 +3516,9 @@ static prodres_t
 xml_parse_decl_start(xml_reader_t *h)
 {
     // We know '<?xml' is here, but it must be followed by a whitespace
-    // so that it can be distinguished from a XML PI, e.g. '<?xml-model'
+    // so that it can be distinguished from a XML PI, e.g. '<?xml-model'.
+    // If we don't get enought characters to tell, consider it a no-match
+    // (as we don't know whether it is a truncated declaration or PI).
     if (h->labuf.len < 6 || !xml_is_whitespace(h->labuf.start[5])) {
         return PR_NOMATCH;
     }
@@ -3552,6 +3557,7 @@ xml_parse_decl_attr(xml_reader_t *h)
     const xml_reader_xmldecl_attrdesc_t *attr;
     utf8_t *name;
 
+    /// @todo Enhance error messages to show which exact pseudo-attribute(s) were expected
     if (!h->attr_ws) {
         xml_reader_message_current(h, h->declinfo->errcode,
                 "Malformed %s: expect whitespace or ?> here",
@@ -5192,11 +5198,10 @@ on_end_attr(xml_reader_t *h)
             "Expect %s, or >, or /> here",
             h->attr_ws ? "attribute name" : "whitespace");
 
-    // Revert to document/content parsing. Assume it was STag (because it's easier
-    // and in absence of closing markup, we don't know for sure anyway.
-    h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
-    xml_reader_input_unlock_assert(h);
-    return PR_OK; // Parse the remainder
+    // Revert to content parsing. Do not unlock (assumes it was STag); the content
+    // parser's EOF handler will handle the unlocking.
+    h->ctx = &parser_content;
+    return on_end_tag(h);
 }
 
 /**
@@ -5841,7 +5846,8 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
             stopped = true;
         }
         decl_rv = xml_reader_process(h);
-    } while (decl_rv == PR_OK && (h->flags & R_STOP));
+    } while (decl_rv == PR_OK); // On completion, PR_STOP is returned.
+
     if (stopped) {
         h->flags |= R_STOP;
     }
@@ -5978,9 +5984,7 @@ failed:
     // it is still on the active list (i.e. if it has not been removed due to
     // being empty (with or without declaration), or having a truncated declaration.
     xml_reader_input_unlock_assert(h);
-    if (inp == STAILQ_FIRST(&h->active_input)) {
-        xml_reader_input_complete(h, inp);
-    }
+    xml_reader_input_complete(h, inp);
 }
 
 /**
