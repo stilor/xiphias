@@ -89,10 +89,34 @@ typedef ucs4_t (*xml_condread_func_t)(void *arg, ucs4_t cp);
 /// Handler for a reference
 typedef void (*xml_refhandler_t)(xml_reader_t *, xml_reader_entity_t *);
 
+/// Which productions or other syntactic constructs lock the input
+enum xml_reader_locker_e {
+    LOCKER_NONE,            ///< Default: invalid value (no locking)
+    LOCKER_REFERENCE,       ///< General entity or character reference
+    LOCKER_PE_REFERENCE,    ///< Parameter entity reference
+    LOCKER_COMMENT,         ///< Comment
+    LOCKER_PI,              ///< Processing instruction
+    LOCKER_CDATA,           ///< CData section
+    LOCKER_ENTITY_DECL,     ///< Entity declaration
+    LOCKER_NOTATION_DECL,   ///< Notation declaration
+    LOCKER_CONDITIONAL_SECT,///< Conditional section
+    LOCKER_DTD,             ///< Document type declaration
+    LOCKER_ELEMENT,         ///< Element
+    LOCKER_DECLARATION,     ///< XML or text declaration
+
+    // TBD below - to be removed? why do we need to lock literals if all containing structures are
+    // locked themselves?
+    LOCKER_PSEUDO_LITERAL,  
+    LOCKER_ATTRIBUTE,
+    LOCKER_SYSID,
+    LOCKER_PUBID,
+    LOCKER_ENTITY_VALUE,
+};
+
 /// Methods for handling references (PEReference, EntityRef, CharRef)
 typedef struct xml_reference_ops_s {
-    /// Production name associated with this reference ops set - for literal parsing
-    const char *prodname;
+    /// For locking of the literal: describes which production locked it
+    enum xml_reader_locker_e locker;
 
     /// Error raised if failed to parse
     xmlerr_info_t errinfo;
@@ -189,7 +213,7 @@ typedef struct xml_reader_lock_token_s {
     SLIST_ENTRY(xml_reader_lock_token_s) link;  ///< Stack of locked productions
     xmlerr_loc_t where;             ///< Where the production locked the input
     xml_reader_input_t *input;      ///< Locked input
-    const char *locker;             ///< Type of locked production
+    enum xml_reader_locker_e locker;///< Which production locked it
     size_t name_offset;             ///< Associated element name in the buffer (start offset)
     size_t name_len;                ///< Element name length
 } xml_reader_lock_token_t;
@@ -867,15 +891,16 @@ xml_reader_input_rptr(xml_reader_t *h, const void **begin, const void **end)
     Lock current input.
 
     @param h Reader handle
-    @param locker Production name that locked this input
+    @param locker Production type that locked this input
     @return Nothing
 */
 static void
-xml_reader_input_lock(xml_reader_t *h, const char *locker)
+xml_reader_input_lock(xml_reader_t *h, enum xml_reader_locker_e locker)
 {
     xml_reader_input_t *inp;
     xml_reader_lock_token_t *l;
 
+    OOPS_ASSERT(locker != LOCKER_NONE);
     inp = STAILQ_FIRST(&h->active_input);
     OOPS_ASSERT(inp);
     if ((l = SLIST_FIRST(&h->free_locks)) != NULL) {
@@ -2295,11 +2320,11 @@ xml_read_string_assert(xml_reader_t *h, const char *s)
 
     @param h Reader handle
     @param s String expected in the document; must be ASCII-only
-    @param locker Locking production name
+    @param locker Locking production type
     @return Nothing (asserts on no match)
 */
 static void
-xml_read_string_lock(xml_reader_t *h, const char *s, const char *locker)
+xml_read_string_lock(xml_reader_t *h, const char *s, enum xml_reader_locker_e locker)
 {
     xml_reader_input_lock(h, locker);
     xml_read_string_assert(h, s);
@@ -2528,7 +2553,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     h->flags |= R_NO_INC_NORM;
     if (ucs4_cheq(startchar, '&')) {
         // This may be either entity or character reference
-        xml_read_string_lock(h, "&", "Reference");
+        xml_read_string_lock(h, "&", LOCKER_REFERENCE);
         if (xml_read_Name(h) == PR_OK) {
             // EntityRef
             *reftype = XML_READER_REF_GENERAL;
@@ -2564,7 +2589,7 @@ xml_parse_reference(xml_reader_t *h, enum xml_reader_reference_e *reftype)
     // percent sign may be taken literally in the parameter entity
     // definition. If that's the case, it is followed by a whitespace
     // (S) rather than Name.
-    xml_read_string_lock(h, "%", "PEReference");
+    xml_read_string_lock(h, "%", LOCKER_PE_REFERENCE);
     if (xml_read_Name(h) == PR_OK) {
         *reftype = XML_READER_REF_PE;
         goto read_content;
@@ -3104,8 +3129,8 @@ typedef struct xml_cb_literal_state_s {
     xml_reader_t *h;
     /// Deferred setting of 'relevant construct'
     bool starting;
-    /// Production name for this literal
-    const char *prodname;
+    /// Locker type for this literal
+    enum xml_reader_locker_e locker;
 } xml_cb_literal_state_t;
 
 /**
@@ -3129,7 +3154,7 @@ xml_cb_literal(void *arg, ucs4_t cp)
             return UCS4_STOPCHAR; // Rejected before even started
         }
         st->quote = cp;
-        xml_reader_input_lock(st->h, st->prodname);
+        xml_reader_input_lock(st->h, st->locker);
         return UCS4_NOCHAR; // Remember the quote, but do not store it
     }
     else {
@@ -3180,7 +3205,7 @@ UCS4_ASSERT(does_not_compose_with_preceding, ucs4_fromlocal('\''))
 
 /// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
 static const xml_reference_ops_t reference_ops_pseudo = {
-    .prodname = "<pseudo-literal in declaration>",
+    .locker = LOCKER_PSEUDO_LITERAL,
     .errinfo = XMLERR(ERROR, XML, P_XMLDecl), /// @todo differentiate P_XMLDecl vs P_TextDecl?
     .condread = xml_cb_literal,
     .flags = 0,
@@ -3191,7 +3216,7 @@ static const xml_reference_ops_t reference_ops_pseudo = {
 /// Virtual methods for reading attribute values (AttValue production)
 /// @todo: .condread must check for forbidden character ('<')
 static const xml_reference_ops_t reference_ops_AttValue = {
-    .prodname = "AttValue",
+    .locker = LOCKER_ATTRIBUTE,
     .errinfo = XMLERR(ERROR, XML, P_AttValue),
     .condread = xml_cb_literal,
     .flags = R_RECOGNIZE_REF,
@@ -3208,7 +3233,7 @@ static const xml_reference_ops_t reference_ops_AttValue = {
 
 /// Virtual methods for reading system ID (SystemLiteral production)
 static const xml_reference_ops_t reference_ops_SystemLiteral = {
-    .prodname = "SystemLiteral",
+    .locker = LOCKER_SYSID,
     .errinfo = XMLERR(ERROR, XML, P_SystemLiteral),
     .condread = xml_cb_literal,
     .flags = 0,
@@ -3221,7 +3246,7 @@ static const xml_reference_ops_t reference_ops_SystemLiteral = {
 /// way so that R_ASCII may also make use of that approach? Also,
 /// can attribute value normalization use that approach?
 static const xml_reference_ops_t reference_ops_PubidLiteral = {
-    .prodname = "PubidLiteral",
+    .locker = LOCKER_PUBID,
     .errinfo = XMLERR(ERROR, XML, P_PubidLiteral),
     .condread = xml_cb_literal,
     .flags = 0,
@@ -3231,7 +3256,7 @@ static const xml_reference_ops_t reference_ops_PubidLiteral = {
 
 /// Virtual methods for reading entity value (EntityValue production) in internal subset
 static const xml_reference_ops_t reference_ops_EntityValue_internal = {
-    .prodname = "EntityValue (internal subset)",
+    .locker = LOCKER_ENTITY_VALUE,
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
     .condread = xml_cb_literal_EntityValue,
     .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
@@ -3250,7 +3275,7 @@ static const xml_reference_ops_t reference_ops_EntityValue_internal = {
 
 /// Virtual methods for reading entity value (EntityValue production) in external subset
 static const xml_reference_ops_t reference_ops_EntityValue_external = {
-    .prodname = "EntityValue (external subset)",
+    .locker = LOCKER_ENTITY_VALUE,
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
     .condread = xml_cb_literal_EntityValue,
     .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
@@ -3292,7 +3317,7 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     st.quote = UCS4_NOCHAR;
     st.h = h;
     st.starting = false;
-    st.prodname = refops->prodname;
+    st.locker = refops->locker;
     if (xml_read_until_parseref(h, refops, &st) != XRU_STOP
             || st.quote != UCS4_STOPCHAR) {
         if (st.quote == UCS4_NOCHAR) {
@@ -3768,7 +3793,7 @@ xml_parse_Comment(xml_reader_t *h)
     xml_reader_cbparam_t cbp;
     comment_backtrack_handler_t cbh;
 
-    xml_read_string_lock(h, "<!--", "Comment");
+    xml_read_string_lock(h, "<!--", LOCKER_COMMENT);
 
     cbh.h = h;
     cbh.warned = false;
@@ -3820,7 +3845,7 @@ xml_parse_PI(xml_reader_t *h)
     xml_reader_cbparam_t cbp;
     xml_reader_notation_t *n;
 
-    xml_read_string_lock(h, "<?", "PI");
+    xml_read_string_lock(h, "<?", LOCKER_PI);
 
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_PI),
@@ -3938,7 +3963,7 @@ xml_parse_CDSect(xml_reader_t *h)
     // CDSect is considered an escape mechanism; the markup before and after
     // is not subject to include normalization check.
     h->flags |= R_NO_INC_NORM;
-    xml_read_string_lock(h, "<![CDATA[", "CDSect");
+    xml_read_string_lock(h, "<![CDATA[", LOCKER_CDATA);
     h->flags &= ~R_NO_INC_NORM;
 
     // Starting CData - which is relevant construct
@@ -4116,7 +4141,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
     prodres_t rv;
 
     // ['<!ENTITY' S]
-    xml_read_string_lock(h, "<!ENTITY", "EntityDecl");
+    xml_read_string_lock(h, "<!ENTITY", LOCKER_ENTITY_DECL);
 
     h->flags |= R_AMBIGUOUS_PERCENT;
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
@@ -4354,7 +4379,7 @@ xml_parse_NotationDecl(xml_reader_t *h)
     xml_reader_notation_t *n = NULL;
     prodres_t rv;
 
-    xml_read_string_lock(h, "<!NOTATION", "NotationDecl");
+    xml_read_string_lock(h, "<!NOTATION", LOCKER_NOTATION_DECL);
 
     if (xml_parse_whitespace_conditional(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_NotationDecl),
@@ -4472,7 +4497,7 @@ xml_parse_conditionalSect(xml_reader_t *h)
 {
     // Conditional sections are only recognized in external subset - where PE references
     // are allowed.
-    xml_read_string_lock(h, "<![", "conditionalSect");
+    xml_read_string_lock(h, "<![", LOCKER_CONDITIONAL_SECT);
     (void)xml_parse_whitespace_peref(h); // this also expands PE reference
     h->ctx = &parser_conditional_section;
     return PR_OK;
@@ -4768,7 +4793,7 @@ xml_parse_doctypedecl(xml_reader_t *h)
     //   '<!DOCTYPE' S Name 'PUBLIC' S PubidLiteral S SystemLiteral S? '[' intSubset ']' S? '>'
 
     // Common part: '<!DOCTYPE' S Name
-    xml_read_string_lock(h, "<!DOCTYPE", "doctypedecl");
+    xml_read_string_lock(h, "<!DOCTYPE", LOCKER_DTD);
 
     // DTD allowed only once and only before the root element
     if (h->flags & (R_HAS_DTD|R_HAS_ROOT)) {
@@ -4853,7 +4878,7 @@ xml_parse_STag_EmptyElemTag(xml_reader_t *h)
         }
     }
 
-    xml_read_string_lock(h, "<", "element");
+    xml_read_string_lock(h, "<", LOCKER_ELEMENT);
 
     if (xml_read_Name(h) != PR_OK) {
         // No valid name - try to recover by skipping until closing bracket
@@ -5172,6 +5197,7 @@ on_end_tag(xml_reader_t *h)
 
     // Input may be locked more than once if more than one tag is not closed
     while ((l = xml_reader_input_is_locked(h)) != NULL) {
+        OOPS_ASSERT(l->locker == LOCKER_ELEMENT);
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_element),
                 "STag without matching ETag");
         xml_reader_message(h, &l->where, XMLERR_NOTE,
@@ -5746,7 +5772,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // Immediately lock the input, so that it is not removed even if it is empty.
     // Since declaration parser does not recognize any entities, this is sufficient
     // to prevent the declaration parser from escaping into the including entity.
-    xml_reader_input_lock(h, "XMLDecl/TextDecl");
+    xml_reader_input_lock(h, LOCKER_DECLARATION);
 
     // Try to get the encoding from stream and check for BOM
     memset(adbuf, 0, sizeof(adbuf));
