@@ -5074,17 +5074,19 @@ xml_parse_ETag(xml_reader_t *h)
                     "This is the location of the STag");
         }
         xml_reader_input_unlock_assert(h);
+        xml_reader_callback_init(h, XML_READER_CB_ETAG, &cbp);
+        xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.tag.name);
+        xml_reader_callback_invoke(h, &cbp);
     }
     else {
         xml_reader_message_lastread(h, XMLERR(ERROR, XML, P_element),
                 "ETag without matching STag");
     }
 
-    xml_reader_callback_init(h, XML_READER_CB_ETAG, &cbp);
-    xml_tokenbuf_setcbtoken(h, &h->svtk.name, &cbp.tag.name);
-    xml_reader_callback_invoke(h, &cbp);
-
-    h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
+    // Exited to root level?
+    if (SLIST_EMPTY(&h->active_locks)) {
+        h->ctx = &parser_document_entity;
+    }
     return PR_OK;
 }
 
@@ -5193,6 +5195,7 @@ on_end_dtd_external(xml_reader_t *h)
 static prodres_t
 on_end_tag(xml_reader_t *h)
 {
+    xml_reader_cbparam_t cbp;
     xml_reader_lock_token_t *l;
 
     // Input may be locked more than once if more than one tag is not closed
@@ -5202,6 +5205,10 @@ on_end_tag(xml_reader_t *h)
                 "STag without matching ETag");
         xml_reader_message(h, &l->where, XMLERR_NOTE,
                 "This is the location of the STag");
+        // Issue "implied ETag" event
+        xml_reader_callback_init(h, XML_READER_CB_ETAG, &cbp);
+        cbp.loc = STAILQ_FIRST(&h->active_input)->curloc;
+        xml_reader_callback_invoke(h, &cbp);
         xml_reader_input_unlock_assert(h);
     }
     h->ctx = SLIST_EMPTY(&h->active_locks) ? &parser_document_entity : &parser_content;
