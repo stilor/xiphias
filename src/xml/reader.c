@@ -89,35 +89,8 @@ typedef ucs4_t (*xml_condread_func_t)(void *arg, ucs4_t cp);
 /// Handler for a reference
 typedef void (*xml_refhandler_t)(xml_reader_t *, xml_reader_entity_t *);
 
-/// Which productions or other syntactic constructs lock the input
-enum xml_reader_locker_e {
-    LOCKER_NONE,            ///< Default: invalid value (no locking)
-    LOCKER_REFERENCE,       ///< General entity or character reference
-    LOCKER_PE_REFERENCE,    ///< Parameter entity reference
-    LOCKER_COMMENT,         ///< Comment
-    LOCKER_PI,              ///< Processing instruction
-    LOCKER_CDATA,           ///< CData section
-    LOCKER_ENTITY_DECL,     ///< Entity declaration
-    LOCKER_NOTATION_DECL,   ///< Notation declaration
-    LOCKER_CONDITIONAL_SECT,///< Conditional section
-    LOCKER_DTD,             ///< Document type declaration
-    LOCKER_ELEMENT,         ///< Element
-    LOCKER_DECLARATION,     ///< XML or text declaration
-
-    // TBD below - to be removed? why do we need to lock literals if all containing structures are
-    // locked themselves?
-    LOCKER_PSEUDO_LITERAL,  
-    LOCKER_ATTRIBUTE,
-    LOCKER_SYSID,
-    LOCKER_PUBID,
-    LOCKER_ENTITY_VALUE,
-};
-
 /// Methods for handling references (PEReference, EntityRef, CharRef)
 typedef struct xml_reference_ops_s {
-    /// For locking of the literal: describes which production locked it
-    enum xml_reader_locker_e locker;
-
     /// Error raised if failed to parse
     xmlerr_info_t errinfo;
 
@@ -207,6 +180,22 @@ typedef struct xml_reader_input_s {
     xml_reader_entity_t *entity;    ///< Associated entity if any
     xml_reader_external_t *external;///< External entity information
 } xml_reader_input_t;
+
+/// Which productions or other syntactic constructs locked the input
+enum xml_reader_locker_e {
+    LOCKER_NONE,            ///< Default: invalid value (no locking)
+    LOCKER_REFERENCE,       ///< General entity or character reference
+    LOCKER_PE_REFERENCE,    ///< Parameter entity reference
+    LOCKER_COMMENT,         ///< Comment
+    LOCKER_PI,              ///< Processing instruction
+    LOCKER_CDATA,           ///< CData section
+    LOCKER_ENTITY_DECL,     ///< Entity declaration
+    LOCKER_NOTATION_DECL,   ///< Notation declaration
+    LOCKER_CONDITIONAL_SECT,///< Conditional section
+    LOCKER_DTD,             ///< Document type declaration
+    LOCKER_ELEMENT,         ///< Element
+    LOCKER_DECLARATION,     ///< XML or text declaration
+};
 
 /// Input locking token.
 typedef struct xml_reader_lock_token_s {
@@ -3129,8 +3118,6 @@ typedef struct xml_cb_literal_state_s {
     xml_reader_t *h;
     /// Deferred setting of 'relevant construct'
     bool starting;
-    /// Locker type for this literal
-    enum xml_reader_locker_e locker;
 } xml_cb_literal_state_t;
 
 /**
@@ -3154,7 +3141,6 @@ xml_cb_literal(void *arg, ucs4_t cp)
             return UCS4_STOPCHAR; // Rejected before even started
         }
         st->quote = cp;
-        xml_reader_input_lock(st->h, st->locker);
         return UCS4_NOCHAR; // Remember the quote, but do not store it
     }
     else {
@@ -3205,7 +3191,6 @@ UCS4_ASSERT(does_not_compose_with_preceding, ucs4_fromlocal('\''))
 
 /// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
 static const xml_reference_ops_t reference_ops_pseudo = {
-    .locker = LOCKER_PSEUDO_LITERAL,
     .errinfo = XMLERR(ERROR, XML, P_XMLDecl), /// @todo differentiate P_XMLDecl vs P_TextDecl?
     .condread = xml_cb_literal,
     .flags = 0,
@@ -3216,7 +3201,6 @@ static const xml_reference_ops_t reference_ops_pseudo = {
 /// Virtual methods for reading attribute values (AttValue production)
 /// @todo: .condread must check for forbidden character ('<')
 static const xml_reference_ops_t reference_ops_AttValue = {
-    .locker = LOCKER_ATTRIBUTE,
     .errinfo = XMLERR(ERROR, XML, P_AttValue),
     .condread = xml_cb_literal,
     .flags = R_RECOGNIZE_REF,
@@ -3233,7 +3217,6 @@ static const xml_reference_ops_t reference_ops_AttValue = {
 
 /// Virtual methods for reading system ID (SystemLiteral production)
 static const xml_reference_ops_t reference_ops_SystemLiteral = {
-    .locker = LOCKER_SYSID,
     .errinfo = XMLERR(ERROR, XML, P_SystemLiteral),
     .condread = xml_cb_literal,
     .flags = 0,
@@ -3246,7 +3229,6 @@ static const xml_reference_ops_t reference_ops_SystemLiteral = {
 /// way so that R_ASCII may also make use of that approach? Also,
 /// can attribute value normalization use that approach?
 static const xml_reference_ops_t reference_ops_PubidLiteral = {
-    .locker = LOCKER_PUBID,
     .errinfo = XMLERR(ERROR, XML, P_PubidLiteral),
     .condread = xml_cb_literal,
     .flags = 0,
@@ -3256,7 +3238,6 @@ static const xml_reference_ops_t reference_ops_PubidLiteral = {
 
 /// Virtual methods for reading entity value (EntityValue production) in internal subset
 static const xml_reference_ops_t reference_ops_EntityValue_internal = {
-    .locker = LOCKER_ENTITY_VALUE,
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
     .condread = xml_cb_literal_EntityValue,
     .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
@@ -3275,7 +3256,6 @@ static const xml_reference_ops_t reference_ops_EntityValue_internal = {
 
 /// Virtual methods for reading entity value (EntityValue production) in external subset
 static const xml_reference_ops_t reference_ops_EntityValue_external = {
-    .locker = LOCKER_ENTITY_VALUE,
     .errinfo = XMLERR(ERROR, XML, P_EntityValue),
     .condread = xml_cb_literal_EntityValue,
     .flags = R_RECOGNIZE_REF | R_RECOGNIZE_PEREF | R_SAVE_UCS4,
@@ -3317,25 +3297,12 @@ xml_parse_literal(xml_reader_t *h, const xml_reference_ops_t *refops)
     st.quote = UCS4_NOCHAR;
     st.h = h;
     st.starting = false;
-    st.locker = refops->locker;
     if (xml_read_until_parseref(h, refops, &st) != XRU_STOP
             || st.quote != UCS4_STOPCHAR) {
-        if (st.quote == UCS4_NOCHAR) {
-            xml_reader_message(h, &startloc, refops->errinfo,
-                    "Quoted literal expected");
-            // Input only locked when quote character is seen
-        }
-        else {
-            xml_reader_message(h, &startloc, refops->errinfo,
-                    "Unterminated literal");
-            // Quote character loses its meaning if entity is included
-            // in literal. All reference operations must not recognize quote as
-            // a terminator.
-            xml_reader_input_unlock_assert(h);
-        }
+        xml_reader_message(h, &startloc, refops->errinfo,
+                st.quote == UCS4_NOCHAR ? "Quoted literal expected" : "Unterminated literal");
         return PR_FAIL;
     }
-    xml_reader_input_unlock_assert(h);
     return PR_OK;
 }
 
