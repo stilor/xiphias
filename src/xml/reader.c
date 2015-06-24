@@ -323,14 +323,6 @@ struct xml_reader_s {
     /// Currentlly expected attribute in declaration
     const xml_reader_xmldecl_attrdesc_t *declattr;
 
-    ucs4_t *ucs4buf;                ///< Buffer for saved UCS-4 text
-    size_t ucs4len;                 ///< Count of UCS-4 characters
-    size_t ucs4sz;                  ///< Size of UCS-4 buffer, in characters
-
-    ucs4_t *refrplc;                ///< Reference replacement characters when bypassed
-    ucs4_t refrplclen;              ///< Count of characters currently stored
-    ucs4_t refrplcsz;               ///< Size of reference replacement buffer
-
     uint32_t flags;                 ///< Reader flags
     const char *relevant;           ///< If not NULL, reading a relevant contruct
     size_t tabsize;                 ///< Tabulation character equal to these many spaces
@@ -346,6 +338,20 @@ struct xml_reader_s {
     bool attr_ws;                   ///< Attribute parser: seen w/s at the end of preceding token
     uint32_t condsects_all;         ///< Total depth of conditional sections
     uint32_t condsects_ign;         ///< Depth of the outermost ignored conditional section
+
+    xml_loader_info_t dtd_loader_info;              ///< DTD public/system ID
+
+    struct {
+        ucs4_t *start;              ///< Buffer for saved UCS-4 text
+        size_t len;                 ///< Count of UCS-4 characters
+        size_t sz;                  ///< Size of UCS-4 buffer, in characters
+    } rplc;                         ///< Replacement text for an entity
+
+    struct {
+        ucs4_t *start;              ///< Reference replacement characters when bypassed
+        size_t len;                 ///< Count of characters currently stored
+        size_t sz;                  ///< Size of reference replacement buffer
+    } refrplc;                      ///< Temporary input when bypassing entity reference
 
     struct {
         utf8_t *start;              ///< Start of the allocated token buffer
@@ -371,8 +377,6 @@ struct xml_reader_s {
     xmlerr_loc_t refloc;            ///< Entity reference inclusion point
     ucs4_t rejected;                ///< Next character (rejected by xml_read_until_*)
     ucs4_t charrefval;              ///< When parsing character reference: stored value
-
-    xml_loader_info_t dtd_loader_info;              ///< DTD public/system ID
 
     strhash_t *entities_param;      ///< Parameter entities
     strhash_t *entities_gen;        ///< General entities
@@ -719,11 +723,11 @@ xml_tokenbuf_set_loader_info(xml_reader_t *h, xml_loader_info_t *loader_info)
 static void
 xml_ucs4_store(xml_reader_t *h, ucs4_t cp)
 {
-    if (h->ucs4len == h->ucs4sz) {
-        h->ucs4sz = h->ucs4sz ? 2 * h->ucs4sz : 256;
-        h->ucs4buf = xrealloc(h->ucs4buf, h->ucs4sz * sizeof(ucs4_t));
+    if (h->rplc.len == h->rplc.sz) {
+        h->rplc.sz = h->rplc.sz ? 2 * h->rplc.sz : 256;
+        h->rplc.start = xrealloc(h->rplc.start, h->rplc.sz * sizeof(ucs4_t));
     }
-    h->ucs4buf[h->ucs4len++] = cp;
+    h->rplc.start[h->rplc.len++] = cp;
 }
 
 /**
@@ -738,11 +742,11 @@ xml_ucs4_store(xml_reader_t *h, ucs4_t cp)
 static void
 xml_refrplc_store(xml_reader_t *h, ucs4_t cp)
 {
-    if (h->refrplclen == h->refrplcsz) {
-        h->refrplcsz += 32; // Most entity names are going to be shorter than that
-        h->refrplc = xrealloc(h->refrplc, h->refrplcsz * sizeof(ucs4_t));
+    if (h->refrplc.len == h->refrplc.sz) {
+        h->refrplc.sz += 32; // Most entity names are going to be shorter than that
+        h->refrplc.start = xrealloc(h->refrplc.start, h->refrplc.sz * sizeof(ucs4_t));
     }
-    h->refrplc[h->refrplclen++] = cp;
+    h->refrplc.start[h->refrplc.len++] = cp;
 }
 
 /**
@@ -1563,8 +1567,8 @@ xml_reader_delete(xml_reader_t *h)
     xfree(h->tokenbuf.start);
     xfree(h->namestorage.start);
 
-    xfree(h->ucs4buf);
-    xfree(h->refrplc);
+    xfree(h->rplc.start);
+    xfree(h->refrplc.start);
     xfree(h);
 }
 
@@ -2819,7 +2823,7 @@ reference_bypassed(xml_reader_t *h, xml_reader_entity_t *e)
     const utf8_t *ptr, *end;
 
     // Prepare the replacement text for the reference
-    h->refrplclen = 0;
+    h->refrplc.len = 0;
     xml_refrplc_store(h, ucs4_fromlocal('&'));
     ptr = e->name.str;
     end = ptr + e->name.len;
@@ -2828,7 +2832,7 @@ reference_bypassed(xml_reader_t *h, xml_reader_entity_t *e)
     }
     xml_refrplc_store(h, ucs4_fromlocal(';'));
     inp = xml_reader_input_new(h, NULL);
-    strbuf_set_input(inp->buf, h->refrplc, h->refrplclen * sizeof(ucs4_t));
+    strbuf_set_input(inp->buf, h->refrplc.start, h->refrplc.len * sizeof(ucs4_t));
     inp->ignore_references = true;
 
     // If we don't know this entity yet, record it so that we can later complain if
@@ -4131,7 +4135,6 @@ xml_parse_EntityDecl(xml_reader_t *h)
     }
 
     // General or parameter, it is followed by [Name S].
-    h->ucs4len = 0;
     if (xml_read_Name(h) != PR_OK) {
         xml_reader_message_current(h, XMLERR(ERROR, XML, P_EntityDecl),
                 "Expect entity name here");
@@ -4241,7 +4244,7 @@ xml_parse_EntityDecl(xml_reader_t *h)
 
     case PR_NOMATCH:
         // Must have EntityValue then
-        h->ucs4len = 0;
+        h->rplc.len = 0;
         if (xml_parse_literal(h, h->ctx->entity_value_parser) != PR_OK) {
             goto malformed;
         }
@@ -4253,14 +4256,14 @@ xml_parse_EntityDecl(xml_reader_t *h)
             for (i = 0;
                     i < sizeofarray(predef->rplc) && (s = predef->rplc[i]) != NULL;
                     i++) {
-                for (j = 0; j < h->ucs4len; j++) {
+                for (j = 0; j < h->rplc.len; j++) {
                     // s is nul-terminated, so end of string is caught here
-                    if (ucs4_fromlocal(s[j]) != h->ucs4buf[j]) {
+                    if (ucs4_fromlocal(s[j]) != h->rplc.start[j]) {
                         break;
                     }
                 }
                 // matched so far, check that it's the end of expected replacement text
-                if (j == h->ucs4len && !s[j]) {
+                if (j == h->rplc.len && !s[j]) {
                     goto compatible;
                 }
                 // otherwise, check the next definition if there's any
@@ -4275,9 +4278,9 @@ compatible:
             eold->declared = h->prodloc;
         }
         if (e) {
-            e->rplclen = h->ucs4len * sizeof(ucs4_t);
+            e->rplclen = h->rplc.len * sizeof(ucs4_t);
             rplc = xmalloc(e->rplclen);
-            memcpy(rplc, h->ucs4buf, e->rplclen);
+            memcpy(rplc, h->rplc.start, e->rplclen);
             e->rplc = rplc;
             e->type = parameter ? XML_READER_REF_PE_INTERNAL : XML_READER_REF_INTERNAL;
         }
