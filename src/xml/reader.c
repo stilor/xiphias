@@ -39,8 +39,7 @@ enum {
     R_HAS_ROOT          = 0x0040,   ///< Root element seen
     R_HAS_DTD           = 0x0080,   ///< Document declaration seen
     R_AMBIGUOUS_PERCENT = 0x0100,   ///< '%' may either start PE reference or have literal meaning
-    R_STOP              = 0x0200,   ///< Callback requested stop
-    R_NORM_UNKNOWN      = 0x0400,   ///< Accept unknown characters
+    R_NORM_UNKNOWN      = 0x0200,   ///< Accept unknown characters
 };
 
 /// Notation information
@@ -334,6 +333,7 @@ struct xml_reader_s {
 
     nfc_t *norm_include;            ///< Normalization check handle for include normalization
 
+    bool stopping;                  ///< Pending request to stop processing
     bool cdata_ws;                  ///< Seen only whitespace in CharData/CDATA
     bool attr_ws;                   ///< Attribute parser: seen w/s at the end of preceding token
     uint32_t condsects_all;         ///< Total depth of conditional sections
@@ -2957,8 +2957,7 @@ xml_read_until_parseref(xml_reader_t *h, const xml_reference_ops_t *refops, void
             }
             h->flags |= refops->flags;
             stopstatus = xml_read_until(h, refops->condread, arg);
-            /// @todo move flags settable via callback (STOP - anything else) to separate booleans?
-            h->flags = saved_flags | (h->flags & R_STOP);
+            h->flags = saved_flags;
         } while (stopstatus == XRU_INPUT_BOUNDARY);
 
         if (stopstatus != XRU_REFERENCE) {
@@ -5641,7 +5640,7 @@ xml_reader_process(xml_reader_t *h)
         if (xml_reader_input_rptr(h, &begin, &end) == XRU_EOF) {
             break;
         }
-    } while (rv == PR_OK && (h->flags & R_STOP) == 0);
+    } while (rv == PR_OK && !h->stopping);
 
     xml_reader_input_complete_notify(h);
 
@@ -5720,7 +5719,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     const encoding_t *enc;
     enum encoding_endian_e endian;
     prodres_t decl_rv;
-    bool rv, stopped;
+    bool rv, stopping;
 
     ex = xmalloc(sizeof(xml_reader_external_t));
     memset(ex, 0, sizeof(xml_reader_external_t));
@@ -5837,22 +5836,22 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     /// - Then move the XML declaration parsing into the main loop - start the document entity
     /// (and switch to when parsing included entities) in the declaration context and have it
     /// switch back to saved context afterwards.
-    stopped = false;
+    stopping = false;
 
     // After processing the declaration, skip over it in the source buffer. The position
     // recorded in transcoder state is the offset of the first non-consumed character.
     h->ctx = &parser_decl;
     do {
         // Defer stopping until after the initial loading - see above
-        if (h->flags & R_STOP) {
-            h->flags &= ~R_STOP;
-            stopped = true;
+        if (h->stopping) {
+            h->stopping = false;
+            stopping = true;
         }
         decl_rv = xml_reader_process(h);
-    } while (decl_rv == PR_OK); // On completion, PR_STOP is returned.
+    } while (decl_rv == PR_OK); // On completion, PR_STOP is returned. PR_OK means continue.
 
-    if (stopped) {
-        h->flags |= R_STOP;
+    if (stopping) {
+        h->stopping = true;
     }
 
     strbuf_radvance(buf, xc.la_pos[0]);
@@ -6070,7 +6069,7 @@ xml_reader_run(xml_reader_t *h)
 {
     prodres_t rv;
 
-    h->flags &= ~R_STOP; // If stopped previously, we can resume now.
+    h->stopping = false; // If stopped previously, we can resume now.
     rv = xml_reader_process(h);
 
     // In each context, the last parser must catch all and recover
@@ -6089,7 +6088,7 @@ xml_reader_run(xml_reader_t *h)
 void
 xml_reader_stop(xml_reader_t *h)
 {
-    h->flags |= R_STOP;
+    h->stopping = true;
 }
 
 /**
