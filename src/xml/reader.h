@@ -84,10 +84,10 @@ enum xml_reader_cbtype_e {
     XML_READER_CB_MAX,             ///< Maximum number of callback types
 };
 
+// TBD rename to _ENT_ (these are no longer just references)? but char references are not entities...
 /// Types of references
 enum xml_reader_reference_e {
-    // Up to _MAX: references for which rules are defined in XML spec
-    // (some of them may be split in subgroups below)
+    XML_READER_REF_NONE,           ///< Indicates unset reference type
     XML_READER_REF_PE,             ///< Any parameter entity reference (internal/external)
     XML_READER_REF_PE_INTERNAL,    ///< Internal parameter entity reference
     XML_READER_REF_PE_EXTERNAL,    ///< External parameter entity reference
@@ -96,12 +96,11 @@ enum xml_reader_reference_e {
     XML_READER_REF_EXTERNAL,       ///< General external parsed entity reference
     XML_READER_REF_UNPARSED,       ///< General unparsed entity reference
     XML_READER_REF_CHARACTER,      ///< Character reference
-    XML_READER_REF__MAX,           ///< Array size for per-type handlers
+    XML_READER_REF__MAXREF,        ///< Array size for per-reference-type handlers
 
-    // Internal values
+    // Entities not loaded by references
     XML_READER_REF_DOCUMENT,       ///< Document entity reference
     XML_READER_REF_EXT_SUBSET,     ///< External subset
-    XML_READER_REF_NONE,           ///< To indicate unset reference type
 };
 
 /// Token (string) associated with event
@@ -228,6 +227,7 @@ typedef struct {
     enum xml_reader_normalization_e normalization;
     bool normalization_accept_unknown;  ///< Do not warn about unassigned characters
     bool loctrack;                      ///< Whether location tracking is enabled
+    bool load_externals;                ///< Load external entities
     size_t tabsize;                     ///< Tabulation size for location tracking
     size_t entity_hash_order;           ///< Log2(number of hash buckets for entities)
     size_t notation_hash_order;         ///< Log2(number of hash buckets for notations)

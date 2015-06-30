@@ -48,7 +48,7 @@ static const enumval_t enumval_reftype[] = {
 	ENUM_VAL(XML_READER_REF_EXTERNAL, "External parsed general entity")
 	ENUM_VAL(XML_READER_REF_UNPARSED, "External unparsed general entity")
 	ENUM_VAL(XML_READER_REF_CHARACTER, "Character")
-	ENUM_VAL(XML_READER_REF__MAX, "Bad value (MAX)")
+	ENUM_VAL(XML_READER_REF__MAXREF, "Bad value (MAXREF)")
 	ENUM_VAL(XML_READER_REF_DOCUMENT, "Document entity")
 	ENUM_VAL(XML_READER_REF_EXT_SUBSET, "External subset")
 	ENUM_VAL(XML_READER_REF_NONE, "Bad value (unset)")
