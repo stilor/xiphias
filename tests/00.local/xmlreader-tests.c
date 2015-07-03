@@ -162,6 +162,11 @@ static const testcase_t testcases[] = {
         .input = "stack-test.xml",
         .checkevt = check_stacktrace,
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("stack-test.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("stack-test.xml", 1, 1),
                     .root = TOK("a"),
@@ -251,6 +256,11 @@ static const testcase_t testcases[] = {
                     LOC("stack-test.xml", 6, 8),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("stack-test.xml")
+            ),
             END,
         },
     },
@@ -259,12 +269,22 @@ static const testcase_t testcases[] = {
         .input = "simple-no-decl.xml",
         .use_bom = true,
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
+            ),
             EV(STAG,
                     LOC("simple-no-decl.xml", 1, 1),
                     .name = TOK("a"),
             ),
             E0(ETAG,
                     LOC("simple-no-decl.xml", 1, 3)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
             ),
             END,
         },
@@ -273,12 +293,22 @@ static const testcase_t testcases[] = {
         TC("No declaration in UTF-8, without BOM"),
         .input = "simple-no-decl.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
+            ),
             EV(STAG,
                     LOC("simple-no-decl.xml", 1, 1),
                     .name = TOK("a"),
             ),
             E0(ETAG,
                     LOC("simple-no-decl.xml", 1, 3)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
             ),
             END,
         },
@@ -289,12 +319,22 @@ static const testcase_t testcases[] = {
         .use_bom = true,
         .encoding = "UTF-16BE",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
+            ),
             EV(STAG,
                     LOC("simple-no-decl.xml", 1, 1),
                     .name = TOK("a"),
             ),
             E0(ETAG,
                     LOC("simple-no-decl.xml", 1, 3)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
             ),
             END,
         },
@@ -304,6 +344,11 @@ static const testcase_t testcases[] = {
         .input = "simple-no-decl.xml",
         .encoding = "UTF-16BE",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
+            ),
             EV(MESSAGE,
                     LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -317,6 +362,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("simple-no-decl.xml", 1, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
+            ),
             END,
         },
     },
@@ -326,12 +376,22 @@ static const testcase_t testcases[] = {
         .use_bom = true,
         .encoding = "UTF-16LE",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
+            ),
             EV(STAG,
                     LOC("simple-no-decl.xml", 1, 1),
                     .name = TOK("a"),
             ),
             E0(ETAG,
                     LOC("simple-no-decl.xml", 1, 3)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
             ),
             END,
         },
@@ -341,6 +401,11 @@ static const testcase_t testcases[] = {
         .input = "simple-no-decl.xml",
         .encoding = "UTF-16LE",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
+            ),
             EV(MESSAGE,
                     LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -354,6 +419,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("simple-no-decl.xml", 1, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
+            ),
             END,
         },
     },
@@ -362,6 +432,11 @@ static const testcase_t testcases[] = {
         .input = "simple-utf8.xml",
         .use_bom = true,
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf8.xml")
+            ),
             EV(XMLDECL,
                     LOC("simple-utf8.xml", 2, 8),
                     .encoding = "UTF-8",
@@ -374,6 +449,11 @@ static const testcase_t testcases[] = {
             ),
             E0(ETAG,
                     LOC("simple-utf8.xml", 3, 11)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf8.xml")
             ),
             END,
         },
@@ -382,6 +462,11 @@ static const testcase_t testcases[] = {
         TC("Simple XML in UTF-8, without BOM"),
         .input = "simple-utf8.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf8.xml")
+            ),
             EV(XMLDECL,
                     LOC("simple-utf8.xml", 2, 8),
                     .encoding = "UTF-8",
@@ -394,6 +479,11 @@ static const testcase_t testcases[] = {
             ),
             E0(ETAG,
                     LOC("simple-utf8.xml", 3, 11)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf8.xml")
             ),
             END,
         },
@@ -404,6 +494,11 @@ static const testcase_t testcases[] = {
         .use_bom = true,
         .encoding = "UTF-16BE",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf16.xml")
+            ),
             EV(XMLDECL,
                     LOC("simple-utf16.xml", 1, 38),
                     .encoding = "UTF-16",
@@ -416,6 +511,11 @@ static const testcase_t testcases[] = {
             ),
             E0(ETAG,
                     LOC("simple-utf16.xml", 2, 3)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf16.xml")
             ),
             END,
         },
@@ -426,6 +526,11 @@ static const testcase_t testcases[] = {
         .use_bom = true,
         .encoding = "UTF-16LE",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf16.xml")
+            ),
             EV(XMLDECL,
                     LOC("simple-utf16.xml", 1, 38),
                     .encoding = "UTF-16",
@@ -438,6 +543,11 @@ static const testcase_t testcases[] = {
             ),
             E0(ETAG,
                     LOC("simple-utf16.xml", 2, 3)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf16.xml")
             ),
             END,
         },
@@ -447,6 +557,11 @@ static const testcase_t testcases[] = {
         .input = "simple-utf16.xml",
         .encoding = "UTF-16BE",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf16.xml")
+            ),
             EV(XMLDECL,
                     LOC("simple-utf16.xml", 1, 38),
                     .encoding = "UTF-16",
@@ -464,6 +579,11 @@ static const testcase_t testcases[] = {
             ),
             E0(ETAG,
                     LOC("simple-utf16.xml", 2, 3)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf16.xml")
             ),
             END,
         },
@@ -473,6 +593,11 @@ static const testcase_t testcases[] = {
         .input = "simple-utf16.xml",
         .encoding = "UTF-16LE",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf16.xml")
+            ),
             EV(XMLDECL,
                     LOC("simple-utf16.xml", 1, 38),
                     .encoding = "UTF-16",
@@ -490,6 +615,11 @@ static const testcase_t testcases[] = {
             ),
             E0(ETAG,
                     LOC("simple-utf16.xml", 2, 3)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf16.xml")
             ),
             END,
         },
@@ -501,6 +631,11 @@ static const testcase_t testcases[] = {
         .encoding = "UTF-16BE",
         .transport_encoding = "INVALID_ENCODING",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf16.xml")
+            ),
             EV(MESSAGE,
                     LOC("simple-utf16.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -511,6 +646,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("simple-utf16.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf16.xml")
+            ),
             END,
         },
     },
@@ -519,6 +659,11 @@ static const testcase_t testcases[] = {
         .input = "simple-invalid-encoding.xml",
         .use_bom = true,
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-invalid-encoding.xml")
+            ),
             EV(XMLDECL,
                     LOC("simple-invalid-encoding.xml", 1, 152),
                     .encoding = VERY_LONG_ENCODING,
@@ -537,6 +682,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("simple-invalid-encoding.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-invalid-encoding.xml")
+            ),
             END,
         },
     },
@@ -546,6 +696,11 @@ static const testcase_t testcases[] = {
         .use_bom = true,
         .transport_encoding = "UTF-16BE",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf8.xml")
+            ),
             EV(MESSAGE,
                     LOC("simple-utf8.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -556,6 +711,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("simple-utf8.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf8.xml")
+            ),
             END,
         },
     },
@@ -564,6 +724,11 @@ static const testcase_t testcases[] = {
         .input = "simple-utf16.xml",
         .use_bom = true,
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf16.xml")
+            ),
             EV(XMLDECL,
                     LOC("simple-utf16.xml", 1, 38),
                     .encoding = "UTF-16",
@@ -582,6 +747,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("simple-utf16.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-utf16.xml")
+            ),
             END,
         },
     },
@@ -589,6 +759,11 @@ static const testcase_t testcases[] = {
         TC("Partial character at end of input"),
         .input = "partial-chars.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("partial-chars.xml")
+            ),
             EV(STAG,
                     LOC("partial-chars.xml", 1, 1),
                     .name = TOK("a"),
@@ -601,6 +776,11 @@ static const testcase_t testcases[] = {
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
                     .msg = "Partial character at the end of input",
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("partial-chars.xml")
+            ),
             END,
         },
     },
@@ -608,6 +788,11 @@ static const testcase_t testcases[] = {
         TC("Invalid character at top level"),
         .input = "invalid-chars-top-level.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("invalid-chars-top-level.xml")
+            ),
             EV(STAG,
                     LOC("invalid-chars-top-level.xml", 1, 1),
                     .name = TOK("a"),
@@ -624,6 +809,11 @@ static const testcase_t testcases[] = {
                     LOC("invalid-chars-top-level.xml", 2, 1),
                     .text = TOK(" Comment ")
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("invalid-chars-top-level.xml")
+            ),
             END,
         },
     },
@@ -632,12 +822,22 @@ static const testcase_t testcases[] = {
         .input = "fakefile.xml",
         .setup = set_loader_XORENC,
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("fakefile.xml")
+            ),
             EV(STAG,
                     LOC("fakefile.xml", 1, 1),
                     .name = TOK("a"),
             ),
             E0(ETAG,
                     LOC("fakefile.xml", 1, 3)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("fakefile.xml")
             ),
             END,
         },
@@ -647,6 +847,11 @@ static const testcase_t testcases[] = {
         .input = "fakefile.xml",
         .setup = set_loader_XORENC_BAD,
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("fakefile.xml")
+            ),
             EV(MESSAGE,
                     LOC("fakefile.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -657,6 +862,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("fakefile.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("fakefile.xml")
+            ),
             END,
         },
     },
@@ -664,6 +874,11 @@ static const testcase_t testcases[] = {
         TC("No document entity"),
         .input = "nonexistent.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("nonexistent.xml")
+            ),
             EV(MESSAGE,
                     LOC(NULL, 0, 0),
                     .info = XMLERR(ERROR, XML, ENTITY_LOAD_FAILURE),
@@ -674,6 +889,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("nonexistent.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("nonexistent.xml")
+            ),
             END,
         },
     },
@@ -681,6 +901,16 @@ static const testcase_t testcases[] = {
         TC("Empty file"),
         .input = "empty.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("empty.xml")
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("empty.xml")
+            ),
             EV(MESSAGE,
                     LOC("empty.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, P_document),
@@ -693,6 +923,11 @@ static const testcase_t testcases[] = {
         TC("Truncated declaration #1"),
         .input = "truncated-decl1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-decl1.xml")
+            ),
             EV(MESSAGE,
                     LOC("truncated-decl1.xml", 1, 21),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -708,6 +943,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("truncated-decl1.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-decl1.xml")
+            ),
             END,
         },
     },
@@ -715,6 +955,11 @@ static const testcase_t testcases[] = {
         TC("Truncated declaration #2"),
         .input = "truncated-decl2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-decl2.xml")
+            ),
             EV(MESSAGE,
                     LOC("truncated-decl2.xml", 1, 30),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -725,6 +970,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("truncated-decl2.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-decl2.xml")
+            ),
             END,
         },
     },
@@ -732,6 +982,11 @@ static const testcase_t testcases[] = {
         TC("Truncated declaration #3"),
         .input = "truncated-decl3.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-decl3.xml")
+            ),
             EV(MESSAGE,
                     LOC("truncated-decl3.xml", 1, 38),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -742,6 +997,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("truncated-decl3.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-decl3.xml")
+            ),
             END,
         },
     },
@@ -749,6 +1009,11 @@ static const testcase_t testcases[] = {
         TC("Truncated declaration #4"),
         .input = "truncated-decl4.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-decl4.xml")
+            ),
             EV(MESSAGE,
                     LOC("truncated-decl4.xml", 1, 30),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -759,6 +1024,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("truncated-decl4.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-decl4.xml")
+            ),
             END,
         },
     },
@@ -766,6 +1036,11 @@ static const testcase_t testcases[] = {
         TC("Truncated declaration #5"),
         .input = "truncated-decl5.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-decl5.xml")
+            ),
             EV(MESSAGE,
                     LOC("truncated-decl5.xml", 2, 1),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -776,6 +1051,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("truncated-decl5.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-decl5.xml")
+            ),
             END,
         },
     },
@@ -783,10 +1063,20 @@ static const testcase_t testcases[] = {
         TC("Truncated declaration #6"),
         .input = "truncated-decl6.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-decl6.xml")
+            ),
             EV(MESSAGE,
                     LOC("truncated-decl6.xml", 1, 6),
                     .info = XMLERR(ERROR, XML, P_PI),
                     .msg = "Expected string: '?>'",
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-decl6.xml")
             ),
             EV(MESSAGE,
                     LOC("truncated-decl6.xml", 1, 6),
@@ -800,6 +1090,11 @@ static const testcase_t testcases[] = {
         TC("Non-ASCII character in declaration"),
         .input = "nonascii-decl.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("nonascii-decl.xml")
+            ),
             EV(MESSAGE,
                     LOC("nonascii-decl.xml", 4, 9),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -823,6 +1118,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("nonascii-decl.xml", 5, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("nonascii-decl.xml")
+            ),
             END,
         },
     },
@@ -830,6 +1130,11 @@ static const testcase_t testcases[] = {
         TC("No mandatory attribute #1"),
         .input = "decl-no-version1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-no-version1.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-no-version1.xml", 1, 7),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -848,6 +1153,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("decl-no-version1.xml", 1, 43)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-no-version1.xml")
+            ),
             END,
         },
     },
@@ -855,6 +1165,11 @@ static const testcase_t testcases[] = {
         TC("No mandatory attribute #2"),
         .input = "decl-no-version2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-no-version2.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-no-version2.xml", 1, 7),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -873,6 +1188,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("decl-no-version2.xml", 1, 11)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-no-version2.xml")
+            ),
             END,
         },
     },
@@ -880,6 +1200,11 @@ static const testcase_t testcases[] = {
         TC("Wrong order of pseudo-attributes"),
         .input = "decl-wrong-order.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-wrong-order.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-wrong-order.xml", 1, 7),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -903,6 +1228,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("decl-wrong-order.xml", 1, 41)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-wrong-order.xml")
+            ),
             END,
         },
     },
@@ -910,6 +1240,11 @@ static const testcase_t testcases[] = {
         TC("Extra pseudo-attribute at the end"),
         .input = "decl-extra-attr1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-extra-attr1.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-extra-attr1.xml", 1, 55),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -928,6 +1263,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("decl-extra-attr1.xml", 1, 72)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-extra-attr1.xml")
+            ),
             END,
         },
     },
@@ -935,6 +1275,11 @@ static const testcase_t testcases[] = {
         TC("Malformed declaration #1"),
         .input = "decl-malformed1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-malformed1.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-malformed1.xml", 1, 20),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -945,6 +1290,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("decl-malformed1.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-malformed1.xml")
+            ),
             END,
         },
     },
@@ -952,6 +1302,11 @@ static const testcase_t testcases[] = {
         TC("Pseudo-attribute without = #1"),
         .input = "decl-no-equal1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-no-equal1.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-no-equal1.xml", 1, 29),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -962,6 +1317,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("decl-no-equal1.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-no-equal1.xml")
+            ),
             END,
         },
     },
@@ -969,6 +1329,11 @@ static const testcase_t testcases[] = {
         TC("Pseudo-attribute without = #2"),
         .input = "decl-no-equal2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-no-equal2.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-no-equal2.xml", 1, 14),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -979,6 +1344,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("decl-no-equal2.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-no-equal2.xml")
+            ),
             END,
         },
     },
@@ -986,6 +1356,11 @@ static const testcase_t testcases[] = {
         TC("Pseudo-attribute without quotes"),
         .input = "decl-no-quote.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-no-quote.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-no-quote.xml", 1, 32),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -996,6 +1371,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("decl-no-quote.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-no-quote.xml")
+            ),
             END,
         },
     },
@@ -1003,6 +1383,11 @@ static const testcase_t testcases[] = {
         TC("Future XML 1.x version"),
         .input = "decl-xml-1.2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-xml-1.2.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-xml-1.2.xml", 1, 7),
                     .info = XMLERR(WARN, XML, FUTURE_VERSION),
@@ -1021,6 +1406,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("decl-xml-1.2.xml", 1, 24)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-xml-1.2.xml")
+            ),
             END,
         },
     },
@@ -1028,6 +1418,11 @@ static const testcase_t testcases[] = {
         TC("Unsupported XML version #1"),
         .input = "decl-xml-1.A.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-xml-1.A.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-xml-1.A.xml", 1, 7),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -1046,6 +1441,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("decl-xml-1.A.xml", 1, 24)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-xml-1.A.xml")
+            ),
             END,
         },
     },
@@ -1053,6 +1453,11 @@ static const testcase_t testcases[] = {
         TC("Unsupported XML version #2"),
         .input = "decl-xml-2.0.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-xml-2.0.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-xml-2.0.xml", 1, 7),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -1071,6 +1476,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("decl-xml-2.0.xml", 1, 24)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-xml-2.0.xml")
+            ),
             END,
         },
     },
@@ -1078,6 +1488,11 @@ static const testcase_t testcases[] = {
         TC("Invalid standalone specification"),
         .input = "decl-invalid-standalone2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-invalid-standalone2.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-invalid-standalone2.xml", 1, 21),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -1088,6 +1503,11 @@ static const testcase_t testcases[] = {
                     .encoding = NULL,
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_1,
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-invalid-standalone2.xml")
             ),
             EV(MESSAGE,
                     LOC("decl-invalid-standalone2.xml", 2, 1),
@@ -1101,6 +1521,11 @@ static const testcase_t testcases[] = {
         TC("Invalid version/standalone specification"),
         .input = "decl-xml-1.xx.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-xml-1.xx.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-xml-1.xx.xml", 1, 7),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -1117,6 +1542,11 @@ static const testcase_t testcases[] = {
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_NO_VALUE,
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-xml-1.xx.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-xml-1.xx.xml", 2, 1),
                     .info = XMLERR(ERROR, XML, P_document),
@@ -1129,6 +1559,11 @@ static const testcase_t testcases[] = {
         TC("Invalid encoding value #1"),
         .input = "decl-invalid-encoding.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-invalid-encoding.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-invalid-encoding.xml", 1, 21),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -1147,6 +1582,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("decl-invalid-encoding.xml", 1, 39)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-invalid-encoding.xml")
+            ),
             END,
         },
     },
@@ -1154,6 +1594,11 @@ static const testcase_t testcases[] = {
         TC("Invalid encoding value #2"),
         .input = "decl-invalid-encoding2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-invalid-encoding2.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-invalid-encoding2.xml", 1, 21),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -1172,6 +1617,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("decl-invalid-encoding2.xml", 1, 43)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-invalid-encoding2.xml")
+            ),
             END,
         },
     },
@@ -1179,6 +1629,11 @@ static const testcase_t testcases[] = {
         TC("Invalid standalone value"),
         .input = "decl-invalid-standalone.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-invalid-standalone.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-invalid-standalone.xml", 1, 21),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -1197,6 +1652,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("decl-invalid-standalone.xml", 1, 43)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-invalid-standalone.xml")
+            ),
             END,
         },
     },
@@ -1204,6 +1664,11 @@ static const testcase_t testcases[] = {
         TC("Bad attribute in declaration"),
         .input = "decl-bad-attr.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-bad-attr.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-bad-attr.xml", 1, 7),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -1220,6 +1685,11 @@ static const testcase_t testcases[] = {
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_NO_VALUE,
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-bad-attr.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-bad-attr.xml", 2, 1),
                     .info = XMLERR(ERROR, XML, P_document),
@@ -1232,9 +1702,19 @@ static const testcase_t testcases[] = {
         TC("Processing instruction starting with 'xml'"),
         .input = "xml-pi.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("xml-pi.xml")
+            ),
             EV(PI,
                     LOC("xml-pi.xml", 1, 1),
                     .target = TOK("xml-pi"),
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("xml-pi.xml")
             ),
             EV(MESSAGE,
                     LOC("xml-pi.xml", 2, 1),
@@ -1248,6 +1728,11 @@ static const testcase_t testcases[] = {
         TC("Missing whitespace between attributes"),
         .input = "decl-missing-ws.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-missing-ws.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-missing-ws.xml", 1, 20),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -1258,6 +1743,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("decl-missing-ws.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-missing-ws.xml")
+            ),
             END,
         },
     },
@@ -1266,6 +1756,11 @@ static const testcase_t testcases[] = {
         .input = "simple-no-decl.xml",
         .encoding = "IBM037",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
+            ),
             EV(MESSAGE,
                     LOC("simple-no-decl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, ENCODING_ERROR),
@@ -1279,6 +1774,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("simple-no-decl.xml", 1, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
+            ),
             END,
         },
     },
@@ -1289,12 +1789,22 @@ static const testcase_t testcases[] = {
         .encoding = "IBM037",
         .transport_encoding = "IBM500",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
+            ),
             EV(STAG,
                     LOC("simple-no-decl.xml", 1, 1),
                     .name = TOK("a"),
             ),
             E0(ETAG,
                     LOC("simple-no-decl.xml", 1, 3)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-no-decl.xml")
             ),
             END,
         },
@@ -1303,6 +1813,11 @@ static const testcase_t testcases[] = {
         TC("Position updates with combining marks"),
         .input = "combining-mark.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("combining-mark.xml")
+            ),
             EV(STAG,
                     LOC("combining-mark.xml", 1, 1),
                     .name = TOK("a\xCC\x81"),
@@ -1311,6 +1826,11 @@ static const testcase_t testcases[] = {
                     LOC("combining-mark.xml", 1, 4),
                     .name = TOK("a\xCC\x81"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("combining-mark.xml")
+            ),
             END,
         },
     },
@@ -1318,6 +1838,11 @@ static const testcase_t testcases[] = {
         TC("NUL/restricted characters in input (1.0)"),
         .input = "nul-restricted-char-1.0.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("nul-restricted-char-1.0.xml")
+            ),
             EV(MESSAGE,
                     LOC("nul-restricted-char-1.0.xml", 1, 19),
                     .info = XMLERR(ERROR, XML, P_Char),
@@ -1350,6 +1875,11 @@ static const testcase_t testcases[] = {
                     LOC("nul-restricted-char-1.0.xml", 3, 1),
                     .text = TOK(" \x01\n\x1E\n\x7F\n\xC2\x9F ")
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("nul-restricted-char-1.0.xml")
+            ),
             END,
         },
     },
@@ -1357,6 +1887,11 @@ static const testcase_t testcases[] = {
         TC("NUL/restricted characters in input (1.1)"),
         .input = "nul-restricted-char-1.1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("nul-restricted-char-1.1.xml")
+            ),
             EV(MESSAGE,
                     LOC("nul-restricted-char-1.1.xml", 1, 19),
                     .info = XMLERR(ERROR, XML, P_Char),
@@ -1399,6 +1934,11 @@ static const testcase_t testcases[] = {
                     LOC("nul-restricted-char-1.1.xml", 3, 1),
                     .text = TOK(" \x01\n\x1E\n\x7F\n\xC2\x9F "),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("nul-restricted-char-1.1.xml")
+            ),
             END,
         },
     },
@@ -1406,6 +1946,11 @@ static const testcase_t testcases[] = {
         TC("Invalid newline inside declaration"),
         .input = "decl-invalid-newline1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-invalid-newline1.xml")
+            ),
             EV(MESSAGE,
                     LOC("decl-invalid-newline1.xml", 1, 7),
                     .info = XMLERR(ERROR, XML, P_XMLDecl),
@@ -1416,6 +1961,11 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_DOCUMENT,
                     .system_id = TOK("decl-invalid-newline1.xml"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("decl-invalid-newline1.xml")
+            ),
             END,
         },
     },
@@ -1423,6 +1973,11 @@ static const testcase_t testcases[] = {
         TC("EOL normalization & whitespace check for CR"),
         .input = "whitespace-cr.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("whitespace-cr.xml")
+            ),
             EV(XMLDECL,
                     LOC("whitespace-cr.xml", 1, 20),
                     .encoding = NULL,
@@ -1475,6 +2030,11 @@ static const testcase_t testcases[] = {
                     LOC("whitespace-cr.xml", 5, 9),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("whitespace-cr.xml")
+            ),
             END,
         },
     },
@@ -1482,6 +2042,11 @@ static const testcase_t testcases[] = {
         TC("Whitespace rules regarding character references"),
         .input = "whitespace-charref.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("whitespace-charref.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("whitespace-charref.xml", 1, 1),
                     .root = TOK("a"),
@@ -1589,6 +2154,11 @@ static const testcase_t testcases[] = {
                     LOC("whitespace-charref.xml", 9, 89),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("whitespace-charref.xml")
+            ),
             END,
         },
     },
@@ -1596,6 +2166,11 @@ static const testcase_t testcases[] = {
         TC("NameChar and NameStartChar checks"),
         .input = "namechars.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("namechars.xml")
+            ),
             EV(PI,
                     LOC("namechars.xml", 1, 1),
                     .target = TOK("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
@@ -1765,6 +2340,11 @@ static const testcase_t testcases[] = {
                     .info = XMLERR(ERROR, XML, P_PI),
                     .msg = "Expected PI target here",
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("namechars.xml")
+            ),
             EV(MESSAGE,
                     LOC("namechars.xml", 38, 1),
                     .info = XMLERR(ERROR, XML, P_document),
@@ -1777,6 +2357,11 @@ static const testcase_t testcases[] = {
         TC("Simple opening/closing tags"),
         .input = "simple-open-close.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-open-close.xml")
+            ),
             EV(XMLDECL,
                     LOC("simple-open-close.xml", 1, 37),
                     .encoding = "UTF-8",
@@ -1791,6 +2376,11 @@ static const testcase_t testcases[] = {
                     LOC("simple-open-close.xml", 2, 4),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("simple-open-close.xml")
+            ),
             END,
         },
     },
@@ -1798,10 +2388,20 @@ static const testcase_t testcases[] = {
         TC("Invalid top-level content (no XMLDecl)"),
         .input = "invalid-top-level-nodecl.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("invalid-top-level-nodecl.xml")
+            ),
             EV(MESSAGE,
                     LOC("invalid-top-level-nodecl.xml", 1, 1),
                     .info = XMLERR(ERROR, XML, P_document),
                     .msg = "Invalid content at root level",
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("invalid-top-level-nodecl.xml")
             ),
             EV(MESSAGE,
                     LOC("invalid-top-level-nodecl.xml", 2, 1),
@@ -1815,6 +2415,11 @@ static const testcase_t testcases[] = {
         TC("Invalid top-level content (with XMLDecl)"),
         .input = "invalid-top-level.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("invalid-top-level.xml")
+            ),
             EV(XMLDECL,
                     LOC("invalid-top-level.xml", 1, 37),
                     .encoding = "UTF-8",
@@ -1825,6 +2430,11 @@ static const testcase_t testcases[] = {
                     LOC("invalid-top-level.xml", 2, 1),
                     .info = XMLERR(ERROR, XML, P_document),
                     .msg = "Invalid content at root level",
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("invalid-top-level.xml")
             ),
             EV(MESSAGE,
                     LOC("invalid-top-level.xml", 3, 1),
@@ -1838,6 +2448,11 @@ static const testcase_t testcases[] = {
         TC("Invalid top-level content (with XMLDecl & root element)"),
         .input = "invalid-top-level-withroot.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("invalid-top-level-withroot.xml")
+            ),
             EV(XMLDECL,
                     LOC("invalid-top-level-withroot.xml", 1, 37),
                     .encoding = "UTF-8",
@@ -1856,6 +2471,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("invalid-top-level-withroot.xml", 3, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("invalid-top-level-withroot.xml")
+            ),
             END,
         },
     },
@@ -1863,6 +2483,11 @@ static const testcase_t testcases[] = {
         TC("DTD specified twice"),
         .input = "dtd-twice.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-twice.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("dtd-twice.xml", 1, 1),
                     .root = TOK("a"),
@@ -1889,6 +2514,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("dtd-twice.xml", 3, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-twice.xml")
+            ),
             END,
         },
     },
@@ -1896,6 +2526,11 @@ static const testcase_t testcases[] = {
         TC("DTD specified after root element"),
         .input = "dtd-after-element.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-after-element.xml")
+            ),
             EV(STAG,
                     LOC("dtd-after-element.xml", 1, 1),
                     .name = TOK("a"),
@@ -1915,6 +2550,11 @@ static const testcase_t testcases[] = {
             E0(DTD_END,
                     LOC("dtd-after-element.xml", 2, 13)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-after-element.xml")
+            ),
             END,
         },
     },
@@ -1922,6 +2562,11 @@ static const testcase_t testcases[] = {
         TC("Root element specified twice"),
         .input = "root-element-twice.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("root-element-twice.xml")
+            ),
             EV(STAG,
                     LOC("root-element-twice.xml", 1, 1),
                     .name = TOK("a"),
@@ -1941,6 +2586,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("root-element-twice.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("root-element-twice.xml")
+            ),
             END,
         },
     },
@@ -1948,6 +2598,11 @@ static const testcase_t testcases[] = {
         TC("No root element"),
         .input = "no-root-element.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("no-root-element.xml")
+            ),
             EV(XMLDECL,
                     LOC("no-root-element.xml", 1, 20),
                     .encoding = NULL,
@@ -1957,6 +2612,11 @@ static const testcase_t testcases[] = {
             EV(COMMENT,
                     LOC("no-root-element.xml", 3, 1),
                     .text = TOK(" Comment "),
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("no-root-element.xml")
             ),
             EV(MESSAGE,
                     LOC("no-root-element.xml", 4, 1),
@@ -1970,10 +2630,20 @@ static const testcase_t testcases[] = {
         TC("Bad element type in empty tag"),
         .input = "bad-emptytag-name.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("bad-emptytag-name.xml")
+            ),
             EV(MESSAGE,
                     LOC("bad-emptytag-name.xml", 1, 2),
                     .info = XMLERR(ERROR, XML, P_STag),
                     .msg = "Expected element type",
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("bad-emptytag-name.xml")
             ),
             END,
         },
@@ -1982,10 +2652,20 @@ static const testcase_t testcases[] = {
         TC("Bad element type in start tag"),
         .input = "bad-stag-name.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("bad-stag-name.xml")
+            ),
             EV(MESSAGE,
                     LOC("bad-stag-name.xml", 1, 2),
                     .info = XMLERR(ERROR, XML, P_STag),
                     .msg = "Expected element type",
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("bad-stag-name.xml")
             ),
             END,
         },
@@ -1994,6 +2674,11 @@ static const testcase_t testcases[] = {
         TC("Truncated start tag #1"),
         .input = "truncated-stag.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-stag.xml")
+            ),
             EV(STAG,
                     LOC("truncated-stag.xml", 1, 1),
                     .name = TOK("a"),
@@ -2016,6 +2701,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("truncated-stag.xml", 2, 1)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-stag.xml")
+            ),
             END,
         },
     },
@@ -2023,6 +2713,11 @@ static const testcase_t testcases[] = {
         TC("Truncated start tag #2"),
         .input = "truncated-stag2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-stag2.xml")
+            ),
             EV(STAG,
                     LOC("truncated-stag2.xml", 1, 1),
                     .name = TOK("a"),
@@ -2062,6 +2757,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("truncated-stag2.xml", 1, 6)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("truncated-stag2.xml")
+            ),
             END,
         },
     },
@@ -2069,6 +2769,11 @@ static const testcase_t testcases[] = {
         TC("Bad character in start tag #1"),
         .input = "stag-badchar1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("stag-badchar1.xml")
+            ),
             EV(STAG,
                     LOC("stag-badchar1.xml", 1, 1),
                     .name = TOK("element"),
@@ -2078,6 +2783,11 @@ static const testcase_t testcases[] = {
                     .info = XMLERR(ERROR, XML, P_STag),
                     .msg = "Expect whitespace, or >, or /> here",
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("stag-badchar1.xml")
+            ),
             END,
         },
     },
@@ -2085,6 +2795,11 @@ static const testcase_t testcases[] = {
         TC("Bad character in start tag #2"),
         .input = "stag-badchar2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("stag-badchar2.xml")
+            ),
             EV(STAG,
                     LOC("stag-badchar2.xml", 1, 1),
                     .name = TOK("element"),
@@ -2094,6 +2809,11 @@ static const testcase_t testcases[] = {
                     .info = XMLERR(ERROR, XML, P_STag),
                     .msg = "Expect attribute name here",
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("stag-badchar2.xml")
+            ),
             END,
         },
     },
@@ -2101,6 +2821,11 @@ static const testcase_t testcases[] = {
         TC("Malformed start tags"),
         .input = "stag-malformed.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("stag-malformed.xml")
+            ),
             EV(STAG,
                     LOC("stag-malformed.xml", 1, 1),
                     .name = TOK("a"),
@@ -2174,6 +2899,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("stag-malformed.xml", 5, 1)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("stag-malformed.xml")
+            ),
             END,
         },
     },
@@ -2181,6 +2911,11 @@ static const testcase_t testcases[] = {
         TC("Multiple unclosed STag productions"),
         .input = "three-missing-etags.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("three-missing-etags.xml")
+            ),
             EV(STAG,
                     LOC("three-missing-etags.xml", 1, 1),
                     .name = TOK("a"),
@@ -2252,6 +2987,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("three-missing-etags.xml", 2, 1)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("three-missing-etags.xml")
+            ),
             END,
         },
     },
@@ -2259,6 +2999,11 @@ static const testcase_t testcases[] = {
         TC("No name in end tag"),
         .input = "etag-noname.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("etag-noname.xml")
+            ),
             EV(STAG,
                     LOC("etag-noname.xml", 1, 1),
                     .name = TOK("a"),
@@ -2286,6 +3031,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("etag-noname.xml", 2, 1)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("etag-noname.xml")
+            ),
             END,
         },
     },
@@ -2293,6 +3043,11 @@ static const testcase_t testcases[] = {
         TC("Bad name in end tag"),
         .input = "etag-badname.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("etag-badname.xml")
+            ),
             EV(STAG,
                     LOC("etag-badname.xml", 1, 1),
                     .name = TOK("a"),
@@ -2320,6 +3075,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("etag-badname.xml", 2, 1)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("etag-badname.xml")
+            ),
             END,
         },
     },
@@ -2327,6 +3087,11 @@ static const testcase_t testcases[] = {
         TC("End tag mismatch to start tag"),
         .input = "etag-mismatch.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("etag-mismatch.xml")
+            ),
             EV(STAG,
                     LOC("etag-mismatch.xml", 1, 1),
                     .name = TOK("a"),
@@ -2363,6 +3128,11 @@ static const testcase_t testcases[] = {
                     LOC("etag-mismatch.xml", 1, 12),
                     .name = TOK("b"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("etag-mismatch.xml")
+            ),
             END,
         },
     },
@@ -2370,6 +3140,11 @@ static const testcase_t testcases[] = {
         TC("Missing closing bracket in end tag"),
         .input = "etag-missing-bracket.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("etag-missing-bracket.xml")
+            ),
             EV(STAG,
                     LOC("etag-missing-bracket.xml", 1, 1),
                     .name = TOK("a"),
@@ -2392,6 +3167,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("etag-missing-bracket.xml", 2, 1)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("etag-missing-bracket.xml")
+            ),
             END,
         },
     },
@@ -2399,6 +3179,11 @@ static const testcase_t testcases[] = {
         TC("Extra (unmatched) end tag"),
         .input = "etag-unpaired.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("etag-unpaired.xml")
+            ),
             EV(STAG,
                     LOC("etag-unpaired.xml", 1, 1),
                     .name = TOK("a"),
@@ -2412,6 +3197,11 @@ static const testcase_t testcases[] = {
                     .info = XMLERR(ERROR, XML, P_element),
                     .msg = "ETag without matching STag",
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("etag-unpaired.xml")
+            ),
             END,
         },
     },
@@ -2420,6 +3210,11 @@ static const testcase_t testcases[] = {
         .input = "element-nonutf8-name.xml",
         .encoding = "ISO-8859-1",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("element-nonutf8-name.xml")
+            ),
             EV(XMLDECL,
                     LOC("element-nonutf8-name.xml", 1, 42),
                     .encoding = "ISO-8859-1",
@@ -2434,6 +3229,11 @@ static const testcase_t testcases[] = {
                     LOC("element-nonutf8-name.xml", 1, 47),
                     .name = TOK("é"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("element-nonutf8-name.xml")
+            ),
             END,
         },
     },
@@ -2441,6 +3241,11 @@ static const testcase_t testcases[] = {
         TC("Comments & Processing instructions"),
         .input = "comments-pis.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("comments-pis.xml")
+            ),
             EV(COMMENT,
                     LOC("comments-pis.xml", 1, 1),
                     .text = TOK(" This is a comment "),
@@ -2457,6 +3262,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("comments-pis.xml", 3, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("comments-pis.xml")
+            ),
             END,
         },
     },
@@ -2464,6 +3274,11 @@ static const testcase_t testcases[] = {
         TC("Comments & Processing instructions (torture)"),
         .input = "comments-pis-torture.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("comments-pis-torture.xml")
+            ),
             EV(MESSAGE,
                     LOC("comments-pis-torture.xml", 1, 23),
                     .info = XMLERR(ERROR, XML, P_Comment),
@@ -2546,6 +3361,11 @@ static const testcase_t testcases[] = {
                     LOC("comments-pis-torture.xml", 11, 1),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("comments-pis-torture.xml")
+            ),
             END,
         },
     },
@@ -2553,6 +3373,11 @@ static const testcase_t testcases[] = {
         TC("Unterminated comment"),
         .input = "unterminated-comment.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("unterminated-comment.xml")
+            ),
             EV(STAG,
                     LOC("unterminated-comment.xml", 1, 1),
                     .name = TOK("a"),
@@ -2565,6 +3390,11 @@ static const testcase_t testcases[] = {
                     .info = XMLERR(ERROR, XML, P_Comment),
                     .msg = "Unterminated comment",
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("unterminated-comment.xml")
+            ),
             END,
         },
     },
@@ -2572,6 +3402,11 @@ static const testcase_t testcases[] = {
         TC("Unterminated PI #1"),
         .input = "unterminated-pi1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("unterminated-pi1.xml")
+            ),
             EV(STAG,
                     LOC("unterminated-pi1.xml", 1, 1),
                     .name = TOK("a"),
@@ -2584,6 +3419,11 @@ static const testcase_t testcases[] = {
                     .info = XMLERR(ERROR, XML, P_PI),
                     .msg = "Unterminated processing instruction",
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("unterminated-pi1.xml")
+            ),
             END,
         },
     },
@@ -2591,6 +3431,11 @@ static const testcase_t testcases[] = {
         TC("Unterminated PI #2"),
         .input = "unterminated-pi2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("unterminated-pi2.xml")
+            ),
             EV(STAG,
                     LOC("unterminated-pi2.xml", 1, 1),
                     .name = TOK("a"),
@@ -2603,6 +3448,11 @@ static const testcase_t testcases[] = {
                     .info = XMLERR(ERROR, XML, P_PI),
                     .msg = "Expected string: '?>'",
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("unterminated-pi2.xml")
+            ),
             END,
         },
     },
@@ -2610,6 +3460,11 @@ static const testcase_t testcases[] = {
         TC("Bad PI target"),
         .input = "pi-badtarget.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pi-badtarget.xml")
+            ),
             EV(STAG,
                     LOC("pi-badtarget.xml", 1, 1),
                     .name = TOK("a"),
@@ -2622,6 +3477,11 @@ static const testcase_t testcases[] = {
                     .info = XMLERR(ERROR, XML, P_PI),
                     .msg = "Expected PI target here",
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pi-badtarget.xml")
+            ),
             END,
         },
     },
@@ -2629,12 +3489,22 @@ static const testcase_t testcases[] = {
         TC("Very long element name"),
         .input = "very-long-token.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("very-long-token.xml")
+            ),
             EV(STAG,
                     LOC("very-long-token.xml", 1, 1),
                     .name = TOK(VERY_LONG_NAME),
             ),
             E0(ETAG,
                     LOC("very-long-token.xml", 1, 1034)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("very-long-token.xml")
             ),
             END,
         },
@@ -2643,6 +3513,11 @@ static const testcase_t testcases[] = {
         TC("Attributes"),
         .input = "attributes.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("attributes.xml")
+            ),
             EV(STAG,
                     LOC("attributes.xml", 1, 1),
                     .name = TOK("a"),
@@ -2660,6 +3535,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("attributes.xml", 1, 28)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("attributes.xml")
+            ),
             END,
         },
     },
@@ -2667,6 +3547,11 @@ static const testcase_t testcases[] = {
         TC("Attributes with char/entity references"),
         .input = "attribute-with-references.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("attribute-with-references.xml")
+            ),
             EV(STAG,
                     LOC("attribute-with-references.xml", 1, 1),
                     .name = TOK("a"),
@@ -2734,6 +3619,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("attribute-with-references.xml", 1, 65)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("attribute-with-references.xml")
+            ),
             END,
         },
     },
@@ -2741,6 +3631,11 @@ static const testcase_t testcases[] = {
         TC("Attributes with invalid references"),
         .input = "attribute-invalid-references1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("attribute-invalid-references1.xml")
+            ),
             EV(XMLDECL,
                     LOC("attribute-invalid-references1.xml", 1, 20),
                     .encoding = NULL,
@@ -2821,6 +3716,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("attribute-invalid-references1.xml", 2, 83)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("attribute-invalid-references1.xml")
+            ),
             END,
         },
     },
@@ -2828,6 +3728,11 @@ static const testcase_t testcases[] = {
         TC("Attributes with references to restricted characters"),
         .input = "attribute-restricted-references.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("attribute-restricted-references.xml")
+            ),
             EV(XMLDECL,
                     LOC("attribute-restricted-references.xml", 1, 20),
                     .encoding = NULL,
@@ -2846,6 +3751,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("attribute-restricted-references.xml", 2, 30)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("attribute-restricted-references.xml")
+            ),
             END,
         },
     },
@@ -2853,6 +3763,11 @@ static const testcase_t testcases[] = {
         TC("Character data with entity references"),
         .input = "chardata-entities.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("chardata-entities.xml")
+            ),
             EV(STAG,
                     LOC("chardata-entities.xml", 1, 1),
                     .name = TOK("a"),
@@ -2891,6 +3806,11 @@ static const testcase_t testcases[] = {
                     LOC("chardata-entities.xml", 1, 74),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("chardata-entities.xml")
+            ),
             END,
         },
     },
@@ -2898,6 +3818,11 @@ static const testcase_t testcases[] = {
         TC("CDATA section"),
         .input = "cdata.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("cdata.xml")
+            ),
             EV(STAG,
                     LOC("cdata.xml", 1, 1),
                     .name = TOK("a"),
@@ -2911,6 +3836,11 @@ static const testcase_t testcases[] = {
                     LOC("cdata.xml", 1, 89),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("cdata.xml")
+            ),
             END,
         },
     },
@@ -2918,6 +3848,11 @@ static const testcase_t testcases[] = {
         TC("Unterminated CDATA section"),
         .input = "unterminated-cdata.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("unterminated-cdata.xml")
+            ),
             EV(STAG,
                     LOC("unterminated-cdata.xml", 1, 1),
                     .name = TOK("a"),
@@ -2945,6 +3880,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("unterminated-cdata.xml", 2, 1)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("unterminated-cdata.xml")
+            ),
             END,
         },
     },
@@ -2952,6 +3892,11 @@ static const testcase_t testcases[] = {
         TC("DTD (no subsets)"),
         .input = "dtd-no-subset.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-no-subset.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("dtd-no-subset.xml", 1, 1),
                     .root = TOK("a"),
@@ -2966,6 +3911,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("dtd-no-subset.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-no-subset.xml")
+            ),
             END,
         },
     },
@@ -2973,6 +3923,11 @@ static const testcase_t testcases[] = {
         TC("DTD (external subset with SYSTEM id)"),
         .input = "dtd-ext-system.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-ext-system.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("dtd-ext-system.xml", 1, 1),
                     .root = TOK("a"),
@@ -3008,6 +3963,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("dtd-ext-system.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-ext-system.xml")
+            ),
             END,
         },
     },
@@ -3015,6 +3975,11 @@ static const testcase_t testcases[] = {
         TC("DTD (external subset with PUBLIC id)"),
         .input = "dtd-ext-public.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-ext-public.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("dtd-ext-public.xml", 1, 1),
                     .root = TOK("a"),
@@ -3054,6 +4019,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("dtd-ext-public.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-ext-public.xml")
+            ),
             END,
         },
     },
@@ -3061,6 +4031,11 @@ static const testcase_t testcases[] = {
         TC("DTD (empty internal subset)"),
         .input = "dtd-int-empty.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-int-empty.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("dtd-int-empty.xml", 1, 1),
                     .root = TOK("a"),
@@ -3078,6 +4053,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("dtd-int-empty.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-int-empty.xml")
+            ),
             END,
         },
     },
@@ -3085,6 +4065,11 @@ static const testcase_t testcases[] = {
         TC("Invalid parameter entity reference"),
         .input = "entities01.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities01.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entities01.xml", 1, 1),
                     .root = TOK("a"),
@@ -3135,6 +4120,11 @@ static const testcase_t testcases[] = {
                     LOC("entities01.xml", 5, 9),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities01.xml")
+            ),
             END,
         },
     },
@@ -3142,6 +4132,11 @@ static const testcase_t testcases[] = {
         TC("Character/entity reference to closing quote"),
         .input = "entities02.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities02.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entities02.xml", 1, 1),
                     .root = TOK("a"),
@@ -3243,6 +4238,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("entities02.xml", 7, 33)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities02.xml")
+            ),
             END,
         },
     },
@@ -3250,6 +4250,11 @@ static const testcase_t testcases[] = {
         TC("Start tag crossing entity boundary"),
         .input = "entities03.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities03.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entities03.xml", 1, 1),
                     .root = TOK("a"),
@@ -3322,6 +4327,11 @@ static const testcase_t testcases[] = {
                     LOC("entities03.xml", 5, 7),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities03.xml")
+            ),
             END,
         },
     },
@@ -3329,6 +4339,11 @@ static const testcase_t testcases[] = {
         TC("Entity reference crossing entity boundary"),
         .input = "entities04.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities04.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entities04.xml", 1, 1),
                     .root = TOK("a"),
@@ -3395,6 +4410,11 @@ static const testcase_t testcases[] = {
                     LOC("entities04.xml", 6, 7),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities04.xml")
+            ),
             END,
         },
     },
@@ -3402,6 +4422,11 @@ static const testcase_t testcases[] = {
         TC("Entities with system and public IDs"),
         .input = "entities05.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities05.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entities05.xml", 1, 1),
                     .root = TOK("elem"),
@@ -3487,6 +4512,11 @@ static const testcase_t testcases[] = {
                     LOC("entities05.xml", 8, 1),
                     .name = TOK("elem"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities05.xml")
+            ),
             END,
         },
     },
@@ -3494,6 +4524,11 @@ static const testcase_t testcases[] = {
         TC("Improper nesting of start/end tag in entity #2"),
         .input = "entities06.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities06.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entities06.xml", 1, 1),
                     .root = TOK("foo"),
@@ -3565,6 +4600,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("entities06.xml", 5, 1)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities06.xml")
+            ),
             END,
         },
     },
@@ -3572,6 +4612,11 @@ static const testcase_t testcases[] = {
         TC("Improper nesting of start/end tag in entity #3"),
         .input = "entities07.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities07.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entities07.xml", 1, 1),
                     .root = TOK("foo"),
@@ -3648,6 +4693,11 @@ static const testcase_t testcases[] = {
                     .info = XMLERR(ERROR, XML, P_element),
                     .msg = "ETag without matching STag",
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities07.xml")
+            ),
             END,
         },
     },
@@ -3655,6 +4705,11 @@ static const testcase_t testcases[] = {
         TC("Mix of external/internal entity references"),
         .input = "entities08.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities08.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entities08.xml", 1, 1),
                     .root = TOK("a"),
@@ -3765,6 +4820,11 @@ static const testcase_t testcases[] = {
                     LOC("entities08.xml", 5, 14),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities08.xml")
+            ),
             END,
         },
     },
@@ -3772,6 +4832,11 @@ static const testcase_t testcases[] = {
         TC("Mix of external/internal entity references"),
         .input = "entities09.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities09.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entities09.xml", 1, 1),
                     .root = TOK("a"),
@@ -3956,6 +5021,11 @@ static const testcase_t testcases[] = {
                     LOC("entities09.xml", 10, 44),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entities09.xml")
+            ),
             END,
         },
     },
@@ -3963,6 +5033,11 @@ static const testcase_t testcases[] = {
         TC("Notations in PIs and entities"),
         .input = "notation.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("notation.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("notation.xml", 1, 1),
                     .root = TOK("zzz"),
@@ -4067,6 +5142,11 @@ static const testcase_t testcases[] = {
                     LOC("notation.xml", 14, 1),
                     .name = TOK("z"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("notation.xml")
+            ),
             END,
         },
     },
@@ -4074,6 +5154,11 @@ static const testcase_t testcases[] = {
         TC("Denormalized XML 1.0 document"),
         .input = "denorm01.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm01.xml")
+            ),
             EV(STAG,
                     LOC("denorm01.xml", 1, 1),
                     .name = TOK("a"),
@@ -4087,6 +5172,11 @@ static const testcase_t testcases[] = {
                     LOC("denorm01.xml", 1, 5),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm01.xml")
+            ),
             END,
         }
     },
@@ -4094,6 +5184,11 @@ static const testcase_t testcases[] = {
         TC("Denormalized XML 1.1 document: not Unicode-normalized"),
         .input = "denorm02.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm02.xml")
+            ),
             EV(XMLDECL,
                     LOC("denorm02.xml", 1, 20),
                     .encoding = NULL,
@@ -4118,6 +5213,11 @@ static const testcase_t testcases[] = {
                     LOC("denorm02.xml", 2, 5),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm02.xml")
+            ),
             END,
         }
     },
@@ -4125,6 +5225,11 @@ static const testcase_t testcases[] = {
         TC("Denormalized XML 1.1 document: not include-normalized"),
         .input = "denorm03.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm03.xml")
+            ),
             EV(XMLDECL,
                     LOC("denorm03.xml", 1, 20),
                     .encoding = NULL,
@@ -4149,6 +5254,11 @@ static const testcase_t testcases[] = {
                     LOC("denorm03.xml", 2, 13),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm03.xml")
+            ),
             END,
         }
     },
@@ -4156,6 +5266,11 @@ static const testcase_t testcases[] = {
         TC("Denormalized XML 1.1 document: relevant construct (Name) begins with composing character"),
         .input = "denorm04.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm04.xml")
+            ),
             EV(XMLDECL,
                     LOC("denorm04.xml", 1, 20),
                     .encoding = NULL,
@@ -4183,6 +5298,11 @@ static const testcase_t testcases[] = {
                     LOC("denorm04.xml", 3, 1),
                     .target = TOK("\xE0\xA6\xBE"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm04.xml")
+            ),
             END,
         }
     },
@@ -4191,6 +5311,11 @@ static const testcase_t testcases[] = {
                 " (CharData) begins with composing character"),
         .input = "denorm05.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm05.xml")
+            ),
             EV(XMLDECL,
                     LOC("denorm05.xml", 1, 20),
                     .encoding = NULL,
@@ -4274,6 +5399,11 @@ static const testcase_t testcases[] = {
                     LOC("denorm05.xml", 3, 36),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm05.xml")
+            ),
             END,
         }
     },
@@ -4282,6 +5412,11 @@ static const testcase_t testcases[] = {
                 " (parsed entity) begins with composing character"),
         .input = "denorm06.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm06.xml")
+            ),
             EV(XMLDECL,
                     LOC("denorm06.xml", 1, 20),
                     .encoding = NULL,
@@ -4317,6 +5452,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("denorm06.xml", 3, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm06.xml")
+            ),
             END,
         },
     },
@@ -4324,6 +5464,11 @@ static const testcase_t testcases[] = {
         TC("Including 1.0 entity into 1.1 document checks include normalization"),
         .input = "denorm07.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm07.xml")
+            ),
             EV(XMLDECL,
                     LOC("denorm07.xml", 1, 20),
                     .encoding = NULL,
@@ -4376,6 +5521,11 @@ static const testcase_t testcases[] = {
                     LOC("denorm07.xml", 3, 9),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm07.xml")
+            ),
             END,
         },
     },
@@ -4383,6 +5533,11 @@ static const testcase_t testcases[] = {
         TC("Possibly denormalized (using unassigned character)"),
         .input = "denorm08.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm08.xml")
+            ),
             EV(XMLDECL,
                     LOC("denorm08.xml", 1, 20),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
@@ -4406,6 +5561,11 @@ static const testcase_t testcases[] = {
                     LOC("denorm08.xml", 2, 6),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm08.xml")
+            ),
             END,
         },
     },
@@ -4414,6 +5574,11 @@ static const testcase_t testcases[] = {
         .input = "denorm08.xml",
         .opts_create = opts_no_unknown_norm_check,
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm08.xml")
+            ),
             EV(XMLDECL,
                     LOC("denorm08.xml", 1, 20),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
@@ -4432,6 +5597,11 @@ static const testcase_t testcases[] = {
                     LOC("denorm08.xml", 2, 6),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm08.xml")
+            ),
             END,
         },
     },
@@ -4439,6 +5609,11 @@ static const testcase_t testcases[] = {
         TC("Examples from W3C Character Model for WWW1.0: Normalization (3.3.2)"),
         .input = "denorm-w3c.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm-w3c.xml")
+            ),
             EV(XMLDECL,
                     LOC("denorm-w3c.xml", 1, 20),
                     .encoding = NULL,
@@ -4741,6 +5916,11 @@ static const testcase_t testcases[] = {
                     LOC("denorm-w3c.xml", 33, 1),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("denorm-w3c.xml")
+            ),
             END,
         }
     },
@@ -4748,6 +5928,11 @@ static const testcase_t testcases[] = {
         TC("Parameter entities mix #1"),
         .input = "pe.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("pe.xml", 1, 1),
                     .root = TOK("a"),
@@ -4915,6 +6100,11 @@ static const testcase_t testcases[] = {
                     LOC("pe.xml", 8, 1),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe.xml")
+            ),
             END,
         },
     },
@@ -4922,6 +6112,11 @@ static const testcase_t testcases[] = {
         TC("Parameter entities mix #2 (parameter entities in literal)"),
         .input = "pe2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe2.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("pe2.xml", 1, 1),
                     .root = TOK("x"),
@@ -5003,6 +6198,11 @@ static const testcase_t testcases[] = {
                     LOC("pe2.xml", 2, 9),
                     .name = TOK("x"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe2.xml")
+            ),
             END,
         },
     },
@@ -5010,6 +6210,11 @@ static const testcase_t testcases[] = {
         TC("Very long entity name"),
         .input = "huge-entity-name.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("huge-entity-name.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("huge-entity-name.xml", 1, 1),
                     .root = TOK("a"),
@@ -5049,6 +6254,11 @@ static const testcase_t testcases[] = {
                     LOC("huge-entity-name.xml", 4, 1038),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("huge-entity-name.xml")
+            ),
             END,
         },
     },
@@ -5056,6 +6266,11 @@ static const testcase_t testcases[] = {
         TC("Very long entity value"),
         .input = "huge-entity-value.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("huge-entity-value.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("huge-entity-value.xml", 1, 1),
                     .root = TOK("a"),
@@ -5095,6 +6310,11 @@ static const testcase_t testcases[] = {
                     LOC("huge-entity-value.xml", 4, 9),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("huge-entity-value.xml")
+            ),
             END,
         },
     },
@@ -5102,10 +6322,20 @@ static const testcase_t testcases[] = {
         TC("Malformed DTD #1"),
         .input = "dtd-bad1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-bad1.xml")
+            ),
             EV(MESSAGE,
                     LOC("dtd-bad1.xml", 1, 10),
                     .info = XMLERR(ERROR, XML, P_doctypedecl),
                     .msg = "Expect whitespace here",
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-bad1.xml")
             ),
             EV(MESSAGE,
                     LOC("dtd-bad1.xml", 2, 1),
@@ -5119,10 +6349,20 @@ static const testcase_t testcases[] = {
         TC("Malformed DTD #2"),
         .input = "dtd-bad2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-bad2.xml")
+            ),
             EV(MESSAGE,
                     LOC("dtd-bad2.xml", 1, 11),
                     .info = XMLERR(ERROR, XML, P_doctypedecl),
                     .msg = "Expect root element type here",
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-bad2.xml")
             ),
             EV(MESSAGE,
                     LOC("dtd-bad2.xml", 2, 1),
@@ -5136,10 +6376,20 @@ static const testcase_t testcases[] = {
         TC("Malformed DTD #3"),
         .input = "dtd-bad3.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-bad3.xml")
+            ),
             EV(MESSAGE,
                     LOC("dtd-bad3.xml", 1, 19),
                     .info = XMLERR(ERROR, XML, P_ExternalID),
                     .msg = "Expect whitespace here",
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-bad3.xml")
             ),
             EV(MESSAGE,
                     LOC("dtd-bad3.xml", 2, 1),
@@ -5153,6 +6403,11 @@ static const testcase_t testcases[] = {
         TC("Malformed DTD #4"),
         .input = "dtd-bad4.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-bad4.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("dtd-bad4.xml", 1, 1),
                     .root = TOK("a"),
@@ -5175,6 +6430,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("dtd-bad4.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-bad4.xml")
+            ),
             END,
         },
     },
@@ -5182,6 +6442,11 @@ static const testcase_t testcases[] = {
         TC("Malformed DTD #5"),
         .input = "dtd-bad5.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-bad5.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("dtd-bad5.xml", 1, 1),
                     .root = TOK("a"),
@@ -5209,6 +6474,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("dtd-bad5.xml", 5, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-bad5.xml")
+            ),
             END,
         },
     },
@@ -5216,6 +6486,11 @@ static const testcase_t testcases[] = {
         TC("Malformed notation declaration #1"),
         .input = "notation-bad1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("notation-bad1.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("notation-bad1.xml", 1, 1),
                     .root = TOK("a"),
@@ -5273,6 +6548,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("notation-bad1.xml", 11, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("notation-bad1.xml")
+            ),
             END,
         },
     },
@@ -5280,6 +6560,11 @@ static const testcase_t testcases[] = {
         TC("Malformed entity declaration #1"),
         .input = "entity-bad1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entity-bad1.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entity-bad1.xml", 1, 1),
                     .root = TOK("a"),
@@ -5441,6 +6726,11 @@ static const testcase_t testcases[] = {
                     LOC("entity-bad1.xml", 25, 11),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entity-bad1.xml")
+            ),
             END,
         },
     },
@@ -5448,6 +6738,11 @@ static const testcase_t testcases[] = {
         TC("Malformed entity declaration #2"),
         .input = "entity-bad2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entity-bad2.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entity-bad2.xml", 1, 1),
                     .root = TOK("a"),
@@ -5529,6 +6824,11 @@ static const testcase_t testcases[] = {
                     LOC("entity-bad2.xml", 6, 7),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entity-bad2.xml")
+            ),
             END,
         },
     },
@@ -5536,6 +6836,11 @@ static const testcase_t testcases[] = {
         TC("Malformed entity declaration #3"),
         .input = "entity-bad3.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entity-bad3.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entity-bad3.xml", 1, 1),
                     .root = TOK("a"),
@@ -5617,6 +6922,11 @@ static const testcase_t testcases[] = {
                     LOC("entity-bad3.xml", 6, 7),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entity-bad3.xml")
+            ),
             END,
         },
     },
@@ -5624,6 +6934,11 @@ static const testcase_t testcases[] = {
         TC("Malformed entity declaration #4"),
         .input = "entity-bad4.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entity-bad4.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entity-bad4.xml", 1, 1),
                     .root = TOK("a"),
@@ -5680,6 +6995,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("entity-bad4.xml", 9, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entity-bad4.xml")
+            ),
             END,
         },
     },
@@ -5687,6 +7007,11 @@ static const testcase_t testcases[] = {
         TC("Malformed external ID"),
         .input = "external-id.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("external-id.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("external-id.xml", 1, 1),
                     .root = TOK("a"),
@@ -5750,6 +7075,11 @@ static const testcase_t testcases[] = {
             E0(DTD_END,
                     LOC("external-id.xml", 11, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("external-id.xml")
+            ),
             EV(MESSAGE,
                     LOC("external-id.xml", 12, 1),
                     .info = XMLERR(ERROR, XML, P_document),
@@ -5762,6 +7092,11 @@ static const testcase_t testcases[] = {
         TC("Coverage for normalization checking while backtracking in CDATA parser"),
         .input = "cdata-normchecking.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("cdata-normchecking.xml")
+            ),
             EV(XMLDECL,
                     LOC("cdata-normchecking.xml", 1, 20),
                     .encoding = NULL,
@@ -5781,6 +7116,11 @@ static const testcase_t testcases[] = {
                     LOC("cdata-normchecking.xml", 2, 28),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("cdata-normchecking.xml")
+            ),
             END,
         },
     },
@@ -5788,6 +7128,11 @@ static const testcase_t testcases[] = {
         TC("Character references evaluating to codepoint beyond defined Unicode range"),
         .input = "charref-toobig.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("charref-toobig.xml")
+            ),
             EV(STAG,
                     LOC("charref-toobig.xml", 1, 1),
                     .name = TOK("a"),
@@ -5816,6 +7161,11 @@ static const testcase_t testcases[] = {
                     LOC("charref-toobig.xml", 1, 44),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("charref-toobig.xml")
+            ),
             END,
         },
     },
@@ -5823,6 +7173,11 @@ static const testcase_t testcases[] = {
         TC("Malformed parameter/character references"),
         .input = "entity-bad5.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entity-bad5.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("entity-bad5.xml", 1, 1),
                     .root = TOK("a"),
@@ -5874,6 +7229,11 @@ static const testcase_t testcases[] = {
                     LOC("entity-bad5.xml", 5, 7),
                     .name = TOK("a"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("entity-bad5.xml")
+            ),
             END,
         },
     },
@@ -5881,6 +7241,11 @@ static const testcase_t testcases[] = {
         TC("W3C example on parameter entity expansion"),
         .input = "pe-w3c.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe-w3c.xml")
+            ),
             EV(XMLDECL,
                     LOC("pe-w3c.xml", 1, 20),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
@@ -5957,6 +7322,11 @@ static const testcase_t testcases[] = {
                     LOC("pe-w3c.xml", 7, 43),
                     .name = TOK("test"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe-w3c.xml")
+            ),
             END,
         },
     },
@@ -5964,6 +7334,11 @@ static const testcase_t testcases[] = {
         TC("Truncated internal subset"),
         .input = "dtd-internal-truncated.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-internal-truncated.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("dtd-internal-truncated.xml", 1, 1),
                     .root = TOK("x"),
@@ -5972,6 +7347,11 @@ static const testcase_t testcases[] = {
                     LOC("dtd-internal-truncated.xml", 2, 1),
                     .info = XMLERR(ERROR, XML, P_intSubset),
                     .msg = "Missing closing ] for internal subset",
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("dtd-internal-truncated.xml")
             ),
             EV(MESSAGE,
                     LOC("dtd-internal-truncated.xml", 2, 1),
@@ -5985,6 +7365,11 @@ static const testcase_t testcases[] = {
         TC("Unterminated comment/PI inside an entity"),
         .input = "unterminated-in-entity.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("unterminated-in-entity.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("unterminated-in-entity.xml", 1, 1),
                     .root = TOK("a"),
@@ -6045,6 +7430,11 @@ static const testcase_t testcases[] = {
                     LOC("unterminated-in-entity.xml", 5, 10),
                     .name = TOK("x"),
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("unterminated-in-entity.xml")
+            ),
             END,
         },
     },
@@ -6052,6 +7442,11 @@ static const testcase_t testcases[] = {
         TC("PE nesting #1"),
         .input = "pe-nesting-1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe-nesting-1.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("pe-nesting-1.xml", 1, 1),
                     .root = TOK("a"),
@@ -6114,6 +7509,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("pe-nesting-1.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe-nesting-1.xml")
+            ),
             END,
         },
     },
@@ -6121,6 +7521,11 @@ static const testcase_t testcases[] = {
         TC("PE nesting #2"),
         .input = "pe-nesting-2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe-nesting-2.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("pe-nesting-2.xml", 1, 1),
                     .root = TOK("a"),
@@ -6168,6 +7573,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("pe-nesting-2.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe-nesting-2.xml")
+            ),
             END,
         },
     },
@@ -6175,6 +7585,11 @@ static const testcase_t testcases[] = {
         TC("PE nesting #3"),
         .input = "pe-nesting-3.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe-nesting-3.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("pe-nesting-3.xml", 1, 1),
                     .root = TOK("a"),
@@ -6222,6 +7637,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("pe-nesting-3.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe-nesting-3.xml")
+            ),
             END,
         },
     },
@@ -6229,6 +7649,11 @@ static const testcase_t testcases[] = {
         TC("PE nesting #4"),
         .input = "pe-nesting-4.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe-nesting-4.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("pe-nesting-4.xml", 1, 1),
                     .root = TOK("a"),
@@ -6280,6 +7705,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("pe-nesting-4.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("pe-nesting-4.xml")
+            ),
             END,
         },
     },
@@ -6287,6 +7717,11 @@ static const testcase_t testcases[] = {
         TC("Conditional sections - basic"),
         .input = "condsect-basic.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-basic.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("condsect-basic.xml", 1, 1),
                     .root = TOK("a"),
@@ -6434,6 +7869,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("condsect-basic.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-basic.xml")
+            ),
             END,
         },
     },
@@ -6441,6 +7881,11 @@ static const testcase_t testcases[] = {
         TC("Conditional sections - bad keyword"),
         .input = "condsect-badkwd.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-badkwd.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("condsect-badkwd.xml", 1, 1),
                     .root = TOK("a"),
@@ -6481,6 +7926,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("condsect-badkwd.xml", 1, 44)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-badkwd.xml")
+            ),
             END,
         },
     },
@@ -6488,6 +7938,11 @@ static const testcase_t testcases[] = {
         TC("Conditional sections - EOF while in included section"),
         .input = "condsect-eof1.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-eof1.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("condsect-eof1.xml", 1, 1),
                     .root = TOK("a"),
@@ -6613,6 +8068,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("condsect-eof1.xml", 6, 4)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-eof1.xml")
+            ),
             END,
         },
     },
@@ -6620,6 +8080,11 @@ static const testcase_t testcases[] = {
         TC("Conditional sections - EOF while in ignored section"),
         .input = "condsect-eof2.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-eof2.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("condsect-eof2.xml", 1, 1),
                     .root = TOK("a"),
@@ -6665,6 +8130,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("condsect-eof2.xml", 1, 42)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-eof2.xml")
+            ),
             END,
         },
     },
@@ -6672,6 +8142,11 @@ static const testcase_t testcases[] = {
         TC("Conditional sections - EOF before INCLUDE/IGNORE"),
         .input = "condsect-eof3.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-eof3.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("condsect-eof3.xml", 1, 1),
                     .root = TOK("a"),
@@ -6702,6 +8177,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("condsect-eof3.xml", 1, 42)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-eof3.xml")
+            ),
             END,
         },
     },
@@ -6709,6 +8189,11 @@ static const testcase_t testcases[] = {
         TC("Conditional sections - wrong tokens instead of [] brackets"),
         .input = "condsect-badparen.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-badparen.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("condsect-badparen.xml", 1, 1),
                     .root = TOK("a"),
@@ -6749,6 +8234,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("condsect-badparen.xml", 2, 3)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-badparen.xml")
+            ),
             END,
         },
     },
@@ -6756,6 +8246,11 @@ static const testcase_t testcases[] = {
         TC("Conditional sections - closing markup without opening"),
         .input = "condsect-extra-close.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-extra-close.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("condsect-extra-close.xml", 1, 1),
                     .root = TOK("a"),
@@ -6792,6 +8287,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("condsect-extra-close.xml", 1, 49)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-extra-close.xml")
+            ),
             END,
         },
     },
@@ -6799,6 +8299,11 @@ static const testcase_t testcases[] = {
         TC("Conditional sections - incomplete open/close mark up inside ignored"),
         .input = "condsect-markup-ignored.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-markup-ignored.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("condsect-markup-ignored.xml", 1, 1),
                     .root = TOK("a"),
@@ -6824,6 +8329,11 @@ static const testcase_t testcases[] = {
             E0(ETAG,
                     LOC("condsect-markup-ignored.xml", 1, 52)
             ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-markup-ignored.xml")
+            ),
             END,
         },
     },
@@ -6831,6 +8341,11 @@ static const testcase_t testcases[] = {
         TC("Conditional sections - improper nesting in PEs"),
         .input = "condsect-badnest.xml",
         .events = (const xml_reader_cbparam_t[]){
+            EV(ENTITY_PARSE_START,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-badnest.xml")
+            ),
             EV(DTD_BEGIN,
                     LOC("condsect-badnest.xml", 1, 1),
                     .root = TOK("a"),
@@ -6978,6 +8493,11 @@ static const testcase_t testcases[] = {
             ),
             E0(ETAG,
                     LOC("condsect-badnest.xml", 1, 45)
+            ),
+            EV(ENTITY_PARSE_END,
+                    NOLOC,
+                    .type = XML_READER_REF_DOCUMENT,
+                    .system_id = TOK("condsect-badnest.xml")
             ),
             END,
         },

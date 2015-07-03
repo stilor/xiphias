@@ -227,7 +227,7 @@ run_testcase(const void *arg, const testcase_opts_t *o)
         tc->setup(reader);
     }
 
-    xml_reader_load_document_entity(reader, NULL, tc->input);
+    xml_reader_set_document_entity(reader, NULL, tc->input);
     do {
         xml_reader_run(reader); // Emits the events
     } while (o->action_endrun && o->action_endrun(o->action_arg, reader));
