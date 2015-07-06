@@ -3234,7 +3234,7 @@ xml_cb_literal_EntityValue(void *arg, ucs4_t cp)
         st->starting = true;
     }
     else if (oquote != UCS4_NOCHAR && st->quote == UCS4_STOPCHAR) {
-        // If literal was empty, no it is not subject to 'relevant construct' check
+        // If literal was empty, it is not subject to 'relevant construct' check
         st->h->relevant = NULL;
     }
     else if (st->starting) {
@@ -5752,6 +5752,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     xml_reader_tokens_t saved_svtk;
     xmlerr_loc_t saved_prodloc;
     size_t saved_tlen;
+    uint32_t saved_flags;
     xml_reader_external_t *ex;
     xml_reader_input_t *inp;
     xml_reader_initial_xcode_t xc;
@@ -5780,11 +5781,6 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     h->current_external = ex;
 
     inp = xml_reader_input_new(h, ex->location);
-    inp->entity = e;
-    inp->external = ex;
-    inp->complete = external_entity_end;
-    inp->complete_arg = inp;
-    inp->inc_in_literal = ha->inc_in_literal;
 
     // Immediately lock the input, so that it is not removed even if it is empty.
     // Since declaration parser does not recognize any entities, this is sufficient
@@ -5848,17 +5844,18 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     strbuf_realloc(inp->buf, INITIAL_DECL_LOOKAHEAD_SIZE * sizeof(ucs4_t));
     strbuf_setops(inp->buf, &xml_reader_initial_ops, &xc);
 
-    // These are really per-entity, but we only add entities one at a time
-    // and these fields are not used after the initial parsing. So, store them
+    // This field is really per-entity, but we only add entities one at a time
+    // and this field is not used after the initial parsing. So, store them
     // in the reader handle instead. Note that for parsing the declaration,
     // the context will be switched, so we won't have the access to it via h->ctx.
     // Only ASCII is allowed in declaration; if run into EOF, do not attempt to
     // go back to the including input.
+    // TBD move to hidden_loader_arg and set in invoke_loader?
     OOPS_ASSERT(h->ctx->declinfo); // External entity context must have it
     h->declinfo = h->ctx->declinfo;
-    h->flags |= R_ASCII_ONLY;
 
     // We're interrupting normal processing; save & restore the relevant parts
+    saved_flags = h->flags;
     saved_ctx = h->ctx;
     saved_svtk = h->svtk;
     saved_tlen = h->tokenbuf.len;
@@ -5879,8 +5876,9 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     /// switch back to saved context afterwards.
     stopping = false;
 
-    // After processing the declaration, skip over it in the source buffer. The position
-    // recorded in transcoder state is the offset of the first non-consumed character.
+    // Declaration is supposed to contain only ASCII; replacement text does not include
+    // the declaration.
+    h->flags = R_ASCII_ONLY | R_NO_INC_NORM;
     h->ctx = &parser_decl;
     do {
         // Defer stopping until after the initial loading - see above
@@ -5895,6 +5893,8 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
         h->stopping = true;
     }
 
+    // After processing the declaration, skip over it in the source buffer. The position
+    // recorded in transcoder state is the offset of the first non-consumed character.
     strbuf_radvance(buf, xc.la_pos[0]);
 
     /// Restore
@@ -5902,8 +5902,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     h->svtk = saved_svtk;
     h->tokenbuf.len = saved_tlen;
     h->prodloc = saved_prodloc;
-
-    h->flags &= ~R_ASCII_ONLY;
+    h->flags = saved_flags;
     h->declinfo = NULL;
 
     if (decl_rv == PR_FAIL) {
@@ -5976,9 +5975,6 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
         }
     }
 
-    // Set up permanent transcoder
-    strbuf_setops(inp->buf, &xml_reader_transcode_ops, ex);
-
     // Entities encoded in UTF-16 MUST and entities encoded in UTF-8 MAY
     // begin with the Byte Order Mark described in ISO/IEC 10646 [ISO/IEC
     // 10646] or Unicode [Unicode] (the ZERO WIDTH NO-BREAK SPACE character, #xFEFF).
@@ -6014,6 +6010,14 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
                 "No external encoding information, no encoding in %s, content in %s encoding",
                 h->ctx->declinfo->name, enc->name);
     }
+
+    // Set up permanent transcoder
+    strbuf_setops(inp->buf, &xml_reader_transcode_ops, ex);
+    inp->entity = e;
+    inp->external = ex;
+    inp->complete = external_entity_end;
+    inp->complete_arg = inp;
+    inp->inc_in_literal = ha->inc_in_literal;
 
     // Loaded successfully
     xml_reader_input_unlock_assert(h);
