@@ -175,6 +175,7 @@ sbuf_subst(void *arg, strbuf_t *sbuf)
     Run a single test case and compare produced events with expected events.
 
     @param arg Testcase description
+    @param o Options for running the test case
     @return PASS/FAIL
 */
 static result_t
