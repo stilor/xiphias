@@ -189,9 +189,6 @@ static const testcase_t testcases[] = {
                     .name = TOK("e3"),
                     .text = TOK("<b>&e2;</b>"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("stack-test.xml", 5, 1)
-            ),
             E0(DTD_END,
                     LOC("stack-test.xml", 5, 3)
             ),
@@ -1994,9 +1991,6 @@ static const testcase_t testcases[] = {
                     .name = TOK("foo"),
                     .text = TOK("<a\rb='c'/>"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("whitespace-cr.xml", 4, 32)
-            ),
             E0(DTD_END,
                     LOC("whitespace-cr.xml", 4, 34)
             ),
@@ -2068,9 +2062,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_INTERNAL,
                     .name = TOK("double.escaped.references"),
                     .text = TOK("&#x9;&#x20;&#xA;&#xD;"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("whitespace-charref.xml", 6, 1)
             ),
             E0(DTD_END,
                     LOC("whitespace-charref.xml", 6, 3)
@@ -4040,9 +4031,6 @@ static const testcase_t testcases[] = {
                     LOC("dtd-int-empty.xml", 1, 1),
                     .root = TOK("a"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("dtd-int-empty.xml", 1, 14)
-            ),
             E0(DTD_END,
                     LOC("dtd-int-empty.xml", 1, 16)
             ),
@@ -4090,9 +4078,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_INTERNAL,
                     .name = TOK("foo"),
                     .text = TOK("ac"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entities01.xml", 4, 1)
             ),
             E0(DTD_END,
                     LOC("entities01.xml", 4, 3)
@@ -4164,9 +4149,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_INTERNAL,
                     .name = TOK("foo2"),
                     .text = TOK("a&baz;b"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entities02.xml", 6, 1)
             ),
             E0(DTD_END,
                     LOC("entities02.xml", 6, 3)
@@ -4271,9 +4253,6 @@ static const testcase_t testcases[] = {
                     .name = TOK("y"),
                     .text = TOK("<a>&x;\"/></a>"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entities03.xml", 4, 1)
-            ),
             E0(DTD_END,
                     LOC("entities03.xml", 4, 3)
             ),
@@ -4366,9 +4345,6 @@ static const testcase_t testcases[] = {
                     .name = TOK("z"),
                     .text = TOK("&y;x;"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entities04.xml", 5, 1)
-            ),
             E0(DTD_END,
                     LOC("entities04.xml", 5, 3)
             ),
@@ -4443,9 +4419,6 @@ static const testcase_t testcases[] = {
                     .name = TOK("bar"),
                     .public_id = TOK("-//PubId/Entity"),
                     .system_id = TOK("yyy.xml"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entities05.xml", 4, 1)
             ),
             E0(DTD_END,
                     LOC("entities05.xml", 4, 3)
@@ -4539,9 +4512,6 @@ static const testcase_t testcases[] = {
                     .name = TOK("x"),
                     .text = TOK("<bar>baz</bar></foo>"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entities06.xml", 3, 1)
-            ),
             E0(DTD_END,
                     LOC("entities06.xml", 3, 3)
             ),
@@ -4626,9 +4596,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_INTERNAL,
                     .name = TOK("x"),
                     .text = TOK("<bar>baz"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entities07.xml", 3, 1)
             ),
             E0(DTD_END,
                     LOC("entities07.xml", 3, 3)
@@ -4725,9 +4692,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_INTERNAL,
                     .name = TOK("bar"),
                     .text = TOK("BAR"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entities08.xml", 4, 1)
             ),
             E0(DTD_END,
                     LOC("entities08.xml", 4, 3)
@@ -4898,9 +4862,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_INTERNAL,
                     .name = TOK("e"),
                     .text = TOK("&baz;"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entities09.xml", 9, 1)
             ),
             EV(MESSAGE,
                     LOC("entities09.xml", 8, 1),
@@ -5082,9 +5043,6 @@ static const testcase_t testcases[] = {
                     .ndata = TOK("uent"),
                     .nsystem_id = TOK("uent.exe"),
                     .npublic_id = TOK("-//Owner//Unparsed entity handler//EN"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("notation.xml", 8, 1)
             ),
             E0(DTD_END,
                     LOC("notation.xml", 8, 3)
@@ -5332,9 +5290,6 @@ static const testcase_t testcases[] = {
                     .name = TOK("empty"),
                     .text = TOK(""),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("denorm05.xml", 2, 32)
-            ),
             E0(DTD_END,
                     LOC("denorm05.xml", 2, 34)
             ),
@@ -5439,9 +5394,6 @@ static const testcase_t testcases[] = {
                     .name = TOK("foo"),
                     .text = TOK("\xCC\xA2"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("denorm06.xml", 2, 37)
-            ),
             E0(DTD_END,
                     LOC("denorm06.xml", 2, 39)
             ),
@@ -5484,9 +5436,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_EXTERNAL,
                     .name = TOK("foo"),
                     .system_id = TOK("denorm07-2.xml"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("denorm07.xml", 2, 51)
             ),
             E0(DTD_END,
                     LOC("denorm07.xml", 2, 53)
@@ -5652,9 +5601,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_INTERNAL,
                     .name = TOK("b"),
                     .text = TOK("b"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("denorm-w3c.xml", 7, 1)
             ),
             E0(DTD_END,
                     LOC("denorm-w3c.xml", 7, 3)
@@ -5979,9 +5925,6 @@ static const testcase_t testcases[] = {
                     .name = TOK("element2"),
                     .text = TOK("<z></z> "),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("pe.xml", 5, 1)
-            ),
             EV(ENTITY_PARSE_START,
                     LOC("pe.xml", 5, 3),
                     .type = XML_READER_REF_EXT_SUBSET,
@@ -6225,9 +6168,6 @@ static const testcase_t testcases[] = {
                     .name = TOK(VERY_LONG_NAME),
                     .text = TOK("replacement text"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("huge-entity-name.xml", 3, 1)
-            ),
             E0(DTD_END,
                     LOC("huge-entity-name.xml", 3, 3)
             ),
@@ -6280,9 +6220,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_INTERNAL,
                     .name = TOK("foo"),
                     .text = TOK(VERY_LONG_NAME),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("huge-entity-value.xml", 3, 1)
             ),
             E0(DTD_END,
                     LOC("huge-entity-value.xml", 3, 3)
@@ -6412,9 +6349,6 @@ static const testcase_t testcases[] = {
                     LOC("dtd-bad4.xml", 1, 1),
                     .root = TOK("a"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("dtd-bad4.xml", 1, 14)
-            ),
             EV(MESSAGE,
                     LOC("dtd-bad4.xml", 1, 15),
                     .info = XMLERR(ERROR, XML, P_doctypedecl),
@@ -6460,9 +6394,6 @@ static const testcase_t testcases[] = {
                     LOC("dtd-bad5.xml", 3, 1),
                     .info = XMLERR(ERROR, XML, P_DeclSep),
                     .msg = "Invalid content in DTD",
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("dtd-bad5.xml", 4, 1)
             ),
             E0(DTD_END,
                     LOC("dtd-bad5.xml", 4, 3)
@@ -6534,9 +6465,6 @@ static const testcase_t testcases[] = {
                     LOC("notation-bad1.xml", 9, 33),
                     .info = XMLERR(ERROR, XML, P_NotationDecl),
                     .msg = "Expected string: '>'",
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("notation-bad1.xml", 10, 1)
             ),
             E0(DTD_END,
                     LOC("notation-bad1.xml", 10, 3)
@@ -6697,9 +6625,6 @@ static const testcase_t testcases[] = {
                     .info = XMLERR(ERROR, XML, P_EntityDecl),
                     .msg = "Expected string: '>'",
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entity-bad1.xml", 24, 1)
-            ),
             E0(DTD_END,
                     LOC("entity-bad1.xml", 24, 3)
             ),
@@ -6764,9 +6689,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_INTERNAL,
                     .name = TOK("c"),
                     .text = TOK("cc &a; cc"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entity-bad2.xml", 5, 1)
             ),
             E0(DTD_END,
                     LOC("entity-bad2.xml", 5, 3)
@@ -6862,9 +6784,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_INTERNAL,
                     .name = TOK("c"),
                     .text = TOK("cc &a; cc"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entity-bad3.xml", 5, 1)
             ),
             E0(DTD_END,
                     LOC("entity-bad3.xml", 5, 3)
@@ -6982,9 +6901,6 @@ static const testcase_t testcases[] = {
                     .name = TOK("xxx"),
                     .system_id = TOK("zzz"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entity-bad4.xml", 8, 1)
-            ),
             E0(DTD_END,
                     LOC("entity-bad4.xml", 8, 3)
             ),
@@ -7068,9 +6984,6 @@ static const testcase_t testcases[] = {
                     .name = TOK("x4"),
                     .public_id = TOK("zoot"),
                     .system_id = TOK("zhab"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("external-id.xml", 11, 1)
             ),
             E0(DTD_END,
                     LOC("external-id.xml", 11, 3)
@@ -7198,9 +7111,6 @@ static const testcase_t testcases[] = {
                     .name = TOK("x"),
                     .system_id = TOK("entity-bad5-2.xml"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("entity-bad5.xml", 4, 1)
-            ),
             E0(DTD_END,
                     LOC("entity-bad5.xml", 4, 3)
             ),
@@ -7293,9 +7203,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_PE_INTERNAL,
                     .name = TOK("xx"),
             ),
-            E0(DTD_END_INTERNAL,
-                    LOC("pe-w3c.xml", 6, 1)
-            ),
             E0(DTD_END,
                     LOC("pe-w3c.xml", 6, 3)
             ),
@@ -7385,9 +7292,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_INTERNAL,
                     .name = TOK("y"),
                     .text = TOK("<?unterminated pi?"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("unterminated-in-entity.xml", 4, 1)
             ),
             E0(DTD_END,
                     LOC("unterminated-in-entity.xml", 4, 3)
@@ -7965,9 +7869,6 @@ static const testcase_t testcases[] = {
                     .type = XML_READER_REF_PE_INTERNAL,
                     .name = TOK("e3"),
                     .text = TOK("INCLUDE"),
-            ),
-            E0(DTD_END_INTERNAL,
-                    LOC("condsect-eof1.xml", 5, 1)
             ),
             EV(ENTITY_PARSE_START,
                     LOC("condsect-eof1.xml", 6, 2),

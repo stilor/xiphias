@@ -26,7 +26,6 @@ static const enumval_t enumval_cbtype[] = {
     ENUM_VAL(XML_READER_CB_ENTITY_PARSE_END, "Entity parsing end")
     ENUM_VAL(XML_READER_CB_XMLDECL, "XML declaration")
     ENUM_VAL(XML_READER_CB_DTD_BEGIN, "DTD begin")
-    ENUM_VAL(XML_READER_CB_DTD_END_INTERNAL, "DTD end of internal subset")
     ENUM_VAL(XML_READER_CB_DTD_END, "DTD end")
     ENUM_VAL(XML_READER_CB_COMMENT, "Comment")
     ENUM_VAL(XML_READER_CB_PI, "PI")

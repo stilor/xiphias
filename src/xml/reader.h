@@ -51,9 +51,6 @@ enum xml_reader_cbtype_e {
     /// Beginning of the DTD (extra data in .dtd)
     XML_READER_CB_DTD_BEGIN,
 
-    /// End of the internal subset in DTD (no extra data)
-    XML_READER_CB_DTD_END_INTERNAL,
-
     /// End of the DTD (no extra data)
     XML_READER_CB_DTD_END,
 

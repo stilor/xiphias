@@ -24,7 +24,6 @@ void xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam);
 #define FL_ENTITY_PARSE_END   entity
 #define FL_XMLDECL            xmldecl
 #define FL_DTD_BEGIN          dtd
-#define FL_DTD_END_INTERNAL   __no_extra_data
 #define FL_DTD_END            __no_extra_data
 #define FL_COMMENT            comment
 #define FL_PI                 pi

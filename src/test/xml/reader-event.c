@@ -454,7 +454,6 @@ static const event_t events[] = {
     X(ENTITY_PARSE_END)
     X(XMLDECL)
     X(DTD_BEGIN)
-    X(DTD_END_INTERNAL)
     X(DTD_END)
     X(COMMENT)
     X(PI)

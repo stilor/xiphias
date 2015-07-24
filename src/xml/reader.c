@@ -4759,13 +4759,7 @@ xml_parse_dtd_end(xml_reader_t *h)
 static prodres_t
 xml_end_internal_subset(xml_reader_t *h)
 {
-    xml_reader_cbparam_t cbp;
-
-    /// @todo add matching START_INTERNAL event?
     xml_read_string_assert(h, "]");
-    xml_reader_callback_init(h, XML_READER_CB_DTD_END_INTERNAL, &cbp);
-    xml_reader_callback_invoke(h, &cbp);
-
     h->ctx = &parser_document_entity;
     return xml_parse_dtd_end(h);
 }
