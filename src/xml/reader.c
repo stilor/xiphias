@@ -2712,12 +2712,7 @@ entity_end(xml_reader_t *h, void *arg)
     xml_reader_entity_t *e = arg;
     xml_reader_cbparam_t cbp;
 
-    // OOPS_ASSERT(e->being_parsed);
-    // TBD temp hack - called once from invoke_loader and once from external_entity_end
-    // Need to use ex->aborted to skip the other call? Or remove the input without completion
-    // notification call? In any case, easier to do once add_parsed_entity is moved into
-    // invoke_loader and merged with entity_include.
-    if (!e->being_parsed) { return; }
+    OOPS_ASSERT(e->being_parsed);
     xml_reader_callback_init(h, XML_READER_CB_ENTITY_PARSE_END, &cbp);
     cbp.loc = e->included;
     cbp.entity.type = e->type;
