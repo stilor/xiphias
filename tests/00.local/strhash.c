@@ -62,14 +62,14 @@ test_hash(void)
     }
 
     memset(objects, 0, sizeof(objects));
-    strhash_set(hash, U"obj4", 4, &objects[7]);
+    strhash_set(hash, U "obj4", 4, &objects[7]);
     expected_ptr[4] = &objects[7];
     expected_val[4] = 1;
     if (!check_expected(hash, "4 <- 7")) {
         return FAIL;
     }
 
-    strhash_set(hash, U"obj9", 4, NULL);
+    strhash_set(hash, U "obj9", 4, NULL);
     expected_ptr[9] = NULL;
     expected_val[9] = 1;
     if (!check_expected(hash, "9 <- NULL")) {

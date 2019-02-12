@@ -1342,11 +1342,11 @@ xml_unknown_entity_destroy(void *arg)
     and with upper/lower case in hex character reference.
 */
 static const xml_predefined_entity_t predefined_entities[] = {
-    { .name = U"lt",    .namelen = 2, .rplc = { "&#60;",  "&#x3C;",   "&#x3c;",   NULL,       }, },
-    { .name = U"gt",    .namelen = 2, .rplc = { ">",      "&#62;",    "&#x3E;",   "&#x3e;",   }, },
-    { .name = U"amp",   .namelen = 3, .rplc = { "&#38;",  "&#x26;",   NULL,       NULL,       }, },
-    { .name = U"apos",  .namelen = 4, .rplc = { "'",      "&#39;",    "&#x27;",   NULL,       }, },
-    { .name = U"quot",  .namelen = 4, .rplc = { "\"",     "&#34;",    "&#x22;",   NULL,       }, },
+    { .name = U "lt",    .namelen = 2, .rplc = { "&#60;",  "&#x3C;",   "&#x3c;",   NULL,       }, },
+    { .name = U "gt",    .namelen = 2, .rplc = { ">",      "&#62;",    "&#x3E;",   "&#x3e;",   }, },
+    { .name = U "amp",   .namelen = 3, .rplc = { "&#38;",  "&#x26;",   NULL,       NULL,       }, },
+    { .name = U "apos",  .namelen = 4, .rplc = { "'",      "&#39;",    "&#x27;",   NULL,       }, },
+    { .name = U "quot",  .namelen = 4, .rplc = { "\"",     "&#34;",    "&#x22;",   NULL,       }, },
 };
 
 /**
