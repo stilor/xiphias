@@ -195,6 +195,9 @@ main(int argc, char *argv[])
     xml_reader_set_loader(reader, xml_loader_file, &file_loader_opts);
     xml_reader_set_document_entity(reader, NULL, inputfile);
 
+    // TBD this currently disables loading the main document, too. It should
+    // instead disable the loading of the entities referenced from the main
+    // document.
     if (!load_ent) {
         xml_reader_set_loader(reader, xml_loader_noload, NULL);
     }

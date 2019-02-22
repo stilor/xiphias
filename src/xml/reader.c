@@ -484,9 +484,9 @@ xml_is_whitespace(ucs4_t cp)
 static bool
 xml_is_NameStartChar(ucs4_t cp)
 {
-    /// @todo Replace the check in the BMP with a bitmap? Or have a full map, for all UCS-4
-    /// code points, with properties like NameStart, Name, block, etc (will need them for XML
-    /// regexp extensions later).
+    /// @todo Replace the check in the BMP with a bitmap or a pagetable-like structure?
+    /// Or have a full map, for all UCS-4 code points, with properties like NameStart,
+    /// Name, block, etc (will need them for XML regexp extensions later).
     return ucs4_chin(cp, 'A', 'Z')
             || ucs4_chin(cp, 'a', 'z')
             || ucs4_cheq(cp, '_')
@@ -511,10 +511,24 @@ xml_is_NameStartChar(ucs4_t cp)
 static bool
 xml_is_NameChar(ucs4_t cp)
 {
-    return xml_is_NameStartChar(cp)
+    // Not using xml_is_NameStartChar to check for the most common case
+    // (ASCII) first.
+    return ucs4_chin(cp, 'A', 'Z')
+            || ucs4_chin(cp, 'a', 'z')
+            || ucs4_cheq(cp, '_')
+            || ucs4_cheq(cp, ':')
             || ucs4_cheq(cp, '-')
             || ucs4_cheq(cp, '.')
             || ucs4_chin(cp, '0', '9')
+            || (cp >= 0xC0 && cp <= 0x2FF && cp != 0xD7 && cp != 0xF7)
+            || (cp >= 0x370 && cp <= 0x1FFF && cp != 0x37E)
+            || (cp >= 0x200C && cp <= 0x200D)
+            || (cp >= 0x2070 && cp <= 0x218F)
+            || (cp >= 0x2C00 && cp <= 0x2FEF)
+            || (cp >= 0x3001 && cp <= 0xD7FF)
+            || (cp >= 0xF900 && cp <= 0xFDCF)
+            || (cp >= 0xFDF0 && cp <= 0xFFFD)
+            || (cp >= 0x10000 && cp <= 0xEFFFF)
             || cp == 0xB7
             || (cp >= 0x0300 && cp <= 0x36F)
             || cp == 0x203F
@@ -4750,7 +4764,6 @@ xml_parse_dtd_end(xml_reader_t *h)
 
 /**
     Trivial parser: exit from internal subset context when closing bracket is seen.
-    Note that it
 
     @param h Reader handle
     @return Always PR_OK (this function is only called if lookahead confirmed next
