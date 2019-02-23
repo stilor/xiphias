@@ -17,6 +17,7 @@ typedef struct strstore_s strstore_t;
 strstore_t *strstore_create(unsigned int order);
 void strstore_destroy(strstore_t *store);
 const utf8_t *strstore_ndup(strstore_t *store, const utf8_t *s, size_t len);
+bool strstore_isempty(strstore_t *store);
 void strstore_free(strstore_t *store, const utf8_t *s);
 
 #endif

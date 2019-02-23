@@ -91,9 +91,15 @@ strstore_destroy(strstore_t *store)
 const utf8_t *
 strstore_ndup(strstore_t *store, const utf8_t *s, size_t len)
 {
-    uint32_t hval = murmurhash32(s, len);
-    bucket_t *bucket = &store->buckets[hval & store->bucket_mask];
+    uint32_t hval;
+    bucket_t *bucket;
     item_t *item;
+
+    if (!s) {
+        return NULL;
+    }
+    hval = murmurhash32(s, len);
+    bucket = &store->buckets[hval & store->bucket_mask];
 
     // Search if the string is already in store
     SLIST_FOREACH(item, bucket, link) {
@@ -116,6 +122,27 @@ strstore_ndup(strstore_t *store, const utf8_t *s, size_t len)
 }
 
 /**
+    Check if the string storage is empty.
+
+    @param store Store to check
+    @return true if empty, false otherwise.
+*/
+bool
+strstore_isempty(strstore_t *store)
+{
+    bucket_t *bucket;
+    uint32_t i;
+
+    for (i = 0; i <= store->bucket_mask; i++) {
+        bucket = &store->buckets[i];
+        if (!SLIST_EMPTY(bucket)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
     Release a reference to a stored string. If it was the last reference,
     remove the string from the storage.
 
@@ -127,10 +154,17 @@ strstore_ndup(strstore_t *store, const utf8_t *s, size_t len)
 void
 strstore_free(strstore_t *store, const utf8_t *s)
 {
-    size_t len = strlen((const char *)s); // Secret knowledge: NUL terminates string in UTF8, too
-    uint32_t hval = murmurhash32(s, len);
-    bucket_t *bucket = &store->buckets[hval & store->bucket_mask];
+    size_t len;
+    uint32_t hval;
+    bucket_t *bucket;
     item_t *prev, *item;
+
+    if (!s) {
+        return;
+    }
+    len = strlen((const char *)s); // Secret knowledge: NUL terminates string in UTF8, too
+    hval = murmurhash32(s, len);
+    bucket = &store->buckets[hval & store->bucket_mask];
 
     // Search if the string is already in store
     prev = NULL;
