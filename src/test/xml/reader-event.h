@@ -46,7 +46,7 @@ void xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam);
 #define NOLOC           .loc = { .src = NULL, .line = 0, .pos = 0, }
 
 /// Initializer for a token string
-#define TOK(s)          { .str = U s, .len = sizeof(s) - 1 }
+#define TOK(s)          { .str = U(s), .len = sizeof(s) - 1 }
 
 /// Initializer for absense of token string
 #define NOTOK           { .str = NULL, .len = 0 }

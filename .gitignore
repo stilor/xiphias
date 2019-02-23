@@ -3,3 +3,4 @@ src/unicode/encoding-codepages.c
 src/unicode/ucs4data.c
 
 cscope.*
+*.swp

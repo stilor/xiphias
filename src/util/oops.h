@@ -13,7 +13,7 @@
 
 #define OOPS_ASSERT(c) do { \
     if (!(c)) { \
-        fprintf(stderr, "OOPS [%s] at %s:%d\n", #c, __FILE__, __LINE__); \
+        fprintf(stderr, "OOPS assertion failed [%s] at %s:%d\n", #c, __FILE__, __LINE__); \
         abort(); \
     } \
 } while (0)
