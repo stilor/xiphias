@@ -20,7 +20,7 @@ typedef struct item_s {
     size_t len;                 ///< Length of the string
     uint32_t hval;              ///< Hash value of the string
     uint32_t refcnt;            ///< Reference count
-    char str[];                 ///< Actual string
+    utf8_t str[];               ///< Actual string
 } item_t;
 
 /// Bucket in a storage
@@ -88,8 +88,8 @@ strstore_destroy(strstore_t *store)
     @param len Length of the duplicated string
     @return Stored copy of the string. Always NUL terminated at @a len.
 */
-const char *
-strstore_ndup(strstore_t *store, const char *s, size_t len)
+const utf8_t *
+strstore_ndup(strstore_t *store, const utf8_t *s, size_t len)
 {
     uint32_t hval = murmurhash32(s, len);
     bucket_t *bucket = &store->buckets[hval & store->bucket_mask];
@@ -125,9 +125,9 @@ strstore_ndup(strstore_t *store, const char *s, size_t len)
     @return Nothing.
 */
 void
-strstore_free(strstore_t *store, const char *s)
+strstore_free(strstore_t *store, const utf8_t *s)
 {
-    size_t len = strlen(s);
+    size_t len = strlen((const char *)s); // Secret knowledge: NUL terminates string in UTF8, too
     uint32_t hval = murmurhash32(s, len);
     bucket_t *bucket = &store->buckets[hval & store->bucket_mask];
     item_t *prev, *item;
