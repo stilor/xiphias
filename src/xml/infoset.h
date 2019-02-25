@@ -66,6 +66,9 @@ enum xml_ii_attr_type_e {
 // Forward declaration
 typedef struct xml_ii_s xml_ii_t;
 
+// Opaque type for infoset manipulation
+typedef struct xml_infoset_ctx_s xml_infoset_ctx_t;
+
 /// Head of the information items list: single-linked, with tail pointer
 typedef STAILQ_HEAD(xml_ii_list_s, xml_ii_s) xml_ii_list_t;
 
@@ -76,8 +79,11 @@ typedef STAILQ_HEAD(xml_ii_list_s, xml_ii_s) xml_ii_list_t;
     in each child).
 */
 typedef struct xml_ii_array_s {
-    size_t num;         ///< Number of references in the array
-    xml_ii_t **refs;    ///< References to the information items
+    size_t num;                     ///< Number of references in the array
+    union {
+        xml_ii_t **array;           ///< References to the information items
+        xml_ii_t *single;           ///< Single reference to the information item
+    } refs;
 } xml_ii_array_t;
 
 /**
@@ -89,8 +95,8 @@ typedef struct xml_ii_array_s {
     enum xml_ii_type_e type;        /**< Type of the II */ \
     uint32_t refcnt;                /**< References from other IIs */ \
     STAILQ_ENTRY(xml_ii_s) link;    /**< Link for 'children' list */ \
-    xmlerr_loc_t loc                /**< Location of the definition */ 
-
+    xmlerr_loc_t loc;               /**< Location of the definition */ \
+    xml_infoset_ctx_t *ctx          /**< Context from which this item was allocated */
 
 
 /// Document information item (section 2.1)
@@ -171,10 +177,13 @@ typedef struct xml_ii_attribute_s {
     const utf8_t *prefix;
 
     /// Normalized attribute value
-    const char *value;
+    const utf8_t *value;
 
     /// A flag indicating whether this attribute was actually specified in the start-tag of its element
     bool specified;
+
+    /// A flag indicating whether this attribute is a namespace attribute
+    bool is_ns_attribute;
 
     /// An indication of the type declared for this attribute in the DTD
     enum xml_ii_attr_type_e attrtype;
@@ -182,8 +191,9 @@ typedef struct xml_ii_attribute_s {
     /// Number of references in the array
     uint32_t num_references;
 
-    /// Array of references
-    xml_ii_t **references;
+    /// Ordered list of the element, unparsed entity, or notation IIs referred to in the attribute value
+    // TBD similarly to single-item references, "array_no_value" and "array_unknown"?
+    xml_ii_array_t references;
 
     /// Owner element
     xml_ii_t *owner;
@@ -327,6 +337,36 @@ typedef struct xml_ii_s {
     XML_II__COMMON_MEMBERS;
 } xml_ii_t;
 
+// Special "poisoned" IIs for references
+extern xml_ii_t xml_ii_unknown;
+extern xml_ii_t xml_ii_no_value;
+
+/// Binary flags for infoset context
+enum {
+    /**
+        Do not use deduplicating storage for attribute values. Attributes usually have
+        a limited set of used values, so de-duplicating them would result in memory
+        use savings. However, if the document has unusually unique attribute values,
+        using strings directly may offer a performance benefit.
+    */
+    XML_INFOSET_CTX_F_NO_STORE_ATTR_VALUE  = 1 << 0,
+
+    /** Do not use deduplicating storage for PI content. */
+    XML_INFOSET_CTX_F_NO_STORE_PI_CONTENT  = 1 << 1,
+};
+
+/// Options for creating an infoset context
+typedef struct xml_infoset_ctx_attr_s {
+    unsigned int strstore_order;    ///< Log2 of number of buckets in string storage
+    uint32_t flags;                 ///< Binary flags
+} xml_infoset_ctx_attr_t;
+
+xml_infoset_ctx_t *xml_infoset_ctx_new(const xml_infoset_ctx_attr_t *attr);
+void xml_infoset_ctx_delete(xml_infoset_ctx_t *ic);
+ 
+xml_ii_t *xml_ii__new(xml_infoset_ctx_t *ic, enum xml_ii_type_e type);
+void xml_ii__delete(xml_ii_t *ii);
+
 /// Mapping between the types and the structures; applies 'something' to every pair
 #define XML_II__FOREACH_TYPE(something) \
         something(DOCUMENT, document) \
@@ -341,6 +381,29 @@ typedef struct xml_ii_s {
         something(NOTATION, notation) \
         something(NAMESPACE, namespace)
 
+// TBD implement this actual check using __builtin_types_compatible
+#define XML_II__PTR_TYPECHECK(ii)       true
+
+/// Create a reference to the information item.
+#define xml_ii_ref(ptr, ii) \
+        do { \
+            OOPS_ASSERT(XML_II__PTR_TYPECHECK(ii)); \
+            OOPS_ASSERT(*(ptr) == NULL); \
+            (ii)->refcnt++; \
+        } while (0)
+
+/// Drop a reference to the information item. Reference can be NULL, in which case this has no effect.
+#define xml_ii_unref(ptr) \
+        do { \
+            OOPS_ASSERT(XML_II__PTR_TYPECHECK(ii)); \
+            if (*(ptr) != NULL) {\
+                if (--((*(ptr))->refcnt) == 0) { \
+                    xml_ii__delete((xml_ii_t *)(*(ptr))); \
+                } \
+                (*ptr) = NULL; \
+            } \
+        } while (0)
+
 /// Define an accessor function that verifies the type and returns a typecasted pointer
 #define XML_II__DEFINE_TYPECAST(t, s) \
         static inline xml_ii_##s##_t * \
@@ -353,18 +416,58 @@ typedef struct xml_ii_s {
 XML_II__FOREACH_TYPE(XML_II__DEFINE_TYPECAST)
 #undef XML_II__DEFINE_TYPECAST
 
-// Special "poisoned" IIs for references
-extern xml_ii_t xml_ii_unknown;
-extern xml_ii_t xml_ii_no_value;
+/// Allocate a new item of the specified type
+#define XML_II__DEFINE_ALLOC(t, s) \
+        static inline xml_ii_##s##_t * \
+        xml_ii_new_##s(xml_infoset_ctx_t *ic) \
+        { \
+            return (xml_ii_##s##_t *)xml_ii__new(ic, XML_II_TYPE_##t); \
+        }
 
-// Opaque type for infoset manipulation
-typedef struct xml_infoset_ctx_s xml_infoset_ctx_t;
+XML_II__FOREACH_TYPE(XML_II__DEFINE_ALLOC)
+#undef XML_II__DEFINE_ALLOC
 
-xml_infoset_ctx_t *xml_infoset_ctx_new(void);
-void xml_infoset_ctx_delete(xml_infoset_ctx_t *ic);
- 
-// TBD make xml_ii_new internal interface; expose xml_ii_new_{document,element,...} with appropriate extra args
-xml_ii_t *xml_ii_new(xml_infoset_ctx_t *ic, enum xml_ii_type_e type);
-void xml_ii_delete(xml_infoset_ctx_t *ic, xml_ii_t *ii);
+/**
+    List of members with UTF-8 strings. Flag is the infoset context's flag member,
+    if condition evaluates to true - do not use deduplicating string storage.
+*/
+#define XML_II__FOREACH_STRSTORE_MEMBER(something, flag) \
+        something(document, base_uri, false) \
+        something(document, encoding, false) \
+        something(element, ns_name, false) \
+        something(element, local_name, false) \
+        something(element, prefix, false) \
+        something(element, base_uri, false) \
+        something(attribute, ns_name, false) \
+        something(attribute, local_name, false) \
+        something(attribute, prefix, false) \
+        something(attribute, value, ((flag) & XML_INFOSET_CTX_F_NO_STORE_ATTR_VALUE)) \
+        something(pi, target, false) \
+        something(pi, content, ((flag) & XML_INFOSET_CTX_F_NO_STORE_PI_CONTENT)) \
+        something(pi, base_uri, false) \
+        something(unexpanded_entity, name, false) \
+        something(unexpanded_entity, sysid, false) \
+        something(unexpanded_entity, pubid, false) \
+        something(unexpanded_entity, decl_base_uri, false) \
+        something(text, content, true) \
+        something(comment, content, true) \
+        something(dtd, sysid, false) \
+        something(dtd, pubid, false) \
+        something(unparsed_entity, sysid, false) \
+        something(unparsed_entity, pubid, false) \
+        something(unparsed_entity, decl_base_uri, false) \
+        something(notation, name, false) \
+        something(notation, sysid, false) \
+        something(notation, pubid, false) \
+        something(notation, decl_base_uri, false) \
+        something(namespace, prefix, false) \
+        something(namespace, ns_name, false)
+
+/// Declare prototypes for the member-setting functions
+#define XML_II__DECLARE_SETTER(s, m, c) \
+        void xml_ii_##s##_set_##m(xml_ii_##s##_t *ii, const utf8_t *new_value);
+
+XML_II__FOREACH_STRSTORE_MEMBER(XML_II__DECLARE_SETTER, dummy)
+#undef XML_II__DECLARE_SETTER
 
 #endif

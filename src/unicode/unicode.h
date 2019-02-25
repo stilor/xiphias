@@ -161,7 +161,7 @@ utf8_load(const utf8_t **pp)
     @return true if strings match, false otherwise
 */
 static inline bool
-utf8_eq(const utf8_t *us, const char *ls)
+utf8_s_eq(const utf8_t *us, const char *ls)
 {
     return !strcmp((const char *)us, ls);
 }
@@ -175,7 +175,7 @@ utf8_eq(const utf8_t *us, const char *ls)
     @return true if strings match, false otherwise
 */
 static inline bool
-utf8_eqn(const utf8_t *us, const char *ls, size_t n)
+utf8_s_eqn(const utf8_t *us, const char *ls, size_t n)
 {
     return !strncmp((const char *)us, ls, n);
 }
@@ -189,9 +189,21 @@ utf8_eqn(const utf8_t *us, const char *ls, size_t n)
     @return Copied string in local encoding
 */
 static inline char *
-utf8_ndup(const utf8_t *us, size_t sz)
+utf8_s_ndup(const utf8_t *us, size_t sz)
 {
     return xstrndup((const char *)us, sz);
+}
+
+/**
+    Duplicate a UTF-8 string.
+
+    @param us Unicode string
+    @return Copied string in local encoding
+*/
+static inline utf8_t *
+utf8_dup(const utf8_t *us)
+{
+    return (utf8_t *)xstrdup((const char *)us);
 }
 
 /**

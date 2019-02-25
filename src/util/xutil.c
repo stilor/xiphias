@@ -135,6 +135,7 @@ xvasprintf(const char *fmt, va_list ap)
         buf = xrealloc(buf, alloc);
         (void)vsnprintf(buf, alloc, fmt, ap0);
     }
+    va_end(ap0);
     return buf;
 }
 

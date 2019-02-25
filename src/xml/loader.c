@@ -41,7 +41,7 @@ xml_loader_info_set_public_id(xml_loader_info_t *loader_info,
         const utf8_t *id, size_t len)
 {
     xfree(loader_info->public_id);
-    loader_info->public_id = utf8_ndup(id, len);
+    loader_info->public_id = utf8_s_ndup(id, len);
 }
 
 /**
@@ -57,7 +57,7 @@ xml_loader_info_set_system_id(xml_loader_info_t *loader_info,
         const utf8_t *id, size_t len)
 {
     xfree(loader_info->system_id);
-    loader_info->system_id = utf8_ndup(id, len);
+    loader_info->system_id = utf8_s_ndup(id, len);
 }
 
 /**

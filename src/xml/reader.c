@@ -3394,16 +3394,16 @@ check_VersionInfo(xml_reader_t *h)
     size_t i;
 
     if (sz == 3) {
-        if (utf8_eqn(str, "1.0", 3)) {
+        if (utf8_s_eqn(str, "1.0", 3)) {
             ex->version = XML_INFO_VERSION_1_0;
             return;
         }
-        else if (utf8_eqn(str, "1.1", 3)) {
+        else if (utf8_s_eqn(str, "1.1", 3)) {
             ex->version = XML_INFO_VERSION_1_1;
             return;
         }
     }
-    if (sz < 3 || !utf8_eqn(str, "1.", 2)) {
+    if (sz < 3 || !utf8_s_eqn(str, "1.", 2)) {
         goto bad_version;
     }
     for (i = 2, str += 2; i < sz; i++, str++) {
@@ -3468,7 +3468,7 @@ check_EncName(xml_reader_t *h)
         }
     }
 
-    ex->enc_declared = utf8_ndup(str, sz);
+    ex->enc_declared = utf8_s_ndup(str, sz);
     return; // Normal return
 
 bad_encoding:
@@ -3497,10 +3497,10 @@ check_SD_YesNo(xml_reader_t *h)
 
     // Standalone status applies to the whole document and can only be set
     // in XMLDecl (i.e., in document entity).
-    if (sz == 2 && utf8_eqn(str, "no", 2)) {
+    if (sz == 2 && utf8_s_eqn(str, "no", 2)) {
         h->standalone = XML_INFO_STANDALONE_NO;
     }
-    else if (sz == 3 && utf8_eqn(str, "yes", 3)) {
+    else if (sz == 3 && utf8_s_eqn(str, "yes", 3)) {
         h->standalone = XML_INFO_STANDALONE_YES;
     }
     else {
@@ -3638,7 +3638,7 @@ xml_parse_decl_attr(xml_reader_t *h)
     name = h->tokenbuf.start + h->svtk.name.offset;
     for (attr = h->declattr; attr->name; attr++) {
         if (h->svtk.name.len == strlen(attr->name)
-                && utf8_eqn(name, attr->name, h->svtk.name.len)) {
+                && utf8_s_eqn(name, attr->name, h->svtk.name.len)) {
             break; // Yes, that is what we expect
         }
         if (attr->mandatory) {

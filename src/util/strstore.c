@@ -122,6 +122,19 @@ strstore_ndup(strstore_t *store, const utf8_t *s, size_t len)
 }
 
 /**
+    Find if a NUL-terminated string is in the storage and if not, store it.
+
+    @param store Store to use
+    @param s String to duplicate
+    @return Stored copy of the string.
+*/
+const utf8_t *
+strstore_dup(strstore_t *store, const utf8_t *s)
+{
+    return strstore_ndup(store, s, utf8_len(s));
+}
+
+/**
     Check if the string storage is empty.
 
     @param store Store to check
