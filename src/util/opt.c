@@ -183,6 +183,27 @@ handler_string(struct opt_parse_state_s *st)
 }
 
 /**
+    Set a string option, UTF-8 encoding.
+
+    @param st Option parsing state
+    @return Nothing
+*/
+static void
+handler_utf8(struct opt_parse_state_s *st)
+{
+    struct opt_arg_UTF8_s *data = st->current->optarg;
+
+    if (*st->argv == NULL) {
+        // This should never happen for arguments - this function wouldn't be
+        // called if we ran out of arguments.
+        OOPS_ASSERT(!is_arg(st->current));
+        opt_usage(st, "Option --%s requires an argument", st->current->optlong);
+    }
+    *data->pstr = U(*st->argv);
+    st->argv++;
+}
+
+/**
     Callback function handling an option.
 
     @param st Option parsing state
@@ -202,6 +223,7 @@ static const opt_handler_t handlers[OPT_TYPE_MAX] = {
     [OPT_TYPE_BOOL] = handler_bool,
     [OPT_TYPE_COUNTER] = handler_counter,
     [OPT_TYPE_STRING] = handler_string,
+    [OPT_TYPE_UTF8] = handler_utf8,
     [OPT_TYPE_FUNC] = handler_func,
 };
 

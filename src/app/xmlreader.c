@@ -79,7 +79,7 @@ static const opt_t options[] = {
         OPT_KEY('t', "transport-encoding"),
         OPT_HELP( "ENCODING", "Specify encoding reported from transport layer"),
         OPT_CNT_OPTIONAL,
-        OPT_TYPE(STRING, &file_loader_opts.transport_encoding),
+        OPT_TYPE(UTF8, &file_loader_opts.transport_encoding),
     },
     {
         OPT_KEY('e', "load-external-entities"),
@@ -193,7 +193,7 @@ main(int argc, char *argv[])
 
     xml_reader_set_callback(reader, cb, &cb_arg);
     xml_reader_set_loader(reader, xml_loader_file, &file_loader_opts);
-    xml_reader_set_document_entity(reader, NULL, inputfile);
+    xml_reader_set_document_entity(reader, NULL, U(inputfile));
 
     // TBD this currently disables loading the main document, too. It should
     // instead disable the loading of the entities referenced from the main

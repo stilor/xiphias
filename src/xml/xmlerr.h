@@ -9,10 +9,11 @@
 #define __xml_xmlerr_h_
 
 #include <stdint.h>
+#include "unicode/unicode.h"
 
 /// Description of the error location
 typedef struct {
-    const char *src;     ///< Input source (URL/file/whatever)
+    const utf8_t *src;   ///< Input source (URL/file/whatever)
     uint32_t line;       ///< Line to which the message pertains
     uint32_t pos;        ///< Position in the line to which the message pertains
 } xmlerr_loc_t;

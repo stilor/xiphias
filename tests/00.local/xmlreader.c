@@ -201,7 +201,7 @@ run_testcase(const void *arg, const testcase_opts_t *o)
     file_loader_opts.searchpaths = search_paths;
     file_loader_opts.subst_func = sbuf_subst;
     file_loader_opts.subst_arg = DECONST(tc); // sbuf_subst will cast it back to const
-    file_loader_opts.transport_encoding = tc->transport_encoding;
+    file_loader_opts.transport_encoding = U(tc->transport_encoding);
 
     // Run the test
     printf("XML reader events:\n");
@@ -228,7 +228,7 @@ run_testcase(const void *arg, const testcase_opts_t *o)
         tc->setup(reader);
     }
 
-    xml_reader_set_document_entity(reader, NULL, tc->input);
+    xml_reader_set_document_entity(reader, NULL, U(tc->input));
     do {
         xml_reader_run(reader); // Emits the events
     } while (o->action_endrun && o->action_endrun(o->action_arg, reader));

@@ -2,7 +2,10 @@
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
 /** @file
-    Unicode functions
+    Unicode functions. Some of these functions assume that the UTF-8 representation
+    is compatible with the local 'char' representation. If porting to a platform
+    where this assumption doesn't hold, need to provide alternative implementation
+    of the 'U' macro and the family of 'utf8_*' functions.
 */
 #ifndef __unicode_unicode_h_
 #define __unicode_unicode_h_
@@ -47,6 +50,7 @@ typedef uint8_t utf8_t;
 
 #define U(x) ((const utf8_t *)(x))
 #define U_ARRAY(x) (x)
+#define S(x) ((const char *)(x))
 
 /**
     Helper function for implementing decoders: get UTF-8 encoding
@@ -153,6 +157,7 @@ utf8_load(const utf8_t **pp)
     return rv;
 }
 
+// TBD get rid of the mixed char-and-utf8 functions
 /**
     Compare a UTF-8 string to a local-encoded string.
 
@@ -191,14 +196,57 @@ utf8_s_eqn(const utf8_t *us, const char *ls, size_t n)
 static inline char *
 utf8_s_ndup(const utf8_t *us, size_t sz)
 {
+    // TBD used?
     return xstrndup((const char *)us, sz);
+}
+
+/**
+    Compare two UTF-8 strings.
+
+    @param us1 First UTF-8 string
+    @param us2 Second UTF-8 string
+    @return -1 if the first string compares less, 0 if the strings compare equal,
+        1 otherwise
+*/
+static inline int
+utf8_cmp(const utf8_t *us1, const utf8_t *us2)
+{
+    return strcmp((const char *)us1, (const char *)us2);
+}
+
+/**
+    Compare two UTF-8 strings, case-insensitive.
+
+    @param us1 First UTF-8 string
+    @param us2 Second UTF-8 string
+    @return -1 if the first string compares less, 0 if the strings compare equal,
+        1 otherwise
+*/
+static inline int
+utf8_casecmp(const utf8_t *us1, const utf8_t *us2)
+{
+    return strcasecmp((const char *)us1, (const char *)us2);
+}
+
+/**
+    Duplicate a whole, or a portion of, UTF-8 string.
+
+    @param us Unicode string
+    @param sz Size of the unicode string, in bytes
+    @return Copied string in
+*/
+static inline utf8_t *
+utf8_ndup(const utf8_t *us, size_t sz)
+{
+    // TBD used?
+    return (utf8_t *)xstrndup((const char *)us, sz);
 }
 
 /**
     Duplicate a UTF-8 string.
 
     @param us Unicode string
-    @return Copied string in local encoding
+    @return Copied string
 */
 static inline utf8_t *
 utf8_dup(const utf8_t *us)

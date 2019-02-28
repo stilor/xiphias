@@ -115,6 +115,19 @@ str_null_or_equal(const char *s1, const char *s2)
     return (!s1 && !s2) || (s1 && s2 && !strcmp(s1, s2));
 }
 
+/**
+    Test helper function: test if two UTF-8 strings are either both NULL, or equal.
+
+    @param us1 First string
+    @param us2 Seconds string
+    @return true if equal or both NULLs, false otherwise
+*/
+static inline bool
+utf8_null_or_equal(const utf8_t *us1, const utf8_t *us2)
+{
+    return (!us1 && !us2) || (us1 && us2 && !utf8_cmp(us1, us2));
+}
+
 // Other test framework
 strbuf_t *test_strbuf_subst(strbuf_t *input, utf8_t esc, size_t sz);
 

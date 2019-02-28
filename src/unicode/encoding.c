@@ -38,14 +38,14 @@ struct encoding_handle_s {
     @return Encoding pointer, or NULL if not found
 */
 const encoding_t *
-encoding_search(const char *name, enum encoding_endian_e endian)
+encoding_search(const utf8_t *name, enum encoding_endian_e endian)
 {
     const encoding_link_t *lnk;
     const encoding_t *best = NULL;
 
     STAILQ_FOREACH(lnk, &encodings, link) {
         // "XML processors SHOULD match character encoding names in a case-insensitive way"
-        if (strcasecmp(name, lnk->enc->name)) {
+        if (utf8_casecmp(name, lnk->enc->name)) {
             continue;
         }
         if (endian == lnk->enc->endian) { // Exact match in endianness
@@ -567,7 +567,7 @@ static const encoding_sig_t sig_UTF8[] = {
 };
 
 static const encoding_t enc_UTF8 = {
-    .name = "UTF-8",
+    .name = U("UTF-8"),
     .form = ENCODING_FORM_UTF8,
     .baton_sz = sizeof(baton_utf8_t),
     .sigs = sig_UTF8,
@@ -750,7 +750,7 @@ static const encoding_sig_t sig_UTF16LE[] = {
 };
 
 static const encoding_t enc_UTF16LE = {
-    .name = "UTF-16LE",
+    .name = U("UTF-16LE"),
     .form = ENCODING_FORM_UTF16,
     .endian = ENCODING_E_LE,
     .baton_sz = sizeof(baton_utf16_t),
@@ -765,7 +765,7 @@ static const encoding_sig_t sig_UTF16__LE[] = {
     ENCODING_SIG(true,  0xFF, 0xFE), // BOM
 };
 static const encoding_t enc_UTF16__LE = {
-    .name = "UTF-16", // UTF-16 in little-endian order
+    .name = U("UTF-16"), // UTF-16 in little-endian order
     .form = ENCODING_FORM_UTF16,
     .endian = ENCODING_E_LE,
     .baton_sz = sizeof(baton_utf16_t),
@@ -808,7 +808,7 @@ static const encoding_sig_t sig_UTF16BE[] = {
 };
 
 static const encoding_t enc_UTF16BE = {
-    .name = "UTF-16BE",
+    .name = U("UTF-16BE"),
     .form = ENCODING_FORM_UTF16,
     .endian = ENCODING_E_BE,
     .baton_sz = sizeof(baton_utf16_t),
@@ -823,7 +823,7 @@ static const encoding_sig_t sig_UTF16__BE[] = {
     ENCODING_SIG(true,  0xFE, 0xFF), // BOM
 };
 static const encoding_t enc_UTF16__BE = {
-    .name = "UTF-16", // UTF-16 in big-endian order
+    .name = U("UTF-16"), // UTF-16 in big-endian order
     .form = ENCODING_FORM_UTF16,
     .endian = ENCODING_E_BE,
     .baton_sz = sizeof(baton_utf16_t),
@@ -953,7 +953,7 @@ static const encoding_sig_t sig_UTF32LE[] = {
     ENCODING_SIG(false, 0x20, 0x00, 0x00, 0x00), // Space
 };
 static const encoding_t enc_UTF32LE = {
-    .name = "UTF-32LE",
+    .name = U("UTF-32LE"),
     .form = ENCODING_FORM_UTF32,
     .endian = ENCODING_E_LE,
     .baton_sz = sizeof(baton_utf32_t),
@@ -968,7 +968,7 @@ static const encoding_sig_t sig_UTF32__LE[] = {
     ENCODING_SIG(true,  0xFF, 0xFE, 0x00, 0x00), // BOM
 };
 static const encoding_t enc_UTF32__LE = {
-    .name = "UTF-32", // UTF-32 in little-endian order
+    .name = U("UTF-32"), // UTF-32 in little-endian order
     .form = ENCODING_FORM_UTF32,
     .endian = ENCODING_E_LE,
     .baton_sz = sizeof(baton_utf32_t),
@@ -1009,7 +1009,7 @@ static const encoding_sig_t sig_UTF32BE[] = {
     ENCODING_SIG(false, 0x00, 0x00, 0x00, 0x20), // Space
 };
 static const encoding_t enc_UTF32BE = {
-    .name = "UTF-32BE",
+    .name = U("UTF-32BE"),
     .form = ENCODING_FORM_UTF32,
     .endian = ENCODING_E_BE,
     .baton_sz = sizeof(baton_utf32_t),
@@ -1024,7 +1024,7 @@ static const encoding_sig_t sig_UTF32__BE[] = {
     ENCODING_SIG(true,  0x00, 0x00, 0xFE, 0xFF), // BOM
 };
 static const encoding_t enc_UTF32__BE = {
-    .name = "UTF-32", // UTF-32 in big-endian order
+    .name = U("UTF-32"), // UTF-32 in big-endian order
     .form = ENCODING_FORM_UTF32,
     .endian = ENCODING_E_BE,
     .baton_sz = sizeof(baton_utf32_t),
@@ -1065,7 +1065,7 @@ static const encoding_sig_t sig_UTF32_2143[] = {
     ENCODING_SIG(false, 0x00, 0x00, 0x20, 0x00), // Space
 };
 static const encoding_t enc_UTF32_2143 = {
-    .name = "UTF-32-2143",
+    .name = U("UTF-32-2143"),
     .form = ENCODING_FORM_UTF32,
     .endian = ENCODING_E_2143,
     .baton_sz = sizeof(baton_utf32_t),
@@ -1080,7 +1080,7 @@ static const encoding_sig_t sig_UTF32__2143[] = {
     ENCODING_SIG(true,  0x00, 0x00, 0xFF, 0xFE), // BOM
 };
 static const encoding_t enc_UTF32__2143 = {
-    .name = "UTF-32", // UTF-32 in 2143 byte order
+    .name = U("UTF-32"), // UTF-32 in 2143 byte order
     .form = ENCODING_FORM_UTF32,
     .endian = ENCODING_E_2143,
     .baton_sz = sizeof(baton_utf32_t),
@@ -1121,7 +1121,7 @@ static const encoding_sig_t sig_UTF32_3412[] = {
     ENCODING_SIG(false, 0x00, 0x20, 0x00, 0x00), // Space
 };
 static const encoding_t enc_UTF32_3412 = {
-    .name = "UTF-32-3412",
+    .name = U("UTF-32-3412"),
     .form = ENCODING_FORM_UTF32,
     .endian = ENCODING_E_3412,
     .baton_sz = sizeof(baton_utf32_t),
@@ -1136,7 +1136,7 @@ static const encoding_sig_t sig_UTF32__3412[] = {
     ENCODING_SIG(true,  0xFE, 0xFF, 0x00, 0x00), // BOM
 };
 static const encoding_t enc_UTF32__3412 = {
-    .name = "UTF-32", // UTF-32 in 3412 byte order
+    .name = U("UTF-32"), // UTF-32 in 3412 byte order
     .form = ENCODING_FORM_UTF32,
     .endian = ENCODING_E_3412,
     .baton_sz = sizeof(baton_utf32_t),

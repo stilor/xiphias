@@ -40,7 +40,7 @@ void xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam);
 #define END             { .cbtype = XML_READER_CB_NONE, }
 
 /// Initializer for location info
-#define LOC(s,l,p)      .loc = { .src = (s), .line = (l), .pos = (p), }
+#define LOC(s,l,p)      .loc = { .src = U(s), .line = (l), .pos = (p), }
 
 /// No location (e.g. failed to load document entity)
 #define NOLOC           .loc = { .src = NULL, .line = 0, .pos = 0, }

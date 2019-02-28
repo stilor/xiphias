@@ -10,7 +10,7 @@
 #include "test/common/testlib.h"
 
 static const encoding_t enc_fake_UTF8 = {
-    .name = "UTF-8",
+    .name = U("UTF-8"),
 };
 
 static const encoding_sig_t sig_UTF8X[] = {
@@ -25,7 +25,7 @@ in_consumeall(void *baton, const uint8_t *begin, const uint8_t *end,
 }
 
 static const encoding_t enc_UTF8_by_other_name = {
-    .name = "UTF-8X",
+    .name = U("UTF-8X"),
     .sigs = sig_UTF8X,
     .nsigs = sizeofarray(sig_UTF8X),
     .in = in_consumeall, // Must not be meta-encoding
@@ -36,13 +36,13 @@ static const encoding_sig_t sig_META[] = {
 };
 
 static const encoding_t enc_META = {
-    .name = "META",
+    .name = U("META"),
     .sigs = sig_META,
     .nsigs = sizeofarray(sig_META),
 };
 
 static const encoding_t enc_BADSIGS = {
-    .name = "BADSIGS",
+    .name = U("BADSIGS"),
     .sigs = NULL,
     .nsigs = 1,
 };
@@ -55,7 +55,7 @@ in_noadvance(void *baton, const uint8_t *begin, const uint8_t *end,
 }
 
 static const encoding_t enc_NOADVANCE = {
-    .name = "NOADVANCE",
+    .name = U("NOADVANCE"),
     .in = in_noadvance,
 };
 ENCODING_REGISTER(enc_NOADVANCE);
@@ -105,7 +105,7 @@ run_tc_api(void)
     {
         const encoding_t *e;
 
-        if ((e = encoding_search("BAD_ENCODING_NAME", ENCODING_E_ANY)) != NULL) {
+        if ((e = encoding_search(U("BAD_ENCODING_NAME"), ENCODING_E_ANY)) != NULL) {
             printf("... unexpectedly succeeded\n");
             rc = FAIL;
         }
@@ -120,7 +120,7 @@ run_tc_api(void)
 
         sbuf = strbuf_new(0);
         strbuf_set_input(sbuf, "ABCDEFG", 7);
-        e = encoding_search("UTF-8", ENCODING_E_ANY);
+        e = encoding_search(U("UTF-8"), ENCODING_E_ANY);
         eh = encoding_open(e);
         ptr = outbuf;
         if (4 != encoding_in_from_strbuf(eh, sbuf,
@@ -154,7 +154,7 @@ run_tc_api(void)
         encoding_handle_t *eh;
         ucs4_t obuf[4], *ptr;
 
-        if ((e = encoding_search("NOADVANCE", ENCODING_E_ANY)) == NULL) {
+        if ((e = encoding_search(U("NOADVANCE"), ENCODING_E_ANY)) == NULL) {
             printf("Cannot open test encoding\n");
             rc = FAIL;
         }
@@ -184,7 +184,7 @@ destroy_update_ctr(void *arg)
 }
 
 static const encoding_t enc_XENC1 = {
-    .name = "XENC1",
+    .name = U("XENC1"),
     .form = ENCODING_FORM_UNKNOWN,
     .endian = ENCODING_E_ANY,
     .in = in_consumeall,
@@ -192,7 +192,7 @@ static const encoding_t enc_XENC1 = {
 ENCODING_REGISTER(enc_XENC1);
 
 static const encoding_t enc_XENC2 = {
-    .name = "XENC2",
+    .name = U("XENC2"),
     .form = ENCODING_FORM_UTF16,
     .endian = ENCODING_E_BE,
     .in = in_consumeall,
@@ -221,11 +221,11 @@ run_tc_switch(const void *arg)
 
     // Also implicitly tests closing
     printf("Testing switching from %s to %s\n", tc->from, tc->to);
-    if ((ef = encoding_search(tc->from, ENCODING_E_ANY)) == NULL) {
+    if ((ef = encoding_search(U(tc->from), ENCODING_E_ANY)) == NULL) {
         printf("Failed to open %s\n", tc->from);
         rc = FAIL;
     }
-    else if ((et = encoding_search(tc->to, ENCODING_E_ANY)) == NULL) {
+    else if ((et = encoding_search(U(tc->to), ENCODING_E_ANY)) == NULL) {
         printf("Failed to open %s\n", tc->to);
         rc = FAIL;
     }
@@ -300,7 +300,7 @@ run_tc_detect(const void *arg)
         printf("Encoding '%s' not detected\n", tc->encoding);
         rc = FAIL;
     }
-    else if (strcmp(detected->name, tc->encoding)) {
+    else if (utf8_cmp(detected->name, U(tc->encoding))) {
         printf("Encoding '%s' detected as '%s'\n", tc->encoding, detected->name);
         rc = FAIL;
     }
@@ -492,7 +492,7 @@ run_tc_input(const void *arg)
     ptr = out;
     end = out + tc->noutputs;
 
-    e = encoding_search(tc->encoding, ENCODING_E_ANY);
+    e = encoding_search(U(tc->encoding), ENCODING_E_ANY);
     eh = encoding_open(e);
     for (i = 0, lastbrk = 0; i <= tc->nbreaks; i++, lastbrk = nextbrk) {
         nextbrk = i == tc->nbreaks ? tc->inputsz : tc->breaks[i];

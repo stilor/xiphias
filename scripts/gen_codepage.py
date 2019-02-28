@@ -152,7 +152,7 @@ static const ucs4_t codepage_table_%s[] = {
 };
 
 static const encoding_t encoding_%s = {
-    .name = "%s",
+    .name = U("%s"),
     .form = ENCODING_FORM_%s,
     .sigs = %s,
     .nsigs = %s,

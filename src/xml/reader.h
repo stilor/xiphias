@@ -138,7 +138,7 @@ typedef struct {
 
 /// Parameter for XML or text declaration callback
 typedef struct {
-    const char *encoding;                    ///< Encoding from the declaration
+    const utf8_t *encoding;                  ///< Encoding from the declaration
     enum xml_info_version_e version;         ///< XML version
     enum xml_info_standalone_e standalone;   ///< Is the document is declared standalone
 } xml_reader_cbparam_xmldecl_t;
@@ -242,9 +242,9 @@ void xml_reader_set_loader(xml_reader_t *h, xml_loader_t func, void *arg);
 void xml_reader_message(xml_reader_t *h, const xmlerr_loc_t *loc, xmlerr_info_t info,
         const char *fmt, ...) __printflike(4,5);
 
-void xml_reader_set_document_entity(xml_reader_t *h, const char *pubid, const char *sysid);
+void xml_reader_set_document_entity(xml_reader_t *h, const utf8_t *pubid, const utf8_t *sysid);
 void xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
-        const char *location, const char *transport_encoding);
+        const utf8_t *location, const utf8_t *transport_encoding);
 
 void xml_reader_run(xml_reader_t *h);
 void xml_reader_stop(xml_reader_t *h);

@@ -9,6 +9,7 @@
 #define __util_opt_h_
 
 #include <stdbool.h>
+#include "unicode/unicode.h"
 #include "util/defs.h"
 
 /// Opaque handle if option callback needs to raise an error
@@ -19,7 +20,8 @@ enum opt_type_e {
     OPT_TYPE_USAGE,             ///< Option to display the usage
     OPT_TYPE_BOOL,              ///< Boolean option
     OPT_TYPE_COUNTER,           ///< Counter
-    OPT_TYPE_STRING,            ///< String option
+    OPT_TYPE_STRING,            ///< String option (local encoding)
+    OPT_TYPE_UTF8,              ///< String option (UTF-8)
     OPT_TYPE_FUNC,              ///< Callback function handles
     OPT_TYPE_MAX,               ///< Max number of option types
 };
@@ -51,9 +53,14 @@ struct opt_arg_COUNTER_s {
     unsigned int *pvar;         ///< Pointer to a variable being set
 };
 
-/// Option for string values
+/// Option for string values in local encoding
 struct opt_arg_STRING_s {
     const char **pstr;          ///< Pointer where string will be saved
+};
+
+/// Option for string values in UTF-8
+struct opt_arg_UTF8_s {
+    const utf8_t **pstr;        ///< Pointer where string will be saved
 };
 
 /// Callback function

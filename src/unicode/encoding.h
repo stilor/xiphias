@@ -48,7 +48,7 @@ typedef struct encoding_sig_s {
 
 /// Encoding structure
 typedef struct encoding_s {
-    const char *name;               ///< Encoding name
+    const utf8_t *name;             ///< Encoding name
     enum encoding_form_e form;      ///< Character encoding form
     enum encoding_endian_e endian;  ///< Endianness
     const void *data;               ///< Encoding-specific data (e.g. equivalence chart)
@@ -122,7 +122,7 @@ typedef struct encoding_handle_s encoding_handle_t;
 
 // General encoding database functions
 void encoding__register(encoding_link_t *lnk);
-const encoding_t *encoding_search(const char *name, enum encoding_endian_e endian);
+const encoding_t *encoding_search(const utf8_t *name, enum encoding_endian_e endian);
 const encoding_t *encoding_detect(const uint8_t *buf, size_t bufsz, size_t *pbom_len);
 
 // Handling transcoding

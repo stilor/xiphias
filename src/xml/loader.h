@@ -16,12 +16,12 @@ struct xml_reader_s;
 
 /// Information passed to entity loader
 typedef struct xml_loader_info_s {
-    const char *public_id;         ///< Public ID
-    const char *system_id;         ///< System ID
+    const utf8_t *public_id;         ///< Public ID
+    const utf8_t *system_id;         ///< System ID
 } xml_loader_info_t;
 
 void xml_loader_info_init(xml_loader_info_t *loader_info,
-        const char *public_id, const char *system_id);
+        const utf8_t *public_id, const utf8_t *system_id);
 void xml_loader_info_set_public_id(xml_loader_info_t *loader_info,
         const utf8_t *id, size_t len);
 void xml_loader_info_set_system_id(xml_loader_info_t *loader_info,
@@ -55,10 +55,10 @@ void xml_loader_noload(struct xml_reader_s *h, void *arg,
 
 /// Loader options for file loader
 typedef struct {
-    const char **searchpaths;      ///< Possible prefixes to relative paths, NULL-terminated
-    const char *transport_encoding;///< Report this as a transport encoding
-    xml_loader_subst_t subst_func; ///< Substitution function
-    void *subst_arg;               ///< Argument to substitution function
+    const char **searchpaths;           ///< Possible prefixes to relative paths, NULL-terminated
+    const utf8_t *transport_encoding;   ///< Report this as a transport encoding
+    xml_loader_subst_t subst_func;      ///< Substitution function
+    void *subst_arg;                    ///< Argument to substitution function
 } xml_loader_opts_file_t;
 
 void xml_loader_file(struct xml_reader_s *h, void *arg,

@@ -22,10 +22,10 @@
 */
 void
 xml_loader_info_init(xml_loader_info_t *loader_info,
-        const char *public_id, const char *system_id)
+        const utf8_t *public_id, const utf8_t *system_id)
 {
-    loader_info->public_id = xstrdup(public_id);
-    loader_info->system_id = xstrdup(system_id);
+    loader_info->public_id = utf8_dup(public_id);
+    loader_info->system_id = utf8_dup(system_id);
 }
 
 /**
@@ -41,7 +41,7 @@ xml_loader_info_set_public_id(xml_loader_info_t *loader_info,
         const utf8_t *id, size_t len)
 {
     xfree(loader_info->public_id);
-    loader_info->public_id = utf8_s_ndup(id, len);
+    loader_info->public_id = utf8_ndup(id, len);
 }
 
 /**
@@ -57,7 +57,7 @@ xml_loader_info_set_system_id(xml_loader_info_t *loader_info,
         const utf8_t *id, size_t len)
 {
     xfree(loader_info->system_id);
-    loader_info->system_id = utf8_s_ndup(id, len);
+    loader_info->system_id = utf8_ndup(id, len);
 }
 
 /**
@@ -118,7 +118,7 @@ void
 xml_loader_file(xml_reader_t *h, void *arg, const xml_loader_info_t *loader_info)
 {
     const xml_loader_opts_file_t *opts = arg ? arg : &default_file_opts;
-    const char *sysid = loader_info->system_id;
+    const char *sysid = S(loader_info->system_id);
     strbuf_t *buf;
     const char **srch;
     bool is_absolute;
@@ -170,5 +170,6 @@ success:
     if (opts->subst_func) {
         buf = opts->subst_func(opts->subst_arg, buf);
     }
-    xml_reader_add_parsed_entity(h, buf, sysid, opts->transport_encoding);
+    xml_reader_add_parsed_entity(h, buf, loader_info->system_id,
+            opts->transport_encoding);
 }

@@ -48,12 +48,16 @@ string_escape(const char *s)
 }
 
 static char *
-string_escape_utf8(const utf8_t *s, size_t len)
+string_escape_utf8(const utf8_t *s, int len)
 {
     /// @todo Assumes 1-to-1 correspondence between UTF-8 and local charset
     const utf8_t *sx;
     size_t lenx, nlen;
     char *p, *px;
+
+    if (len < 0) {
+        len = utf8_len(s);
+    }
 
     nlen = 0;
     for (sx = s, lenx = len; lenx; lenx--, sx++) {
@@ -232,6 +236,26 @@ equal_token(const xml_reader_token_t *tk1, const xml_reader_token_t *tk2)
 #define EQ_STR_OR_NULL(x1,x2,f,e) \
         ((!(x1)->f && !(x2)->f) || ((x1)->f && (x2)->f && !strcmp((x1)->f, (x2)->f)))
 
+#define ISSET_UTF8_OR_NULL(x,f,e) \
+        ((x)->f)
+#define GENC_UTF8_OR_NULL(x,f,e) do { \
+            char *s; \
+            s = string_escape_utf8((x)->f, -1); \
+            printf(GENC_FMT(#f, "\"%s\""), s); \
+            xfree(s); \
+        } while (0)
+#define P_UTF8_OR_NULL(x,f,e,n) do { \
+            print_prefix(n); \
+            if ((x)->f) { \
+                printf("'%s'", (x)->f); \
+            } \
+            else { \
+                printf("not set"); \
+            } \
+        } while (0)
+#define EQ_UTF8_OR_NULL(x1,x2,f,e) \
+        ((!(x1)->f && !(x2)->f) || ((x1)->f && (x2)->f && !utf8_cmp((x1)->f, (x2)->f)))
+
 #define ISSET_TOKEN(x,f,e) \
         (xml_reader_token_isset(&(x)->f))
 #define GENC_TOKEN(x,f,e) do { \
@@ -337,7 +361,7 @@ t_equal_xmlerr(const xmlerr_info_t *xi1, const xmlerr_info_t *xi2)
         FLD(public_id, TOKEN, NULL, "pubid") \
 
 #define FIELDS_xmldecl \
-        FLD(encoding, STR_OR_NULL, NULL, "encoding") \
+        FLD(encoding, UTF8_OR_NULL, NULL, "encoding") \
         FLD(standalone, ENUM, xml_standalone, "standalone") \
         FLD(version, ENUM, xml_version, "version") \
 
@@ -479,7 +503,7 @@ xmlreader_event_print(const xml_reader_cbparam_t *cbparam)
 
     evt = &events[cbparam->cbtype < sizeofarray(events) ? cbparam->cbtype : XML_READER_CB_NONE];
     printf("[%s:%u:%u] %s:",
-            cbparam->loc.src ? cbparam->loc.src : "<undef>",
+            cbparam->loc.src ? S(cbparam->loc.src) : "<undef>",
             cbparam->loc.line, cbparam->loc.pos,
             enum2str(cbparam->cbtype, &enum_cbtype));
     if (evt && evt->print) {
@@ -500,7 +524,7 @@ xmlreader_event_equal(const xml_reader_cbparam_t *e1, const xml_reader_cbparam_t
 {
     if (e1->cbtype != e2->cbtype
             || e1->cbtype >= sizeofarray(events)
-            || !str_null_or_equal(e1->loc.src, e2->loc.src)
+            || !utf8_null_or_equal(e1->loc.src, e2->loc.src)
             || e1->loc.line != e2->loc.line
             || e1->loc.pos != e2->loc.pos) {
         return false;
@@ -526,8 +550,8 @@ xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam)
 
     // .isset is due to peculiarity of C syntax: empty structure initializers
     // are not allowed, even though the intent is to have all members initialized
-    // with default values. GCC accepts this, but issues a warning. Thus, 'E' is
-    // used for regular events and 'EE' for events with empty initializers for
+    // with default values. GCC accepts this, but issues a warning. Thus, 'EV' is
+    // used for regular events and 'E0' for events with empty initializers for
     // type-specific portion.
     evt = &events[cbparam->cbtype < sizeofarray(events) ? cbparam->cbtype : XML_READER_CB_NONE];
     isset = evt->isset && evt->isset(cbparam);
@@ -535,7 +559,7 @@ xmlreader_event_gencode(const xml_reader_cbparam_t *cbparam)
             isset ? "EV" : "E0",
             enum2id(cbparam->cbtype, &enum_cbtype, "XML_READER_CB_"));
     if (cbparam->loc.src) {
-        s = string_escape(cbparam->loc.src);
+        s = string_escape_utf8(cbparam->loc.src, -1);
         printf(INDENT INDENT INDENT "LOC(\"%s\", %u, %u)%s\n",
                 s, cbparam->loc.line, cbparam->loc.pos,
                 isset ? "," : "");

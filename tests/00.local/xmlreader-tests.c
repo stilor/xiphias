@@ -20,13 +20,13 @@ cb_check_stacktrace(void *arg, const xmlerr_loc_t *loc)
 {
     struct cb_check_stacktrace_s *cba = arg;
 
-    printf("  [%02u] %s:%u:%u", cba->idx, loc->src, loc->line, loc->pos);
+    printf("  [%02u] %s:%u:%u", cba->idx, S(loc->src), loc->line, loc->pos);
     if (cba->ptr >= cba->end) {
         printf(" [UNEXPECTED]\n");
         cba->failed = true;
     }
     else {
-        if (strcmp(cba->ptr->src, loc->src)
+        if (utf8_cmp(cba->ptr->src, loc->src)
                 || cba->ptr->line != loc->line
                 || cba->ptr->pos != loc->pos) {
             printf(" [EXPECTED %s:%u:%u]\n", cba->ptr->src, cba->ptr->line, cba->ptr->pos);
@@ -44,10 +44,10 @@ static result_t
 check_stacktrace(xml_reader_t *h, xml_reader_cbparam_t *e, const void *arg)
 {
     static const xmlerr_loc_t expected_stack[] = {
-        { "entity(e1)", 1, 5 },
-        { "entity(e2)", 1, 8 },
-        { "entity(e3)", 1, 8 },
-        { "stack-test.xml", 6, 8 },
+        { U("entity(e1)"), 1, 5 },
+        { U("entity(e2)"), 1, 8 },
+        { U("entity(e3)"), 1, 8 },
+        { U("stack-test.xml"), 6, 8 },
     };
     const xml_reader_options_t *o = arg;
     struct cb_check_stacktrace_s cba;
@@ -114,7 +114,7 @@ in_XOR(void *baton, const uint8_t *begin, const uint8_t *end,
 }
 
 static const encoding_t enc_XOR = {
-    .name = "XOR_ENCODING",
+    .name = U("XOR_ENCODING"),
     .form = ENCODING_FORM_UTF8,
     .endian = ENCODING_E_ANY,
     .baton_sz = 0,
@@ -436,7 +436,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("simple-utf8.xml", 2, 8),
-                    .encoding = "UTF-8",
+                    .encoding = U("UTF-8"),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),
@@ -466,7 +466,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("simple-utf8.xml", 2, 8),
-                    .encoding = "UTF-8",
+                    .encoding = U("UTF-8"),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),
@@ -498,7 +498,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("simple-utf16.xml", 1, 38),
-                    .encoding = "UTF-16",
+                    .encoding = U("UTF-16"),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),
@@ -530,7 +530,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("simple-utf16.xml", 1, 38),
-                    .encoding = "UTF-16",
+                    .encoding = U("UTF-16"),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),
@@ -561,7 +561,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("simple-utf16.xml", 1, 38),
-                    .encoding = "UTF-16",
+                    .encoding = U("UTF-16"),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),
@@ -597,7 +597,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("simple-utf16.xml", 1, 38),
-                    .encoding = "UTF-16",
+                    .encoding = U("UTF-16"),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),
@@ -663,7 +663,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("simple-invalid-encoding.xml", 1, 152),
-                    .encoding = VERY_LONG_ENCODING,
+                    .encoding = U(VERY_LONG_ENCODING),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),
@@ -728,7 +728,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("simple-utf16.xml", 1, 38),
-                    .encoding = "UTF-16",
+                    .encoding = U("UTF-16"),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),
@@ -1139,7 +1139,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("decl-no-version1.xml", 1, 39),
-                    .encoding = "UTF-8",
+                    .encoding = U("UTF-8"),
                     .standalone = XML_INFO_STANDALONE_NO,
                     .version = XML_INFO_VERSION_NO_VALUE,
             ),
@@ -1214,7 +1214,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("decl-wrong-order.xml", 1, 37),
-                    .encoding = "UTF-8",
+                    .encoding = U("UTF-8"),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_NO_VALUE,
             ),
@@ -1249,7 +1249,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("decl-extra-attr1.xml", 1, 68),
-                    .encoding = "UTF-8",
+                    .encoding = U("UTF-8"),
                     .standalone = XML_INFO_STANDALONE_YES,
                     .version = XML_INFO_VERSION_1_0,
             ),
@@ -2355,7 +2355,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("simple-open-close.xml", 1, 37),
-                    .encoding = "UTF-8",
+                    .encoding = U("UTF-8"),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),
@@ -2413,7 +2413,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("invalid-top-level.xml", 1, 37),
-                    .encoding = "UTF-8",
+                    .encoding = U("UTF-8"),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_1,
             ),
@@ -2446,7 +2446,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("invalid-top-level-withroot.xml", 1, 37),
-                    .encoding = "UTF-8",
+                    .encoding = U("UTF-8"),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_1,
             ),
@@ -3208,7 +3208,7 @@ static const testcase_t testcases[] = {
             ),
             EV(XMLDECL,
                     LOC("element-nonutf8-name.xml", 1, 42),
-                    .encoding = "ISO-8859-1",
+                    .encoding = U("ISO-8859-1"),
                     .standalone = XML_INFO_STANDALONE_NO_VALUE,
                     .version = XML_INFO_VERSION_1_0,
             ),

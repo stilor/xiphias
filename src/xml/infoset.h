@@ -129,6 +129,7 @@ typedef struct xml_ii_document_s {
 
     /// ... indication of whether the processor has read the complete DTD
     bool all_declarations_processed;
+
 } xml_ii_document_t;
 
 /// Element information item (section 2.2)
@@ -364,7 +365,7 @@ typedef struct xml_infoset_ctx_attr_s {
 xml_infoset_ctx_t *xml_infoset_ctx_new(const xml_infoset_ctx_attr_t *attr);
 void xml_infoset_ctx_delete(xml_infoset_ctx_t *ic);
  
-xml_ii_t *xml_ii__new(xml_infoset_ctx_t *ic, enum xml_ii_type_e type);
+xml_ii_t *xml_ii__new(xml_infoset_ctx_t *ic, enum xml_ii_type_e type, const xmlerr_loc_t *loc);
 void xml_ii__delete(xml_ii_t *ii);
 
 /// Mapping between the types and the structures; applies 'something' to every pair
@@ -419,9 +420,9 @@ XML_II__FOREACH_TYPE(XML_II__DEFINE_TYPECAST)
 /// Allocate a new item of the specified type
 #define XML_II__DEFINE_ALLOC(t, s) \
         static inline xml_ii_##s##_t * \
-        xml_ii_new_##s(xml_infoset_ctx_t *ic) \
+        xml_ii_new_##s(xml_infoset_ctx_t *ic, const xmlerr_loc_t *loc) \
         { \
-            return (xml_ii_##s##_t *)xml_ii__new(ic, XML_II_TYPE_##t); \
+            return (xml_ii_##s##_t *)xml_ii__new(ic, XML_II_TYPE_##t, loc); \
         }
 
 XML_II__FOREACH_TYPE(XML_II__DEFINE_ALLOC)
@@ -469,5 +470,32 @@ XML_II__FOREACH_TYPE(XML_II__DEFINE_ALLOC)
 
 XML_II__FOREACH_STRSTORE_MEMBER(XML_II__DECLARE_SETTER, dummy)
 #undef XML_II__DECLARE_SETTER
+
+
+/**
+    List of elements with an ordered list of 'children'. Type is the II's type
+    allowed in that element's list of children.
+*/
+#define XML_II__FOREACH_PARENT_ELEMENT(something) \
+        something(document) \
+        something(element) \
+        something(dtd)
+
+/// Declare prototypes for manipulators of the 'children' list
+#define XML__II_DECLARE_CHILDREN_FUNCTIONS(s) \
+        void xml_ii_##s##_insert_after(xml_ii_##s##_t *parent, xml_ii_t *child, xml_ii_t *after); \
+        static inline void \
+        xml_ii_##s##_insert_first(xml_ii_##s##_t *parent, xml_ii_t *child) \
+        { \
+            xml_ii_##s##_insert_after(parent, child, NULL); \
+        } \
+        static inline void \
+        xml_ii_##s##_insert_last(xml_ii_##s##_t *parent, xml_ii_t *child) \
+        { \
+            xml_ii_##s##_insert_after(parent, child, STAILQ_LAST(&parent->children, xml_ii_s, link)); \
+        }
+
+XML_II__FOREACH_PARENT_ELEMENT(XML__II_DECLARE_CHILDREN_FUNCTIONS)
+#undef XML__II_DECLARE_CHILDREN_FUNCTIONS
 
 #endif

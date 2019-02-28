@@ -214,7 +214,7 @@ xml_ii_destroy_element(xml_ii_element_t *e, xml_infoset_ctx_t *ic)
     strstore_free(ic->strings, e->local_name);
     strstore_free(ic->strings, e->prefix);
     strstore_free(ic->strings, e->base_uri);
-    ii_array_destroy(&a->namespaces);
+    ii_array_destroy(&e->namespaces);
 }
 
 /**
@@ -277,7 +277,7 @@ xml_ii_destroy_pi(xml_ii_pi_t *pi, xml_infoset_ctx_t *ic)
     OOPS_ASSERT(!pi->parent);
     strstore_free(ic->strings, pi->target);
     if (ic->attr.flags & XML_INFOSET_CTX_F_NO_STORE_PI_CONTENT) {
-        free(pi->content);
+        xfree(pi->content);
     }
     else {
         strstore_free(ic->strings, pi->content);

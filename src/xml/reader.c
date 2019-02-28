@@ -63,7 +63,7 @@ typedef struct xml_reader_entity_s {
     xml_reader_token_t name;                ///< Entity name/length
     enum xml_reader_reference_e type;       ///< Entity type
     xml_loader_info_t loader_info;          ///< Loader information for this entity
-    const char *location;                   ///< How input from this entity will be reported
+    const utf8_t *location;                 ///< How input from this entity will be reported
     xml_reader_notation_t *notation;        ///< Associated notation
     bool being_parsed;                      ///< Recursion detection: this entity is being parsed
     const ucs4_t *rplc;                     ///< Replacement text
@@ -117,10 +117,10 @@ typedef struct {
 typedef struct xml_reader_external_s {
     STAILQ_ENTRY(xml_reader_external_s) link;   ///< List pointer
     enum xml_info_version_e version;            ///< Entity's declared version
-    const char *location;           ///< Location string for messages
-    const char *enc_transport;      ///< Encoding reported by transport protocol
-    const char *enc_detected;       ///< Encoding detected by BOM or start characters
-    const char *enc_declared;       ///< Encoding declared in <?xml ... ?>
+    const utf8_t *location;         ///< Location string for messages
+    const utf8_t *enc_transport;    ///< Encoding reported by transport protocol
+    const utf8_t *enc_detected;     ///< Encoding detected by BOM or start characters
+    const utf8_t *enc_declared;     ///< Encoding declared in <?xml ... ?>
 
     bool aborted;                   ///< If true, entity was not fully parsed
     bool saw_cr;                    ///< Saw U+000D, yet to see U+000A or U+0085.
@@ -621,9 +621,9 @@ xml_reader_token_unset(xml_reader_token_t *tk)
 }
 
 /// @todo should be gone when loader uses utf8_t
-#define TOKEN_FROM_CHAR(tk, s) do { \
-    (tk)->str = (const unsigned char *)(s); \
-    (tk)->len = s ? strlen(s) : 0; \
+#define TOKEN_FROM_UTF8(tk, s) do { \
+    (tk)->str = (s); \
+    (tk)->len = s ? utf8_len(s) : 0; \
 } while (0)
 
 /**
@@ -772,7 +772,7 @@ xml_refrplc_store(xml_reader_t *h, ucs4_t cp)
     @return Allocated input structure
 */
 static xml_reader_input_t *
-xml_reader_input_new(xml_reader_t *h, const char *location)
+xml_reader_input_new(xml_reader_t *h, const utf8_t *location)
 {
     xml_reader_input_t *inp, *parent;
     strbuf_t *buf;
@@ -1220,7 +1220,7 @@ xml_entity_new(xml_reader_t *h, bool parameter)
     e->name.str = strhash_set(ehash, name, namelen, e);
     e->name.len = namelen;
     s = utf8_strtolocal(e->name.str);
-    e->location = xasprintf("entity(%s)", s);
+    e->location = U(xasprintf("entity(%s)", s));
     e->type = parameter ? XML_READER_REF_PE : XML_READER_REF_GENERAL;
     utf8_strfreelocal(s);
     return e;
@@ -1710,9 +1710,8 @@ xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
     cbp.loc = e->included;
     // TBD ctx argument should go away (be determined by the entity type)
     // TBD loader_info argument should go away (be passed in the entity)
-    /// @todo make loader use utf8_t (and size?)
-    TOKEN_FROM_CHAR(&cbp.entity.system_id, loader_info->system_id);
-    TOKEN_FROM_CHAR(&cbp.entity.public_id, loader_info->public_id);
+    TOKEN_FROM_UTF8(&cbp.entity.system_id, loader_info->system_id);
+    TOKEN_FROM_UTF8(&cbp.entity.public_id, loader_info->public_id);
     xml_reader_callback_invoke(h, &cbp);
     return false;
 }
@@ -2651,7 +2650,7 @@ literal_percent:
     // we don't try to interpret this as a PE reference again
     h->flags &= ~R_NO_INC_NORM;
     xml_reader_input_unlock_assert(h); // No recognized entities parsed since lock
-    inp = xml_reader_input_new(h, "literal percent sign");
+    inp = xml_reader_input_new(h, U("literal percent sign"));
     strbuf_set_input(inp->buf, rplc_percent, sizeof(rplc_percent));
     inp->ignore_references = true;
     return PR_NOMATCH;
@@ -2706,8 +2705,8 @@ entity_start(xml_reader_t *h, xml_reader_entity_t *e)
     cbp.loc = h->refloc;
     cbp.entity.type = e->type;
     cbp.entity.name = e->name;
-    TOKEN_FROM_CHAR(&cbp.entity.system_id, e->loader_info.system_id);
-    TOKEN_FROM_CHAR(&cbp.entity.public_id, e->loader_info.public_id);
+    TOKEN_FROM_UTF8(&cbp.entity.system_id, e->loader_info.system_id);
+    TOKEN_FROM_UTF8(&cbp.entity.public_id, e->loader_info.public_id);
     xml_reader_callback_invoke(h, &cbp);
     e->included = h->refloc;
     e->being_parsed = true;
@@ -2731,8 +2730,8 @@ entity_end(xml_reader_t *h, void *arg)
     cbp.loc = e->included;
     cbp.entity.type = e->type;
     cbp.entity.name = e->name;
-    TOKEN_FROM_CHAR(&cbp.entity.system_id, e->loader_info.system_id);
-    TOKEN_FROM_CHAR(&cbp.entity.public_id, e->loader_info.public_id);
+    TOKEN_FROM_UTF8(&cbp.entity.system_id, e->loader_info.system_id);
+    TOKEN_FROM_UTF8(&cbp.entity.public_id, e->loader_info.public_id);
     xml_reader_callback_invoke(h, &cbp);
     e->being_parsed = false;
 }
@@ -3468,7 +3467,7 @@ check_EncName(xml_reader_t *h)
         }
     }
 
-    ex->enc_declared = utf8_s_ndup(str, sz);
+    ex->enc_declared = utf8_ndup(str, sz);
     return; // Normal return
 
 bad_encoding:
@@ -3919,8 +3918,8 @@ xml_parse_PI(xml_reader_t *h)
     // "The XML Notation mechanism may be used for formal declaration of PI targets"
     // If it was, report notation's system and public IDs.
     if ((n = xml_notation_get(h, &h->svtk.name)) != NULL) {
-        TOKEN_FROM_CHAR(&cbp.pi.nsystem_id, n->loader_info.system_id);
-        TOKEN_FROM_CHAR(&cbp.pi.npublic_id, n->loader_info.public_id);
+        TOKEN_FROM_UTF8(&cbp.pi.nsystem_id, n->loader_info.system_id);
+        TOKEN_FROM_UTF8(&cbp.pi.npublic_id, n->loader_info.public_id);
     }
     xml_reader_callback_invoke(h, &cbp);
 
@@ -4377,8 +4376,8 @@ compatible:
         xml_tokenbuf_setcbtoken(h, &h->svtk.pubid, &cbp.entity.public_id);
         xml_tokenbuf_setcbtoken(h, &h->svtk.ndata, &cbp.entity.ndata);
         if (n) {
-            TOKEN_FROM_CHAR(&cbp.entity.nsystem_id, n->loader_info.system_id);
-            TOKEN_FROM_CHAR(&cbp.entity.npublic_id, n->loader_info.public_id);
+            TOKEN_FROM_UTF8(&cbp.entity.nsystem_id, n->loader_info.system_id);
+            TOKEN_FROM_UTF8(&cbp.entity.npublic_id, n->loader_info.public_id);
         }
         xml_reader_callback_invoke(h, &cbp);
     }
@@ -5746,7 +5745,7 @@ external_entity_end(xml_reader_t *h, void *arg)
 */
 void
 xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
-        const char *location, const char *transport_encoding)
+        const utf8_t *location, const utf8_t *transport_encoding)
 {
     xml_reader_hidden_loader_arg_t *ha = h->hidden_loader_arg;
     xml_reader_entity_t *e = ha->entityref;
@@ -5768,7 +5767,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     ex = xmalloc(sizeof(xml_reader_external_t));
     memset(ex, 0, sizeof(xml_reader_external_t));
     ex->buf = buf;
-    ex->location = xstrdup(location);
+    ex->location = utf8_dup(location);
     ex->norm_unicode = NULL;
     ex->aborted = true; // Until we know otherwise
     ex->on_complete = ha->on_complete;
@@ -5795,7 +5794,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     if ((enc = encoding_detect(adbuf, adsz, &bom_len)) != NULL) {
         rv = xml_reader_set_encoding(ex, enc);
         OOPS_ASSERT(rv); // This external has no encoding yet, so it cannot fail to switch
-        ex->enc_detected = xstrdup(enc->name);
+        ex->enc_detected = utf8_dup(enc->name);
         if (bom_len) {
             strbuf_radvance(buf, bom_len);
         }
@@ -5818,13 +5817,13 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
                     transport_encoding, encoding_get(ex->enc)->name);
             goto failed;
         }
-        ex->enc_transport = xstrdup(transport_encoding);
+        ex->enc_transport = utf8_dup(transport_encoding);
     }
 
     // If no encoding passed from the transport layer, and autodetect didn't help,
     // try UTF-8. UTF-8 is built-in, so it should always work.
     if (!ex->enc) {
-        enc = encoding_search("UTF-8", ENCODING_E_ANY);
+        enc = encoding_search(U("UTF-8"), ENCODING_E_ANY);
         OOPS_ASSERT(enc);
         rv = xml_reader_set_encoding(ex, enc);
         OOPS_ASSERT(rv);
@@ -5989,7 +5988,7 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // point, but if it different - it must be compatible and thus must have the same
     // encoding type.
     if (!bom_len && ex->enc_declared
-            && !strcmp(ex->enc_declared, "UTF-16")) {
+            && !utf8_cmp(ex->enc_declared, U("UTF-16"))) {
         // Non-fatal: managed to detect the encoding somehow
         xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "UTF-16 encoding without byte-order mark");
@@ -6005,8 +6004,8 @@ xml_reader_add_parsed_entity(xml_reader_t *h, strbuf_t *buf,
     // or CESU-8.
     enc = encoding_get(ex->enc);
     if (!ex->enc_declared && !ex->enc_transport
-            && strcmp(enc->name, "UTF-16")
-            && strcmp(enc->name, "UTF-8")) {
+            && utf8_cmp(enc->name, U("UTF-16"))
+            && utf8_cmp(enc->name, U("UTF-8"))) {
         // Non-fatal: recover by using whatever encoding we detected
         xml_reader_message_current(h, XMLERR(ERROR, XML, ENCODING_ERROR),
                 "No external encoding information, no encoding in %s, content in %s encoding",
@@ -6062,17 +6061,16 @@ xml_document_on_complete(xml_reader_t *h, const xmlerr_loc_t *loc)
     @return Nothing
 */
 void
-xml_reader_set_document_entity(xml_reader_t *h, const char *pubid, const char *sysid)
+xml_reader_set_document_entity(xml_reader_t *h, const utf8_t *pubid, const utf8_t *sysid)
 {
-    // TBD switch to utf8_t in external interfaces?
     if ((h->flags & R_STARTED) == 0) {
         if (sysid) {
             xml_loader_info_set_system_id(&h->ent_document.loader_info,
-                    (const utf8_t *)sysid, strlen(sysid));
+                    sysid, utf8_len(sysid));
         }
         if (pubid) {
             xml_loader_info_set_public_id(&h->ent_document.loader_info,
-                    (const utf8_t *)pubid, strlen(pubid));
+                    pubid, utf8_len(pubid));
         }
     }
 }
