@@ -11,17 +11,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define OOPS_ASSERT(c) do { \
-    if (!(c)) { \
-        fprintf(stderr, "OOPS assertion failed [%s] at %s:%d\n", #c, __FILE__, __LINE__); \
-        abort(); \
-    } \
-} while (0)
+#define OOPS_ASSERT(c) \
+    ((c) ? (void)0 : \
+        ( \
+            fprintf(stderr, "OOPS assertion failed [%s] at %s:%d\n", #c, __FILE__, __LINE__), \
+            abort(), \
+            (void)0 \
+        ) \
+    )
 
-#define OOPS do { \
-    fprintf(stderr, "OOPS at %s:%d\n", __FILE__, __LINE__); \
-    abort(); \
-} while (0)
+#define OOPS \
+    ( \
+        fprintf(stderr, "OOPS at %s:%d\n", __FILE__, __LINE__), \
+        abort(), \
+        (void)0 \
+    )
 
 #define OOPS_UNREACHABLE OOPS
 

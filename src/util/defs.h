@@ -2,7 +2,7 @@
 /* vim: set comments= cinoptions=\:0,t0,+8,c4,C1 : */
 
 /** @file
-    Miscellaneous definitions.
+    Miscellaneous definitions. At this time, GCC-centric.
 */
 
 #ifndef __util_defs_h_
@@ -41,6 +41,9 @@
 
 /// Denote an unreachable point in a program
 #define __unreachable() __builtin_unreachable()
+
+/// Check if two types are compatible.
+#define __types_compat(t1, t2) __builtin_types_compatible_p(t1, t2)
 
 /// Return the least of two values
 #define min(a,b)    ({ \

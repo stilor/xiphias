@@ -45,15 +45,7 @@ __oops(const char *msg, const char *file, unsigned int line)
     }
 }
 
-static inline void
-__oops_assert(unsigned long c, const char *msg, const char *file, unsigned int line)
-{
-    if (!c) {
-        __oops(msg, file, line);
-    }
-}
-
-#define OOPS_ASSERT(c)      __oops_assert((unsigned long)(c), #c, __FILE__, __LINE__)
+#define OOPS_ASSERT(c)      ((c) ? (void)0 : (__oops(#c, __FILE__, __LINE__), (void)0))
 #define OOPS                __oops(NULL, __FILE__, __LINE__)
 #define OOPS_UNREACHABLE    __unreachable()
 

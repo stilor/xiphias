@@ -491,9 +491,9 @@ xml_ii_t *
 xml_ii__new(xml_infoset_ctx_t *ic, enum xml_ii_type_e type, const xmlerr_loc_t *loc)
 {
     static const size_t ii_size[] = {
-#define SIZE_II_TYPE(t,s) \
+#define SIZE_II_TYPE(t, s, a) \
         [XML_II_TYPE_##t] = sizeof(xml_ii_##s##_t),
-    XML_II__FOREACH_TYPE(SIZE_II_TYPE)
+    XML_II__FOREACH_TYPE(SIZE_II_TYPE, dummy)
 #undef SIZE_II_TYPE
     };
     xml_ii_t *ii;
@@ -520,10 +520,10 @@ xml_ii__new(xml_infoset_ctx_t *ic, enum xml_ii_type_e type, const xmlerr_loc_t *
 
     // Type-specific initialization
     switch (type) {
-#define INITIALIZE_II_TYPE(t, s) \
+#define INITIALIZE_II_TYPE(t, s, a) \
     case XML_II_TYPE_##t: xml_ii_init_##s((xml_ii_##s##_t *)ii); break;
 
-    XML_II__FOREACH_TYPE(INITIALIZE_II_TYPE)
+    XML_II__FOREACH_TYPE(INITIALIZE_II_TYPE, dummy)
 #undef INITIALIZE_II_TYPE
 
     default:
@@ -554,10 +554,10 @@ xml_ii__delete(xml_ii_t *ii)
     // Type-specific de-initialization
     switch (ii->type) {
 
-#define DESTROY_II_TYPE(t, s) \
+#define DESTROY_II_TYPE(t, s, a) \
     case XML_II_TYPE_##t: xml_ii_destroy_##s((xml_ii_##s##_t *)ii, ic); break;
 
-    XML_II__FOREACH_TYPE(DESTROY_II_TYPE)
+    XML_II__FOREACH_TYPE(DESTROY_II_TYPE, dummy)
 #undef DESTROY_II_TYPE
 
     default:
@@ -586,3 +586,7 @@ xml_ii__delete(xml_ii_t *ii)
 
 XML_II__FOREACH_STRSTORE_MEMBER(DEFINE_II_SETTER, ii->ctx->attr.flags)
 #undef DEFINE_II_SETTER
+
+
+bool iftype(xml_ii_element_t *p);
+bool iftype(xml_ii_element_t *p) { return XML_II__PTR_TYPECHECK(p); }

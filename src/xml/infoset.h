@@ -369,21 +369,27 @@ xml_ii_t *xml_ii__new(xml_infoset_ctx_t *ic, enum xml_ii_type_e type, const xmle
 void xml_ii__delete(xml_ii_t *ii);
 
 /// Mapping between the types and the structures; applies 'something' to every pair
-#define XML_II__FOREACH_TYPE(something) \
-        something(DOCUMENT, document) \
-        something(ELEMENT, element) \
-        something(ATTRIBUTE, attribute) \
-        something(PI, pi) \
-        something(UNEXPANDED_ENTITY, unexpanded_entity) \
-        something(TEXT, text) \
-        something(COMMENT, comment) \
-        something(DTD, dtd) \
-        something(UNPARSED_ENTITY, unparsed_entity) \
-        something(NOTATION, notation) \
-        something(NAMESPACE, namespace)
+#define XML_II__FOREACH_TYPE(something, arg) \
+        something(DOCUMENT, document, arg) \
+        something(ELEMENT, element, arg) \
+        something(ATTRIBUTE, attribute, arg) \
+        something(PI, pi, arg) \
+        something(UNEXPANDED_ENTITY, unexpanded_entity, arg) \
+        something(TEXT, text, arg) \
+        something(COMMENT, comment, arg) \
+        something(DTD, dtd, arg) \
+        something(UNPARSED_ENTITY, unparsed_entity, arg) \
+        something(NOTATION, notation, arg) \
+        something(NAMESPACE, namespace, arg)
 
-// TBD implement this actual check using __builtin_types_compatible
-#define XML_II__PTR_TYPECHECK(ii)       true
+/// Helper for XML_II__CHKTYPE: construct a type name
+#define XML_II__PTR_TYPECHECK_HELPER(t, s, a) \
+        || __types_compat(a, struct xml_ii_##s##_s *)
+
+// Check if a pointer is type-compatible with xml_ii_t
+#define XML_II__PTR_TYPECHECK(ii) \
+        (__types_compat(__typeof__(ii), struct xml_ii_s *) \
+         XML_II__FOREACH_TYPE(XML_II__PTR_TYPECHECK_HELPER, __typeof__(ii)))
 
 /// Create a reference to the information item.
 #define xml_ii_ref(ptr, ii) \
@@ -391,12 +397,13 @@ void xml_ii__delete(xml_ii_t *ii);
             OOPS_ASSERT(XML_II__PTR_TYPECHECK(ii)); \
             OOPS_ASSERT(*(ptr) == NULL); \
             (ii)->refcnt++; \
+            *(ptr) = (ii); \
         } while (0)
 
 /// Drop a reference to the information item. Reference can be NULL, in which case this has no effect.
 #define xml_ii_unref(ptr) \
         do { \
-            OOPS_ASSERT(XML_II__PTR_TYPECHECK(ii)); \
+            OOPS_ASSERT(XML_II__PTR_TYPECHECK(*(ptr))); \
             if (*(ptr) != NULL) {\
                 if (--((*(ptr))->refcnt) == 0) { \
                     xml_ii__delete((xml_ii_t *)(*(ptr))); \
@@ -406,7 +413,7 @@ void xml_ii__delete(xml_ii_t *ii);
         } while (0)
 
 /// Define an accessor function that verifies the type and returns a typecasted pointer
-#define XML_II__DEFINE_TYPECAST(t, s) \
+#define XML_II__DEFINE_TYPECAST(t, s, a) \
         static inline xml_ii_##s##_t * \
         XML_II_##t(xml_ii_t *item) \
         { \
@@ -414,18 +421,18 @@ void xml_ii__delete(xml_ii_t *ii);
             return (xml_ii_##s##_t *)item; \
         }
 
-XML_II__FOREACH_TYPE(XML_II__DEFINE_TYPECAST)
+XML_II__FOREACH_TYPE(XML_II__DEFINE_TYPECAST, dummy)
 #undef XML_II__DEFINE_TYPECAST
 
 /// Allocate a new item of the specified type
-#define XML_II__DEFINE_ALLOC(t, s) \
+#define XML_II__DEFINE_ALLOC(t, s, a) \
         static inline xml_ii_##s##_t * \
         xml_ii_new_##s(xml_infoset_ctx_t *ic, const xmlerr_loc_t *loc) \
         { \
             return (xml_ii_##s##_t *)xml_ii__new(ic, XML_II_TYPE_##t, loc); \
         }
 
-XML_II__FOREACH_TYPE(XML_II__DEFINE_ALLOC)
+XML_II__FOREACH_TYPE(XML_II__DEFINE_ALLOC, dummy)
 #undef XML_II__DEFINE_ALLOC
 
 /**
