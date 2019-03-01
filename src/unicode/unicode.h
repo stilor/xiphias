@@ -157,49 +157,6 @@ utf8_load(const utf8_t **pp)
     return rv;
 }
 
-// TBD get rid of the mixed char-and-utf8 functions
-/**
-    Compare a UTF-8 string to a local-encoded string.
-
-    @param us Unicode string
-    @param ls Local-encoded string
-    @return true if strings match, false otherwise
-*/
-static inline bool
-utf8_s_eq(const utf8_t *us, const char *ls)
-{
-    return !strcmp((const char *)us, ls);
-}
-
-/**
-    Compare a part of a UTF-8 string to a part of a local-encoded string.
-
-    @param us Unicode string
-    @param ls Local-encoded string
-    @param n Number of bytes (in UTF-8) to compare
-    @return true if strings match, false otherwise
-*/
-static inline bool
-utf8_s_eqn(const utf8_t *us, const char *ls, size_t n)
-{
-    return !strncmp((const char *)us, ls, n);
-}
-
-/**
-    Wrapper for xstrndup, in case UTF-8 needs to be converted to local
-    encoding.
-
-    @param us Unicode string
-    @param sz Size of the unicode string, in bytes
-    @return Copied string in local encoding
-*/
-static inline char *
-utf8_s_ndup(const utf8_t *us, size_t sz)
-{
-    // TBD used?
-    return xstrndup((const char *)us, sz);
-}
-
 /**
     Compare two UTF-8 strings.
 
@@ -212,6 +169,21 @@ static inline int
 utf8_cmp(const utf8_t *us1, const utf8_t *us2)
 {
     return strcmp((const char *)us1, (const char *)us2);
+}
+
+/**
+    Compare two UTF-8 strings.
+
+    @param us1 First UTF-8 string
+    @param us2 Second UTF-8 string
+    @param sz Limit to this number of bytes in comparing
+    @return -1 if the first string compares less, 0 if the strings compare equal,
+        1 otherwise
+*/
+static inline int
+utf8_ncmp(const utf8_t *us1, const utf8_t *us2, size_t sz)
+{
+    return strncmp((const char *)us1, (const char *)us2, sz);
 }
 
 /**
@@ -238,7 +210,6 @@ utf8_casecmp(const utf8_t *us1, const utf8_t *us2)
 static inline utf8_t *
 utf8_ndup(const utf8_t *us, size_t sz)
 {
-    // TBD used?
     return (utf8_t *)xstrndup((const char *)us, sz);
 }
 

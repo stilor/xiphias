@@ -141,7 +141,8 @@ typedef struct xml_reader_external_s {
     attribute in the expected list.
 */
 typedef struct xml_reader_xmldecl_attrdesc_s {
-    const char *name;       ///< Name of the attribute
+    const utf8_t *name;     ///< Name of the attribute
+    size_t namelen;         ///< Length of the name
     bool mandatory;         ///< True if the attribute is mandatory
 
     /**
@@ -3393,16 +3394,16 @@ check_VersionInfo(xml_reader_t *h)
     size_t i;
 
     if (sz == 3) {
-        if (utf8_s_eqn(str, "1.0", 3)) {
+        if (!utf8_ncmp(str, U("1.0"), 3)) {
             ex->version = XML_INFO_VERSION_1_0;
             return;
         }
-        else if (utf8_s_eqn(str, "1.1", 3)) {
+        else if (!utf8_ncmp(str, U("1.1"), 3)) {
             ex->version = XML_INFO_VERSION_1_1;
             return;
         }
     }
-    if (sz < 3 || !utf8_s_eqn(str, "1.", 2)) {
+    if (sz < 3 || utf8_ncmp(str, U("1."), 2)) {
         goto bad_version;
     }
     for (i = 2, str += 2; i < sz; i++, str++) {
@@ -3496,10 +3497,10 @@ check_SD_YesNo(xml_reader_t *h)
 
     // Standalone status applies to the whole document and can only be set
     // in XMLDecl (i.e., in document entity).
-    if (sz == 2 && utf8_s_eqn(str, "no", 2)) {
+    if (sz == 2 && !utf8_ncmp(str, U("no"), 2)) {
         h->standalone = XML_INFO_STANDALONE_NO;
     }
-    else if (sz == 3 && utf8_s_eqn(str, "yes", 3)) {
+    else if (sz == 3 && !utf8_ncmp(str, U("yes"), 3)) {
         h->standalone = XML_INFO_STANDALONE_YES;
     }
     else {
@@ -3523,9 +3524,9 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_textdecl = {
     /// P_XMLDecl code and convert to use this via h->declinfo->errcode
     .errcode = XMLERR(ERROR, XML, P_XMLDecl),
     .attrlist = (const xml_reader_xmldecl_attrdesc_t[]){
-        { "version", false, check_VersionInfo },
-        { "encoding", true, check_EncName },
-        { NULL, false, NULL },
+        { U("version"), 7, false, check_VersionInfo },
+        { U("encoding"), 8, true, check_EncName },
+        { NULL, 0, false, NULL },
     },
 };
 
@@ -3540,10 +3541,10 @@ static const struct xml_reader_xmldecl_declinfo_s declinfo_xmldecl = {
     .name = "XMLDecl",
     .errcode = XMLERR(ERROR, XML, P_XMLDecl),
     .attrlist = (const struct xml_reader_xmldecl_attrdesc_s[]){
-        { "version", true, check_VersionInfo },
-        { "encoding", false, check_EncName },
-        { "standalone", false, check_SD_YesNo },
-        { NULL, false, NULL },
+        { U("version"), 7, true, check_VersionInfo },
+        { U("encoding"), 8, false, check_EncName },
+        { U("standalone"), 10, false, check_SD_YesNo },
+        { NULL, 0, false, NULL },
     },
 };
 
@@ -3636,8 +3637,8 @@ xml_parse_decl_attr(xml_reader_t *h)
     // (and if we skipped any mandatory attributes while advancing).
     name = h->tokenbuf.start + h->svtk.name.offset;
     for (attr = h->declattr; attr->name; attr++) {
-        if (h->svtk.name.len == strlen(attr->name)
-                && utf8_s_eqn(name, attr->name, h->svtk.name.len)) {
+        if (h->svtk.name.len == attr->namelen
+                && !utf8_ncmp(name, attr->name, attr->namelen)) {
             break; // Yes, that is what we expect
         }
         if (attr->mandatory) {
