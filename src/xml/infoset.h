@@ -424,6 +424,10 @@ void xml_ii__delete(xml_ii_t *ii);
 XML_II__FOREACH_TYPE(XML_II__DEFINE_TYPECAST, dummy)
 #undef XML_II__DEFINE_TYPECAST
 
+/// Typecast into a generic type
+#define XML_II(ptr) \
+        (OOPS_ASSERT(XML_II__PTR_TYPECHECK(ptr)),(xml_ii_t *)(ptr))
+
 /// Allocate a new item of the specified type
 #define XML_II__DEFINE_ALLOC(t, s, a) \
         static inline xml_ii_##s##_t * \
