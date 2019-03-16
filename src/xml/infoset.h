@@ -86,6 +86,12 @@ typedef struct xml_ii_array_s {
     } refs;
 } xml_ii_array_t;
 
+/// An iterator over an array of IIs
+#define XML_II_ARRAY_FOREACH(idx, var, parray) \
+        for (idx = 0, var = (parray)->num <= 1 ? (parray)->refs.single : (parray)->refs.array[0]; \
+                idx < (parray)->num; \
+                idx++, /* only relevant for >1 */ var = (parray)->refs.array[idx])
+
 /**
     Common members of all information items. Not all IIs can be referenced or linked in some II's
     list of children, but the code that will iterate over such lists/references needs to be agnostic
@@ -96,7 +102,8 @@ typedef struct xml_ii_array_s {
     uint32_t refcnt;                /**< References from other IIs */ \
     STAILQ_ENTRY(xml_ii_s) link;    /**< Link for 'children' list */ \
     xmlerr_loc_t loc;               /**< Location of the definition */ \
-    xml_infoset_ctx_t *ctx          /**< Context from which this item was allocated */
+    xml_infoset_ctx_t *ctx;         /**< Context from which this item was allocated */ \
+    struct xml_ii_document_s *doc   /**< Document to which this item belongs */
 
 
 /// Document information item (section 2.1)
@@ -107,7 +114,7 @@ typedef struct xml_ii_document_s {
     xml_ii_list_t children;
 
     /// The element II corresponding to the document element
-    xml_ii_t *document_element;
+    struct xml_ii_element_s *document_element;
 
     /// An unordered set of notation IIs
     xml_ii_list_t notations;
@@ -130,6 +137,8 @@ typedef struct xml_ii_document_s {
     /// ... indication of whether the processor has read the complete DTD
     bool all_declarations_processed;
 
+    /// Document type declaration, if present
+    struct xml_ii_dtd_s *dtd;
 } xml_ii_document_t;
 
 /// Element information item (section 2.2)
@@ -189,15 +198,12 @@ typedef struct xml_ii_attribute_s {
     /// An indication of the type declared for this attribute in the DTD
     enum xml_ii_attr_type_e attrtype;
 
-    /// Number of references in the array
-    uint32_t num_references;
-
     /// Ordered list of the element, unparsed entity, or notation IIs referred to in the attribute value
     // TBD similarly to single-item references, "array_no_value" and "array_unknown"?
     xml_ii_array_t references;
 
     /// Owner element
-    xml_ii_t *owner;
+    struct xml_ii_element_s *owner;
 } xml_ii_attribute_t;
 
 /// Processing Instruction information item (section 2.4)
@@ -392,13 +398,23 @@ void xml_ii__delete(xml_ii_t *ii);
          XML_II__FOREACH_TYPE(XML_II__PTR_TYPECHECK_HELPER, __typeof__(ii)))
 
 /// Create a reference to the information item.
-#define xml_ii_ref(ptr, ii) \
-        do { \
-            OOPS_ASSERT(XML_II__PTR_TYPECHECK(ii)); \
-            OOPS_ASSERT(*(ptr) == NULL); \
-            (ii)->refcnt++; \
-            *(ptr) = (ii); \
-        } while (0)
+#define xml_ii__define_ref(func, strct, extracheck) \
+        static inline void \
+        func(strct **ptr, strct *ii) \
+        { \
+            OOPS_ASSERT(*ptr == NULL); /* any previous refs must've been cleared */ \
+            OOPS_ASSERT(ii != NULL); \
+            extracheck \
+            ii->refcnt++; \
+            *ptr = ii; \
+        }
+
+xml_ii__define_ref(xml_ii_ref, xml_ii_t,)
+
+#define XML_II__DEFINE_TYPED_REF(t, s, a) \
+            xml_ii__define_ref(xml_ii_ref_##s, xml_ii_##s##_t, \
+                    OOPS_ASSERT(ii->type == XML_II_TYPE_##t);)
+XML_II__FOREACH_TYPE(XML_II__DEFINE_TYPED_REF, dummy)
 
 /// Drop a reference to the information item. Reference can be NULL, in which case this has no effect.
 #define xml_ii_unref(ptr) \
@@ -483,30 +499,47 @@ XML_II__FOREACH_STRSTORE_MEMBER(XML_II__DECLARE_SETTER, dummy)
 #undef XML_II__DECLARE_SETTER
 
 
-/**
-    List of elements with an ordered list of 'children'. Type is the II's type
-    allowed in that element's list of children.
-*/
-#define XML_II__FOREACH_PARENT_ELEMENT(something) \
-        something(document) \
-        something(element) \
-        something(dtd)
+/// List of IIs with an ordered list of 'children'.
+#define XML_II__FOREACH_PARENT_TYPE(something) \
+        something(DOCUMENT, document) \
+        something(ELEMENT, element) \
+        something(DTD, dtd)
+
+/// List of IIs that can be a child of another II (via the `parent` link)
+#define XML_II__FOREACH_CHILD_TYPE(something) \
+        something(ELEMENT, element) \
+        something(PI, pi) \
+        something(UNEXPANDED_ENTITY, unexpanded_entoty) \
+        something(TEXT, text) \
+        something(COMMENT, comment) \
+        something(DTD, dtd)
 
 /// Declare prototypes for manipulators of the 'children' list
-#define XML__II_DECLARE_CHILDREN_FUNCTIONS(s) \
-        void xml_ii_##s##_insert_after(xml_ii_##s##_t *parent, xml_ii_t *child, xml_ii_t *after); \
+#define XML__II_DECLARE_CHILDREN_FUNCTIONS(t, s) \
+        void xml_ii_##s##_insert_child_after(xml_ii_##s##_t *parent, xml_ii_t *child, xml_ii_t *after); \
         static inline void \
-        xml_ii_##s##_insert_first(xml_ii_##s##_t *parent, xml_ii_t *child) \
+        xml_ii_##s##_insert_child_first(xml_ii_##s##_t *parent, xml_ii_t *child) \
         { \
-            xml_ii_##s##_insert_after(parent, child, NULL); \
+            xml_ii_##s##_insert_child_after(parent, child, NULL); \
         } \
         static inline void \
-        xml_ii_##s##_insert_last(xml_ii_##s##_t *parent, xml_ii_t *child) \
+        xml_ii_##s##_insert_child_last(xml_ii_##s##_t *parent, xml_ii_t *child) \
         { \
-            xml_ii_##s##_insert_after(parent, child, STAILQ_LAST(&parent->children, xml_ii_s, link)); \
+            xml_ii_##s##_insert_child_after(parent, child, STAILQ_LAST(&parent->children, xml_ii_s, link)); \
         }
 
-XML_II__FOREACH_PARENT_ELEMENT(XML__II_DECLARE_CHILDREN_FUNCTIONS)
+XML_II__FOREACH_PARENT_TYPE(XML__II_DECLARE_CHILDREN_FUNCTIONS)
 #undef XML__II_DECLARE_CHILDREN_FUNCTIONS
+
+void xml_ii_element_insert_attribute(xml_ii_element_t *e, xml_ii_attribute_t *a);
+void xml_ii_attribute_delete(xml_ii_attribute_t *a);
+void xml_ii_document_insert_notation(xml_ii_document_t *doc, xml_ii_notation_t *n);
+void xml_ii_notation_delete(xml_ii_notation_t *n);
+void xml_ii_document_insert_unparsed_entity(xml_ii_document_t *doc, xml_ii_unparsed_entity_t *unp);
+void xml_ii_remove_unparsed_entity(xml_ii_unparsed_entity_t *unp);
+
+void xml_ii_traverse(xml_ii_t *top, bool (*pre_func)(void *, xml_ii_t *),
+        bool (*post_func)(void *, xml_ii_t *), void *arg);
+void xml_ii_remove_tree(xml_ii_t *top);
 
 #endif

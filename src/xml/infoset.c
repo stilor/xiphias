@@ -547,7 +547,8 @@ xml_ii__delete(xml_ii_t *ii)
 {
     xml_infoset_ctx_t *ic = ii->ctx;
 
-    // Free the string in XML location - the only common allocated resource
+    // Common fields
+    OOPS_ASSERT(!ii->doc); // Must be removed from the 'children' list prior to this call
     strstore_free(ic->strings, ii->loc.src);
     ii->loc.src = NULL;
 
@@ -586,3 +587,410 @@ xml_ii__delete(xml_ii_t *ii)
 
 XML_II__FOREACH_STRSTORE_MEMBER(DEFINE_II_SETTER, ii->ctx->attr.flags)
 #undef DEFINE_II_SETTER
+
+/**
+    Add a child node to a document. Only DTD, PI, Comment and Element nodes may be
+    added; only a single instance of DTD and Element each are permitted. Consumes
+    the caller's reference to the child node.
+
+    @param doc Document node
+    @param child New node being added
+    @param after Insert new node after this one; if NULL, insert at the head of the list
+    @return Nothing
+*/
+void
+xml_ii_document_insert_child_after(xml_ii_document_t *doc, xml_ii_t *child, xml_ii_t *after)
+{
+    switch (child->type) {
+    case XML_II_TYPE_ELEMENT:
+        // This checks for document_element being unset first
+        xml_ii_ref_element(&doc->document_element, XML_II_ELEMENT(child));
+        xml_ii_ref(&XML_II_ELEMENT(child)->parent, XML_II(doc));
+        break;
+    case XML_II_TYPE_PI:
+        xml_ii_ref(&XML_II_PI(child)->parent, XML_II(doc));
+        break;
+    case XML_II_TYPE_COMMENT:
+        xml_ii_ref(&XML_II_COMMENT(child)->parent, XML_II(doc));
+        break;
+    case XML_II_TYPE_DTD:
+        xml_ii_ref_dtd(&doc->dtd, XML_II_DTD(child));
+        xml_ii_ref(&XML_II_DTD(child)->parent, XML_II(doc));
+        break;
+    default:
+        OOPS;
+    }
+    if (after) {
+        STAILQ_INSERT_AFTER(&doc->children, after, child, link);
+    }
+    else {
+        STAILQ_INSERT_HEAD(&doc->children, child, link);
+    }
+    xml_ii_ref_document(&child->doc, doc);
+}
+
+/**
+    Add a child node to an element node. Only other elements, comments, PI and text nodes
+    are allowed. Consumes the caller's reference to the child node.
+
+    @param e Existing element node
+    @param child New node being added
+    @param after Insert new node after this one; if NULL, insert at the head of the list
+    @return Nothing
+*/
+void
+xml_ii_element_insert_child_after(xml_ii_element_t *e, xml_ii_t *child, xml_ii_t *after)
+{
+    switch (child->type) {
+    case XML_II_TYPE_ELEMENT:
+        xml_ii_ref(&XML_II_ELEMENT(child)->parent, XML_II(e));
+        break;
+    case XML_II_TYPE_PI:
+        xml_ii_ref(&XML_II_PI(child)->parent, XML_II(e));
+        break;
+    case XML_II_TYPE_COMMENT:
+        xml_ii_ref(&XML_II_COMMENT(child)->parent, XML_II(e));
+        break;
+    case XML_II_TYPE_TEXT:
+        xml_ii_ref(&XML_II_TEXT(child)->parent, XML_II(e));
+        break;
+    case XML_II_TYPE_UNEXPANDED_ENTITY:
+        xml_ii_ref(&XML_II_UNEXPANDED_ENTITY(child)->parent, XML_II(e));
+        break;
+    default:
+        OOPS;
+    }
+    /**
+        @todo For now, allow inserting only to elements that are already a part of the document.
+        It may be needed later to support constructing tree fragments outside of a document
+        and then reconnecting them to a document later. This would need a recursive update of
+        the ->doc pointer in all descendant nodes (elements, attributes, ...). Also, it is not
+        clear how to resolve document-wide references in such case (e.g. when an attribute of
+        type IDREF or NOTATION refers to an element or notation outside of that tree fragment).
+        Alternatively, require creation of temporary document and provide interfaces for
+        "grafting" a tree from one document to another.
+    */
+    xml_ii_ref_document(&child->doc, e->doc);
+    if (after) {
+        STAILQ_INSERT_AFTER(&e->children, after, child, link);
+    }
+    else {
+        STAILQ_INSERT_HEAD(&e->children, child, link);
+    }
+}
+
+/**
+    Add a child node to a DTD node. Only PIs are allowed. Consumes the caller's reference to
+    the child node.
+
+    @param dtd Existing DTD node
+    @param child New node being added
+    @param after Insert new node after this one; if NULL, insert at the head of the list
+    @return Nothing
+*/
+void
+xml_ii_dtd_insert_child_after(xml_ii_dtd_t *dtd, xml_ii_t *child, xml_ii_t *after)
+{
+    switch (child->type) {
+    case XML_II_TYPE_PI:
+        xml_ii_ref(&XML_II_PI(child)->parent, XML_II(dtd));
+        break;
+    default:
+        OOPS;
+    }
+    /**
+        @todo For now, allow inserting only to DTDs that are already a part of the document.
+        See xml_ii_element_insert_child_after for rationale.
+    */
+    xml_ii_ref_document(&child->doc, dtd->doc);
+    if (after) {
+        STAILQ_INSERT_AFTER(&dtd->children, after, child, link);
+    }
+    else {
+        STAILQ_INSERT_HEAD(&dtd->children, child, link);
+    }
+}
+
+/**
+    Insert an attribute into an element's list. Only insert at the tail (attribute list is
+    an unordered set). Does not check for uniqueness of attribute's name. Consumes caller's
+    reference on the attribute.
+
+    @param e Existing element node
+    @param attr Attribute being inserted
+    @return Nothing
+*/
+void
+xml_ii_element_insert_attribute(xml_ii_element_t *e, xml_ii_attribute_t *a)
+{
+    STAILQ_INSERT_TAIL(a->is_ns_attribute ?  &e->ns_attributes : &e->attributes, XML_II(a), link);
+    /** @todo Only allow insertion to elements that a part of a document for now . */
+    xml_ii_ref_document(&a->doc, e->doc);
+    xml_ii_ref_element(&a->owner, e);
+}
+
+/**
+    Remove an attribute from the element.
+
+    @param a Attribute to be removed.
+    @return Nothing
+*/
+void
+xml_ii_attribute_delete(xml_ii_attribute_t *a)
+{
+    xml_ii_element_t *e = a->owner;
+
+    OOPS_ASSERT(a->doc);
+    OOPS_ASSERT(e);
+    STAILQ_REMOVE(a->is_ns_attribute ?  &e->ns_attributes : &e->attributes, XML_II(a), xml_ii_s, link);
+    xml_ii_unref(&a->owner);
+    xml_ii_unref(&a->doc);
+
+    // Note that this may not free the object yet if it is referenced from somewhere else
+    xml_ii_unref(&a);
+}
+
+/**
+    Add a notation to a document. Insert at the tail (notations are an unordered set). Does not
+    check for uniqueness. Consumes caller's reference on the notation.
+
+    @param doc Document node
+    @param n Notation to insert
+    @return Nothing
+*/
+void
+xml_ii_document_insert_notation(xml_ii_document_t *doc, xml_ii_notation_t *n)
+{
+    xml_ii_ref_document(&n->doc, doc);
+    STAILQ_INSERT_TAIL(&doc->notations, XML_II(n), link);
+}
+
+/**
+    Delete a notation.
+
+    @param n Notation to be deleted
+    @return Nothing
+*/
+void
+xml_ii_notation_delete(xml_ii_notation_t *n)
+{
+    xml_ii_document_t *doc = n->doc;
+
+    OOPS_ASSERT(doc);
+    STAILQ_REMOVE(&doc->notations, XML_II(n), xml_ii_s, link);
+    xml_ii_unref(&n->doc);
+
+    // Note that this may not free the object yet if it is referenced from somewhere else
+    xml_ii_unref(&n);
+}
+
+/**
+    Add an unparsed entity to the document. Insert at the tail (unparsed entities are an unordered set).
+    Does not check for uniqueness. Consumes caller's reference on the entity.
+
+    @param doc Document node
+    @param unp Unparsed entity to be added
+    @return Nothing
+*/
+void
+xml_ii_document_insert_unparsed_entity(xml_ii_document_t *doc, xml_ii_unparsed_entity_t *unp)
+{
+    xml_ii_ref_document(&unp->doc, doc);
+    STAILQ_INSERT_TAIL(&doc->unparsed_entities, XML_II(unp), link);
+}
+
+/**
+    Remove an unparsed entity.
+
+    @param ii Node being removed.
+    @return Nothing.
+*/
+void
+xml_ii_remove_unparsed_entity(xml_ii_unparsed_entity_t *unp)
+{
+    xml_ii_document_t *doc = unp->doc;
+
+    OOPS_ASSERT(doc);
+    STAILQ_REMOVE(&doc->unparsed_entities, XML_II(unp), xml_ii_s, link);
+    xml_ii_unref(&unp->doc);
+
+    // Note that this may not free the object yet if it is referenced from somewhere else
+    xml_ii_unref(&unp);
+}
+
+/// @todo Make these child/sibling/parent functions externally visible?
+
+/**
+    Helper function: get the first child node.
+
+    @param cur Current II
+    @return A pointer to the next child II, or NULL if this II has no children.
+*/
+static xml_ii_t *
+ii_child(xml_ii_t *cur)
+{
+    switch (cur->type) {
+#define DESCEND(t, s) \
+    case XML_II_TYPE_##t: \
+        return STAILQ_FIRST(&XML_II_##t(cur)->children);
+
+XML_II__FOREACH_PARENT_TYPE(DESCEND)
+#undef DESCEND
+
+    default:
+        return NULL;
+    }
+}
+
+/**
+    Helper function: get the next sibling node.
+
+    @param cur Current II
+    @return Sibling node or NULL if @a cur is the last in the list of children
+*/
+static xml_ii_t *
+ii_sibling(xml_ii_t *cur)
+{
+    return STAILQ_NEXT(cur, link);
+}
+
+/**
+    Helper function: get the parent II.
+
+    @param cur Current II
+    @return Parent node or NULL if this element does not has a parent. Note
+        that attributes have "owner", not "parent".
+*/
+static xml_ii_t *
+ii_parent(xml_ii_t *cur)
+{
+    switch (cur->type) {
+#define ASCEND(t, s) \
+    case XML_II_TYPE_##t: \
+        return XML_II_##t(cur)->parent;
+
+XML_II__FOREACH_CHILD_TYPE(ASCEND)
+#undef ASCEND
+
+    default:
+        return NULL;
+    }
+}
+
+/**
+    User-visible API for tree traversal: invoke function(s) for each node in the tree.
+    Nodes are visited depth first, pre-order. On element nodes, attribute nodes are
+    visited first (of which, NS attributes are followed by non-NS attributes),
+    followed by child nodes (child elements, text, PIs, comments) in the document
+    order.
+
+    @todo Add a bitfield of types of interest, and only traverse single-type lists
+    (->notations, ->attributes) if the corresponding type is requested?
+
+    @param top Topmost II for the traversal. Must be one of the types that can have
+        child nodes, i.e. Document/Element/DTD.
+    @param pre_func Function to invoke for each node, pre-order; return 'true' to
+        continue traversal or 'false' to abort. The function shall not modify
+        the tree unless it aborts the traversal immediately after the modification.
+        Null if no pre-order operations are requested.
+    @param post_func Function to invoke for each node, post-order; return 'true' to
+        continue traversal or 'false' to abort. The function shall not modify
+        the tree unless it aborts the traversal immediately after the modification,
+        or unless the only modification is the removal of the element it is invoked
+        upon.
+    @param arg An opaque argument to @a pre_func and @a post_func.
+    @return Nothing
+*/
+void
+xml_ii_traverse(xml_ii_t *top, bool (*pre_func)(void *, xml_ii_t *),
+        bool (*post_func)(void *, xml_ii_t *), void *arg)
+{
+    unsigned int idx;
+    xml_ii_t *ii, *ii2, *next;
+
+#define INVOKE(what, on) \
+    do { \
+        if (what##_func && !what##_func((on), (arg))) { \
+            return; \
+        } \
+    } while (0)
+
+    ii = top;
+    do {
+        // Process the II itself
+        INVOKE(pre, ii);
+
+        // For certain types, invoke on non-child nodes (attributes, ...)
+        switch (ii->type) {
+        case XML_II_TYPE_DOCUMENT:
+            STAILQ_FOREACH(ii2, &XML_II_DOCUMENT(ii)->notations, link) {
+                INVOKE(pre, ii2);
+                INVOKE(post, ii2);
+            }
+            STAILQ_FOREACH(ii2, &XML_II_DOCUMENT(ii)->unparsed_entities, link) {
+                INVOKE(pre, ii2);
+                INVOKE(post, ii2);
+            }
+            break;
+        case XML_II_TYPE_ELEMENT:
+            STAILQ_FOREACH(ii2, &XML_II_ELEMENT(ii)->ns_attributes, link) {
+                INVOKE(pre, ii2);
+                INVOKE(post, ii2);
+            }
+            STAILQ_FOREACH(ii2, &XML_II_ELEMENT(ii)->attributes, link) {
+                INVOKE(pre, ii2);
+                INVOKE(post, ii2);
+            }
+            XML_II_ARRAY_FOREACH(idx, ii2, &XML_II_ELEMENT(ii)->namespaces) {
+                INVOKE(pre, ii2);
+                INVOKE(post, ii2);
+            }
+            break;
+        default:
+            break; // Other types have no non-children lists
+        }
+
+        // Now determine where we go next. If going down, do not call post_func yet
+        if ((next = ii_child(ii)) != NULL) {
+            ii = next;
+        }
+        else {
+            // Do not traverse siblings of the original top element
+            while (ii != top && (next = ii_sibling(ii)) == NULL) {
+                next = ii_parent(ii);
+                INVOKE(post, ii);
+                ii = next;
+            }
+            INVOKE(post, ii);
+            ii = next;
+        }
+    } while (ii != top);
+
+#undef INVOKE
+}
+
+/**
+    Callback for a tree removal: remove a given II.
+
+    @param arg Unused argument
+    @param ii II to be deleted
+    @return Always true (continue traversal)
+*/
+static bool
+ii_remove(void *arg, xml_ii_t *ii)
+{
+    OOPS; //TBD
+    return true;
+}
+
+/**
+    Remove a tree recursively.
+
+    @param top XML information item
+    @return Nothing
+*/
+void
+xml_ii_remove_tree(xml_ii_t *top)
+{
+    xml_ii_traverse(top, NULL, ii_remove, NULL);
+}
