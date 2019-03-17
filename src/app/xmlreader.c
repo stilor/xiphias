@@ -177,6 +177,7 @@ cb(void *arg, xml_reader_cbparam_t *cbparam)
 int
 main(int argc, char *argv[])
 {
+    xml_reader_options_t opts;
     xml_reader_t *reader;
     struct cb_arg_s cb_arg;
 
@@ -187,20 +188,15 @@ main(int argc, char *argv[])
         printf("(const xml_reader_cbparam_t[]){\n");
     }
 
-    reader = xml_reader_new(NULL);
+    xml_reader_opts_default(&opts);
+    opts.load_externals = load_ent;
+    reader = xml_reader_new(&opts);
     cb_arg.exitstatus = 0;
     cb_arg.h = reader;
 
     xml_reader_set_callback(reader, cb, &cb_arg);
     xml_reader_set_loader(reader, xml_loader_file, &file_loader_opts);
     xml_reader_set_document_entity(reader, NULL, U(inputfile));
-
-    // TBD this currently disables loading the main document, too. It should
-    // instead disable the loading of the entities referenced from the main
-    // document.
-    if (!load_ent) {
-        xml_reader_set_loader(reader, xml_loader_noload, NULL);
-    }
 
     xml_reader_run(reader);
     xml_reader_delete(reader);

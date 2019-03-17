@@ -398,7 +398,7 @@ struct xml_reader_s {
 /// xml_read_until_* return codes
 typedef enum {
     XRU_CONTINUE,           ///< Internal value: do not return yet
-    XRU_EOF,                ///< Reach end of input
+    XRU_EOF,                ///< Reached end of input
     XRU_STOP,               ///< Callback indicated end of a token
     XRU_REFERENCE,          ///< Recognized entity/character reference
     XRU_INPUT_BOUNDARY,     ///< Encountered input (entity) boundary
@@ -1681,14 +1681,8 @@ xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
     xml_reader_hidden_loader_arg_t ha;
     xml_reader_cbparam_t cbp;
 
-    // TBD if e is document entity, disregard h->opt.load_externals
     // TBD if standalone and we get here and e is not a document entity - emit an error
-    if (h->opt.load_externals) {
-        ha.entityref = e;
-        ha.ctx = ctx;
-        ha.inc_in_literal = inc_in_literal;
-        ha.on_complete = on_complete;
-
+    if (h->opt.load_externals || e->type == XML_READER_REF_DOCUMENT) {
         // Hidden arguments:
         // - if the loader decides to add an external input for this entity, we know
         // what entity it belongs to
@@ -1696,6 +1690,11 @@ xml_reader_invoke_loader(xml_reader_t *h, const xml_loader_info_t *loader_info,
         // restore) the parser context
         // - if an input is loaded from a literal (where quotes have special meaning), mark
         // the input as such
+        ha.entityref = e;
+        ha.ctx = ctx;
+        ha.inc_in_literal = inc_in_literal;
+        ha.on_complete = on_complete;
+
         h->hidden_loader_arg = &ha;
         h->loader(h, h->loader_arg, loader_info);
         if (!h->hidden_loader_arg) {
