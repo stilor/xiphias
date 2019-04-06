@@ -2044,6 +2044,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
             // - unless parsing the reference (which will be replaced by other text),
             //   check include normalization
             // - if parsing a relevant construct, as indicated by the caller, ensure
+            //   it does not begin with a composing character
             // Only warn once for any given location (even if different kinds of denormalization
             // occur there) - if the caller cares, it's going to take action on the first callback.
             // But, need to feed the character to both normalization checkers to maintain context.
@@ -2069,7 +2070,7 @@ xml_read_until(xml_reader_t *h, xml_condread_func_t func, void *arg)
                 if ((h->flags & R_NO_INC_NORM) == 0
                         && !nfc_check_nextchar(h->norm_include, cp0)) {
                     /// @todo _ref or _current? _ref is where the last inclusion occurred, but
-                    /// it may not be the relevant part (i.e. if the denormalization happend
+                    /// it may not be the relevant part (i.e. if the denormalization happened
                     /// in the nested include). Have refloc saved in each input when it is interrupted
                     /// by another input inclusion?
                     if (!norm_warned) {
@@ -2845,8 +2846,6 @@ reference_included(xml_reader_t *h, xml_reader_entity_t *e)
 static void
 reference_included_if_validating(xml_reader_t *h, xml_reader_entity_t *e)
 {
-    /// @todo check 'if validating' condition? Or have a separate flag, 'loading entities', that
-    /// controls this function?
     entity_include(h, e, false, NULL, NULL);
 }
 
@@ -3181,7 +3180,7 @@ xml_parse_whitespace_conditional(xml_reader_t *h)
 typedef struct xml_cb_literal_state_s {
     /// UCS4_NOCHAR at start, quote seen in progress, or UCS4_STOPCHAR if saw final quote
     ucs4_t quote;
-    /// Reader handle (need to check the state of the current input
+    /// Reader handle (need to check the state of the current input)
     xml_reader_t *h;
     /// Deferred setting of 'relevant construct'
     bool starting;
@@ -3195,7 +3194,10 @@ typedef struct xml_cb_literal_state_s {
 
     @param arg Current state
     @param cp Codepoint
-    @return true if this character is rejected
+    @return The code point to store, or one of the special values: UCS4_STOPCHAR
+        if this character is rejected, UCS4_NOCHAR if the character is accepted
+        and ignored, possibly or'ed with UCS4_LASTCHAR if this character completes
+        the literal.
 */
 static ucs4_t
 xml_cb_literal(void *arg, ucs4_t cp)
@@ -3227,7 +3229,10 @@ xml_cb_literal(void *arg, ucs4_t cp)
 
     @param arg Current state
     @param cp Codepoint
-    @return true if this character is rejected
+    @return The code point to store, or one of the special values: UCS4_STOPCHAR
+        if this character is rejected, UCS4_NOCHAR if the character is accepted
+        and ignored, possibly or'ed with UCS4_LASTCHAR if this character completes
+        the literal.
 */
 static ucs4_t
 xml_cb_literal_EntityValue(void *arg, ucs4_t cp)
@@ -3252,13 +3257,39 @@ xml_cb_literal_EntityValue(void *arg, ucs4_t cp)
     return rv;
 }
 
+/**
+    Literal parser for attribute values: almost the generic version, but
+    has an additional check for unescaped `<`.
+
+    @param arg Current state
+    @param cp Codepoint
+    @return The code point to store, or one of the special values: UCS4_STOPCHAR
+        if this character is rejected, UCS4_NOCHAR if the character is accepted
+        and ignored, possibly or'ed with UCS4_LASTCHAR if this character completes
+        the literal.
+*/
+static ucs4_t
+xml_cb_literal_AttValue(void *arg, ucs4_t cp)
+{
+    xml_cb_literal_state_t *st = arg;
+
+    if (st->quote != UCS4_NOCHAR
+            && ucs4_cheq(cp, '<')
+            && !STAILQ_FIRST(&st->h->active_input)->inc_in_literal) {
+        xml_reader_message_current(st->h, XMLERR(ERROR, XML, P_AttValue),
+                "Unescaped < character not allowed in attribute value");
+        return UCS4_NOCHAR;
+    }
+    return xml_cb_literal(arg, cp);
+}
+
 // Assumptions relied upon by xml_cb_literal_EntityValue
 UCS4_ASSERT(does_not_compose_with_preceding, ucs4_fromlocal('"'))
 UCS4_ASSERT(does_not_compose_with_preceding, ucs4_fromlocal('\''))
 
 /// Virtual methods for reading "pseudo-literals" (quoted strings in XMLDecl)
 static const xml_reference_ops_t reference_ops_pseudo = {
-    .errinfo = XMLERR(ERROR, XML, P_XMLDecl), /// @todo differentiate P_XMLDecl vs P_TextDecl?
+    .errinfo = XMLERR(ERROR, XML, P_XMLDecl),
     .condread = xml_cb_literal,
     .flags = 0,
     .relevant = NULL,
@@ -3269,7 +3300,7 @@ static const xml_reference_ops_t reference_ops_pseudo = {
 /// @todo: .condread must check for forbidden character ('<')
 static const xml_reference_ops_t reference_ops_AttValue = {
     .errinfo = XMLERR(ERROR, XML, P_AttValue),
-    .condread = xml_cb_literal,
+    .condread = xml_cb_literal_AttValue,
     .flags = R_RECOGNIZE_REF,
     .relevant = NULL,
     .hnd = {
